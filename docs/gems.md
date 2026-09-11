@@ -132,10 +132,31 @@ enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method
 | 5 | mruby-cmath | 425 / 0 / 41 | complex | not in default.gembox |
 | 6 | mruby-regexp | 10940 / 42 / 10213 | enumerator, symbol-ext, string-ext | the NFA engine (4.0.0); the largest single piece, its own milestone |
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
-| – | mruby-task | 2390 / 46 / 860 | – | not a gem of default.gembox; the scheduler is planned separately (after Fiber context reuse) |
+| 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
 Order: 1 (pure Ruby, an afternoon) → 2 (small natives) → 3 (data structures and host
-clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → 6 (regexp).
+clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → 6 (regexp) → 7 (task).
+regexp is by far the heaviest and can be moved after task.
 Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib_<gem>.mrb`,
 tests into `tools/mrbtest.sh` `GEMS`, reasons for what does not pass into
 `docs/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.
+
+### Core gems outside default.gembox
+
+Candidates, with the reference sizes (C / Ruby / test):
+
+| gem | size | worth it? |
+|---|---|---|
+| mruby-sleep | 186 / 0 / 29 | yes, with task: `Kernel#sleep`/`usleep` via the host clock hook |
+| mruby-strftime | 118 / 0 / 152 | yes, with time: `Time#strftime` |
+| mruby-string-bitops | 581 / 0 / 210 | maybe: `String#&`, `|`, `^`, `~` on bytes; small, self-contained |
+| mruby-os-memsize | 283 / 0 / 63 | maybe: `ObjectSpace.memsize_of`; needs per-object sizes from our heap, answers will differ from the reference (deviation) |
+| mruby-encoding | 109 / 0 / 921 | no for now: only meaningful with `MRB_UTF8_STRING`, which the byte-string build does not have |
+| mruby-cmath | 425 / 0 / 41 | with complex (order 5) |
+| mruby-benchmark | 0 / 130 / 283 | no: pure Ruby but depends on io and process |
+| mruby-error, mruby-exit | 143, 82 | no: C API helpers (`mrb_protect`), `exit` is a host decision |
+| mruby-test-inline-struct, mruby-test, mruby-bin-* | – | build/test infrastructure, not runtime |
+
+Third-party gems are out of scope until the core list is done; the ones worth a look then
+are pure-Ruby or small-C libraries used by PicoRuby (`picoruby-json`, `picoruby-yaml`,
+`picoruby-base64`, `picoruby-crc`, `picoruby-markdown`) since their mrblib compiles as is.
