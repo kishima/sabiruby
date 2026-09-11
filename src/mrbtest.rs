@@ -166,8 +166,14 @@ pub struct Summary {
 /// Runs one test file on a fresh VM. `assert_mrb` is the compiled
 /// `test/assert.rb`; `cap` bounds the instructions executed.
 pub fn run_file(assert_mrb: &[u8], test_mrb: &[u8], cap: u64) -> VmResult<Summary> {
+    run_file_opt(assert_mrb, test_mrb, cap, false)
+}
+
+/// `verbose` sets `$mrbtest_verbose`, so `assert` prints each test name before running it.
+pub fn run_file_opt(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool) -> VmResult<Summary> {
     let mut vm = Vm::with_mrblib()?;
     install(&mut vm);
+    if verbose { let g = vm.intern("$mrbtest_verbose"); vm.globals.insert(g, Value::True); }
     vm.load_and_run(assert_mrb)?;
     let mut sum = Summary::default();
     let irep = match vm.load(test_mrb) { Ok(i) => i, Err(e) => { sum.aborted = Some(format!("{e}")); return Ok(sum); } };

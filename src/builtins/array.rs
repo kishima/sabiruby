@@ -181,8 +181,20 @@ pub fn init(vm: &mut Vm) {
         ("reverse", |vm, s, _a, _b| { let mut v = items(vm, s); v.reverse(); Ok(vm.ary_new(v)) }),
         ("reverse!", |vm, s, _a, _b| { with_mut(vm, s, |arr| arr.reverse())?; Ok(s) }),
         ("rotate", |vm, s, a, _b| { argc!(vm, a, 0, 1); let n = if a.is_empty() { 1 } else { vm.expect_int(a[0], "count")? }; let mut v = items(vm, s); if !v.is_empty() { let k = n.rem_euclid(v.len() as i64) as usize; v.rotate_left(k); } Ok(vm.ary_new(v)) }),
-        ("index", |vm, s, a, b| { let list = items(vm, s); for (i, it) in list.iter().enumerate() { let hit = if let Some(x) = a.first() { vm.equal(*it, *x)? } else { vm.call_block(b, &[*it])?.truthy() }; if hit { return Ok(Value::Int(i as i64)); } } Ok(Value::Nil) }),
-        ("rindex", |vm, s, a, b| { let list = items(vm, s); for (i, it) in list.iter().enumerate().rev() { let hit = if let Some(x) = a.first() { vm.equal(*it, *x)? } else { vm.call_block(b, &[*it])?.truthy() }; if hit { return Ok(Value::Int(i as i64)); } } Ok(Value::Nil) }),
+        ("index", |vm, s, a, b| { let mut i = 0; loop { let it = match vm.ary(s).and_then(|v| v.get(i).copied()) { Some(v) => v, None => return Ok(Value::Nil) }; let hit = if let Some(x) = a.first() { vm.equal(it, *x)? } else { vm.call_block(b, &[it])?.truthy() }; if hit { return Ok(Value::Int(i as i64)); } i += 1; } }),
+        ("rindex", |vm, s, a, b| {
+            // the array is re-read every step: `==` or the block may shrink or replace it
+            let mut i = vm.ary(s).map(|v| v.len()).unwrap_or(0);
+            while i > 0 {
+                i -= 1;
+                let len = vm.ary(s).map(|v| v.len()).unwrap_or(0);
+                if i >= len { i = len; continue; }
+                let it = vm.ary(s).map(|v| v[i]).unwrap_or(Value::Nil);
+                let hit = if let Some(x) = a.first() { vm.equal(it, *x)? } else { vm.call_block(b, &[it])?.truthy() };
+                if hit { return Ok(Value::Int(i as i64)); }
+            }
+            Ok(Value::Nil)
+        }),
         ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if vm.equal(it, a[0])? { return Ok(Value::True); } } Ok(Value::False) }),
         ("member?", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if vm.equal(it, a[0])? { return Ok(Value::True); } } Ok(Value::False) }),
         ("clear", |vm, s, _a, _b| { with_mut(vm, s, |arr| arr.clear())?; Ok(s) }),

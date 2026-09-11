@@ -625,11 +625,12 @@ impl Vm {
         }
         if module == class || self.module_chain_contains(module, class) { return Err(self.raise_arg("cyclic prepend detected")); }
         // the module's own chain goes in too, nearest first: insert in reverse right below the class
+        // (a module already anywhere in the chain, prepended or included, is not added again)
         let mods = self.module_chain(module);
         for m in mods.iter().rev() {
             let mut c = self.heap.class(class).superclass;
             let mut present = false;
-            while let Some(x) = c { if x == origin { break; } if self.heap.class(x).iclass_of == Some(*m) { present = true; break; } c = self.heap.class(x).superclass; }
+            while let Some(x) = c { if self.heap.class(x).iclass_of == Some(*m) { present = true; break; } c = self.heap.class(x).superclass; }
             if present { continue; }
             let sup = self.heap.class(class).superclass;
             let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(*m), ..Default::default() }));
@@ -703,6 +704,7 @@ impl Vm {
         };
         let sc = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, is_singleton: true, attached: Some(v), ..Default::default() }));
         self.heap.get_mut(o).class = sc;
+        if self.heap.get(o).frozen { self.heap.get_mut(sc).frozen = true; }
         Ok(sc)
     }
     pub fn const_get(&self, class: ObjId, name: Sym) -> Option<Value> {
@@ -1761,10 +1763,49 @@ impl Vm {
             _ => a == b,
         }
     }
-    pub fn hash_get(&self, h: Value, k: Value) -> Option<Value> {
-        let o = h.obj()?;
-        match &self.heap.get(o).kind {
-            ObjKind::Hash(hd) => hd.entries.iter().find(|(ek, _)| self.eql(*ek, k)).map(|(_, v)| *v),
+    /// The hash code of a key: native for immediates and Strings, `hash` for other objects.
+    pub fn key_hash(&mut self, k: Value) -> VmResult<i64> {
+        match k {
+            Value::Obj(o) if !matches!(self.heap.get(o).kind, ObjKind::String(_)) => {
+                let hs = self.s.hash;
+                match self.funcall(k, hs, &[], Value::Nil)? { Value::Int(i) => Ok(i), Value::Float(f) => Ok(f as i64), _ => Ok(self.value_hash(k)) }
+            }
+            _ => Ok(self.value_hash(k)),
+        }
+    }
+    /// Key equality for lookups: `eql?` (natively for immediates and Strings).
+    pub fn key_eql(&mut self, a: Value, b: Value) -> VmResult<bool> {
+        match (a, b) {
+            (Value::Obj(x), _) if !matches!(self.heap.get(x).kind, ObjKind::String(_)) => { let eql = self.s.eql; Ok(self.funcall(a, eql, &[b], Value::Nil)?.truthy()) }
+            _ => Ok(self.eql(a, b)),
+        }
+    }
+    /// Makes the cached hashes match the entries (after wholesale edits of `entries`).
+    fn hash_sync(&mut self, o: ObjId) -> VmResult<()> {
+        let (need, keys): (bool, Vec<Value>) = match &self.heap.get(o).kind { ObjKind::Hash(hd) => (hd.hashes.len() != hd.entries.len(), hd.entries.iter().map(|e| e.0).collect()), _ => (false, vec![]) };
+        if !need { return Ok(()); }
+        let mut hs = Vec::with_capacity(keys.len());
+        for k in keys { hs.push(self.key_hash(k)?); }
+        if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind { hd.hashes = hs; }
+        Ok(())
+    }
+    /// Index of `k` in the hash (hash code first, then `eql?`).
+    pub fn hash_index(&mut self, h: Value, k: Value) -> VmResult<Option<usize>> {
+        let o = match h.obj() { Some(o) => o, None => return Ok(None) };
+        if !matches!(self.heap.get(o).kind, ObjKind::Hash(_)) { return Ok(None); }
+        self.hash_sync(o)?;
+        let kh = self.key_hash(k)?;
+        let mut i = 0;
+        loop {
+            let cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => { if i >= hd.entries.len() { break; } if hd.hashes.get(i) == Some(&kh) { Some(hd.entries[i].0) } else { None } } _ => None };
+            if let Some(ek) = cand { if self.key_eql(ek, k)? { return Ok(Some(i)); } }
+            i += 1;
+        }
+        Ok(None)
+    }
+    pub fn hash_get(&mut self, h: Value, k: Value) -> Option<Value> {
+        match self.hash_index(h, k) {
+            Ok(Some(i)) => match &self.heap.get(h.obj().unwrap()).kind { ObjKind::Hash(hd) => hd.entries.get(i).map(|e| e.1), _ => None },
             _ => None,
         }
     }
@@ -1773,9 +1814,10 @@ impl Vm {
         if self.heap.get(o).frozen { return Err(self.frozen_error(h)); }
         // an unfrozen String key is copied and the copy frozen; a frozen key is used as is
         let k = match k { Value::Obj(ko) if self.heap.string(ko).is_some() && !self.heap.get(ko).frozen => { let b = self.heap.string(ko).unwrap().to_vec(); let nk = self.str_new(&b); if let Some(no) = nk.obj() { self.heap.get_mut(no).frozen = true; } nk } _ => k };
-        let pos = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.entries.iter().position(|(ek, _)| self.eql(*ek, k)), _ => return Err(self.raise_type("not a hash")) };
+        let pos = self.hash_index(h, k)?;
+        let kh = self.key_hash(k)?;
         if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind {
-            match pos { Some(i) => hd.entries[i].1 = v, None => hd.entries.push((k, v)) }
+            match pos { Some(i) => hd.entries[i].1 = v, None => { hd.entries.push((k, v)); hd.hashes.push(kh); } }
         }
         Ok(())
     }
@@ -1978,8 +2020,8 @@ impl Vm {
     }
     pub fn hash_delete(&mut self, h: Value, k: Value) -> Option<Value> {
         let o = h.obj()?;
-        let pos = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.entries.iter().position(|(ek, _)| self.eql(*ek, k)), _ => None }?;
-        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => Some(hd.entries.remove(pos).1), _ => None }
+        let pos = self.hash_index(h, k).ok()??;
+        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => { if pos < hd.hashes.len() { hd.hashes.remove(pos); } Some(hd.entries.remove(pos).1) } _ => None }
     }
 
     /// Positional arguments of a SEND at `nbase` (`argc == 15` = packed array).

@@ -102,6 +102,8 @@ pub struct HashData {
     /// Insertion-ordered entries; lookup is linear with `eql?` semantics
     /// (like mruby's AR mode, without the hash-table switch yet).
     pub entries: Vec<(Value, Value)>,
+    /// `hash` of each key, parallel to `entries` (rebuilt lazily when lengths differ).
+    pub hashes: Vec<i64>,
     pub default: Value,
 }
 

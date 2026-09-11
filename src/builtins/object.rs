@@ -47,7 +47,7 @@ pub fn init(vm: &mut Vm) {
         ("protected_methods", |vm, s, _a, _b| { let list = method_list(vm, vm.class_of(s), Some(Vis::Protected), true); Ok(vm.ary_new(list)) }),
         ("dup", dup),
         ("clone", clone),
-        ("freeze", |vm, s, _a, _b| { if let Value::Obj(o) = s { vm.heap.get_mut(o).frozen = true; } Ok(s) }),
+        ("freeze", |vm, s, _a, _b| { if let Value::Obj(o) = s { vm.heap.get_mut(o).frozen = true; let c = vm.heap.get(o).class; if vm.heap.class(c).is_singleton { vm.heap.get_mut(c).frozen = true; } } Ok(s) }),
         ("frozen?", |vm, s, _a, _b| Ok(Value::bool(match s { Value::Obj(o) => vm.heap.get(o).frozen, _ => true }))),
         ("instance_variable_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(match s { Value::Obj(o) => vm.heap.ivar_get(o, n), _ => Value::Nil }) }),
         ("instance_variable_set", |vm, s, a, _b| { argc!(vm, a, 2); let n = sym_arg(vm, a[0])?; match s { Value::Obj(o) => { vm.heap.ivar_set(o, n, a[1]); Ok(a[1]) } _ => Err(vm.raise_type("can't set instance variable")) } }),
@@ -392,7 +392,7 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             ObjKind::Object => ObjKind::Object,
             ObjKind::String(b) => ObjKind::String(b.clone()),
             ObjKind::Array(v) => ObjKind::Array(v.clone()),
-            ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), default: hd.default }),
+            ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), hashes: hd.hashes.clone(), default: hd.default }),
             ObjKind::Range { begin, end, excl } => ObjKind::Range { begin: *begin, end: *end, excl: *excl },
             ObjKind::Exception => ObjKind::Exception,
             ObjKind::Class(cd) => {

@@ -1,9 +1,9 @@
 argumenterror 9
-array 60
+array 61
 basicobject 2
 bs_block 46
 bs_literal 9
-class 47
+class 48
 codegen 15
 comparable 7
 ensure 4

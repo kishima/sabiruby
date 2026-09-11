@@ -26,7 +26,7 @@ fn mrbtest(args: &[String]) -> ExitCode {
     for f in &files[1..] {
         let bin = match std::fs::read(f) { Ok(b) => b, Err(e) => { eprintln!("{f}: {e}"); return ExitCode::from(1); } };
         let name = std::path::Path::new(f).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let sum = match sabiruby::mrbtest::run_file(&assert_mrb, &bin, cap) {
+        let sum = match sabiruby::mrbtest::run_file_opt(&assert_mrb, &bin, cap, verbose) {
             Ok(s) => s,
             Err(e) => { eprintln!("{name}: {e}"); return ExitCode::from(1); }
         };
