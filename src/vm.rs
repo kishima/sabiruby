@@ -572,12 +572,17 @@ impl Vm {
         if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(mid)], Value::Nil)?; }
         Ok(())
     }
+    /// The class whose `methods`/`vis` tables a chain node reads: an include class
+    /// reads its module's table (the module's origin when it has prepends).
+    pub fn table_owner(&self, x: ObjId) -> ObjId {
+        match self.heap.class(x).iclass_of { Some(m) => self.heap.class(m).origin.unwrap_or(m), None => x }
+    }
     /// Visibility of `mid` as found from `class`.
     pub fn method_vis(&self, class: ObjId, mid: Sym) -> Vis {
         let mut c = Some(class);
         while let Some(x) = c {
             let cd = self.heap.class(x);
-            let tbl_owner = cd.iclass_of.unwrap_or(x);
+            let tbl_owner = self.table_owner(x);
             let t = self.heap.class(tbl_owner);
             if cd.origin.is_none() {
                 if t.methods.contains_key(&mid) { return t.vis.get(&mid).copied().unwrap_or(Vis::Public); }
@@ -677,6 +682,9 @@ impl Vm {
     pub fn singleton_class(&mut self, v: Value) -> VmResult<ObjId> {
         let o = match v {
             Value::Obj(o) => o,
+            Value::Nil => return Ok(self.core.nil_class),
+            Value::True => return Ok(self.core.true_class),
+            Value::False => return Ok(self.core.false_class),
             _ => return Err(self.raise_type("can't define singleton")),
         };
         let cur = self.heap.get(o).class;
@@ -730,10 +738,7 @@ impl Vm {
         while let Some(x) = c {
             let cd = self.heap.class(x);
             if cd.origin.is_some() { c = cd.superclass; continue; } // own table lives in the origin
-            let tbl = match cd.iclass_of {
-                Some(m) => &self.heap.class(m).methods,
-                None => &cd.methods,
-            };
+            let tbl = &self.heap.class(self.table_owner(x)).methods;
             if let Some(m) = tbl.get(&mid) {
                 return match m {
                     Method::Undef => None,

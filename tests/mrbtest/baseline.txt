@@ -1,5 +1,5 @@
 argumenterror 9
-array 59
+array 60
 basicobject 2
 bs_block 46
 bs_literal 9
@@ -13,11 +13,11 @@ exception 33
 false 6
 float 28
 gc 18
-hash 41
+hash 43
 indexerror 1
 integer 40
 iterations 4
-kernel 36
+kernel 37
 lang 2
 literals 10
 localjumperror 1

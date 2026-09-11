@@ -106,7 +106,7 @@ pub fn init(vm: &mut Vm) {
         ("undef_method", |vm, s, a, _b| { let m = s.obj().unwrap(); for n in a { let n = sym_arg(vm, *n)?; vm.undef_method(m, n)?; } Ok(s) }),
         ("remove_method", |vm, s, a, _b| { let m = s.obj().unwrap(); if vm.heap.get(m).frozen { return Err(vm.frozen_error(s)); } let t = vm.def_target(m); for n in a { let n = sym_arg(vm, *n)?; if vm.heap.class_mut(t).methods.remove(&n).is_none() { let nn = vm.sym_name(n); let cn = vm.class_name(m); return Err(vm.raise(vm.core.name_error, &format!("method '{nn}' not defined in {cn}"))); } } Ok(s) }),
         ("define_method", |vm, s, a, b| { argc!(vm, a, 1, 2); let m = s.obj().unwrap(); let n = sym_arg(vm, a[0])?; let body = if a.len() == 2 { a[1] } else { b }; match body { Value::Obj(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => { if let ObjKind::Proc(pd) = &mut vm.heap.get_mut(p).kind { pd.target_class = Some(m); } let (vis, _) = vm.current_def_vis(m); vm.def_method(m, n, Method::Ruby(p), vis)?; Ok(Value::Sym(n)) } Value::Nil if a.len() == 1 => Err(vm.raise_arg("tried to create Proc object without a block")), v => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&format!("wrong argument type {d} (expected Proc)"))) } } }),
-        ("method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) != Vis::Private, None => false })) }),
+        ("method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((Method::Native(f), _)) if vm.notimpl_fns.iter().any(|g| core::ptr::fn_addr_eq(*g, f)) => false, Some((_, owner)) => vm.method_vis(owner, n) != Vis::Private, None => false })) }),
         ("public_method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) == Vis::Public, None => false })) }),
         ("private_method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) == Vis::Private, None => false })) }),
         ("protected_method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) == Vis::Protected, None => false })) }),
@@ -452,7 +452,7 @@ fn method_list(vm: &Vm, class: crate::value::ObjId, want: Option<Vis>, inherited
         let cd = vm.heap.class(x);
         if cd.origin.is_some() { c = cd.superclass; first = false; continue; }
         if !inherited && !first && cd.origin_of != Some(class) && !(cd.is_singleton && false) { break; }
-        let owner = cd.iclass_of.unwrap_or(x);
+        let owner = vm.table_owner(x);
         let t = vm.heap.class(owner);
         for (k, m) in &t.methods {
             if seen.contains(k) { continue; }

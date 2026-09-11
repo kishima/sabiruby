@@ -107,7 +107,21 @@ pub fn init(vm: &mut Vm) {
         ("clear", |vm, s, _a, _b| { with_mut(vm, s, |h| h.entries.clear())?; Ok(s) }),
         ("shift", |vm, s, _a, _b| { let first = with_mut(vm, s, |h| if h.entries.is_empty() { None } else { Some(h.entries.remove(0)) })?; match first { Some((k, v)) => Ok(vm.ary_new(vec![k, v])), None => Ok(Value::Nil) } }),
         ("default", |vm, s, a, _b| { argc!(vm, a, 0, 1); let dp = default_proc_ivar(vm); let proc_ = s.obj().map(|o| vm.heap.ivar_get(o, dp)).unwrap_or(Value::Nil); if !proc_.is_nil() { if let Some(k) = a.first() { return vm.call_block(proc_, &[s, *k]); } return Ok(Value::Nil); } Ok(default_of(vm, s)) }),
-        ("rehash", |_vm, s, _a, _b| Ok(s)),
+        ("rehash", |vm, s, _a, _b| {
+            // rebuild: keys are re-hashed and compared with eql?; a later duplicate replaces the earlier
+            if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { return Err(vm.frozen_error(s)); }
+            let old = entries(vm, s);
+            let hs = vm.s.hash; let eql = vm.s.eql;
+            let mut out: Vec<(Value, Value)> = Vec::with_capacity(old.len());
+            for (k, v) in old {
+                vm.funcall(k, hs, &[], Value::Nil)?;
+                let mut pos = None;
+                for (i, (ek, _)) in out.iter().enumerate() { if vm.funcall(*ek, eql, &[k], Value::Nil)?.truthy() { pos = Some(i); break; } }
+                match pos { Some(i) => out[i].1 = v, None => out.push((k, v)) }
+            }
+            with_mut(vm, s, |h| h.entries = out)?;
+            Ok(s)
+        }),
         ("default=", |vm, s, a, _b| { argc!(vm, a, 1); with_mut(vm, s, |h| h.default = a[0])?; Ok(a[0]) }),
         ("default_proc", |vm, s, _a, _b| { let dp = default_proc_ivar(vm); Ok(s.obj().map(|o| vm.heap.ivar_get(o, dp)).unwrap_or(Value::Nil)) }),
         ("to_h", |_vm, s, _a, _b| Ok(s)),
@@ -116,14 +130,14 @@ pub fn init(vm: &mut Vm) {
         ("inspect", |vm, s, _a, _b| { let b = hash_inspect(vm, s)?; Ok(vm.str_new(&b)) }),
         ("to_s", |vm, s, _a, _b| { let b = hash_inspect(vm, s)?; Ok(vm.str_new(&b)) }),
         ("==", hash_eq),
-        ("eql?", |vm, s, a, _b| { argc!(vm, a, 1); if s == a[0] { return Ok(Value::True); } let y = match a[0].obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(h)) => h.entries.clone(), _ => return Ok(Value::False) }; let x = entries(vm, s); if x.len() != y.len() { return Ok(Value::False); } let eql = vm.s.eql; for (k, v) in x { match vm.hash_get(a[0], k) { Some(w) => { if !vm.funcall(v, eql, &[w], Value::Nil)?.truthy() { return Ok(Value::False); } } None => return Ok(Value::False) } } Ok(Value::True) }),
+        ("eql?", |vm, s, a, _b| { argc!(vm, a, 1); if s == a[0] { return Ok(Value::True); } let y = match a[0].obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(h)) => h.entries.clone(), _ => return Ok(Value::False) }; let x = entries(vm, s); if x.len() != y.len() { return Ok(Value::False); } let pair = (s.obj().unwrap(), a[0].obj().unwrap()); if vm.eq_guard.contains(&pair) { return Ok(Value::True); } vm.eq_guard.push(pair); let eql = vm.s.eql; let mut res = Ok(Value::True); for (k, v) in x { match vm.hash_get(a[0], k) { Some(w) => match vm.funcall(v, eql, &[w], Value::Nil) { Ok(t) if t.truthy() => {} Ok(_) => { res = Ok(Value::False); break; } Err(e) => { res = Err(e); break; } }, None => { res = Ok(Value::False); break; } } } vm.eq_guard.pop(); res }),
         ("hash", |vm, s, _a, _b| { let mut h: i64 = 0; let hs = vm.s.hash; for (k, v) in entries(vm, s) { let x = match vm.funcall(k, hs, &[], Value::Nil)? { Value::Int(i) => i, _ => 0 }; let y = match vm.funcall(v, hs, &[], Value::Nil)? { Value::Int(i) => i, _ => 0 }; h = h.wrapping_add(x.wrapping_mul(31).wrapping_add(y)); } Ok(Value::Int(h)) }),
         ("merge", |vm, s, a, b| { for other in a { if !matches!(other.obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(_))) { let d = vm.describe_for_type_error(*other); return Err(vm.raise_type(&format!("{d} cannot be converted to Hash"))); } } let mut out = entries(vm, s); let d = default_of(vm, s); for other in a { for (k, v) in entries(vm, *other) { match out.iter().position(|(ek, _)| vm.eql(*ek, k)) { Some(i) => { out[i].1 = if b.is_nil() { v } else { vm.call_block(b, &[k, out[i].1, v])? }; } None => out.push((k, v)) } } } let cls = vm.real_class_of(s); let h = vm.instance_alloc(cls)?; let ivars = s.obj().map(|o| vm.heap.get(o).ivars.clone()).unwrap_or_default(); vm.heap.get_mut(h.obj().unwrap()).ivars = ivars; with_mut(vm, h, |hd| { hd.entries = out; hd.default = d; })?; Ok(h) }),
         ("merge!", |vm, s, a, b| { for other in a { for (k, v) in entries(vm, *other) { let cur = vm.hash_get(s, k); let nv = match cur { Some(c) if !b.is_nil() => vm.call_block(b, &[k, c, v])?, _ => v }; vm.hash_set(s, k, nv)?; } } Ok(s) }),
         ("update", |vm, s, a, b| { for other in a { for (k, v) in entries(vm, *other) { let cur = vm.hash_get(s, k); let nv = match cur { Some(c) if !b.is_nil() => vm.call_block(b, &[k, c, v])?, _ => v }; vm.hash_set(s, k, nv)?; } } Ok(s) }),
         ("__delete", |vm, s, a, _b| { argc!(vm, a, 1); if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { return Err(vm.frozen_error(s)); } let pos = entries(vm, s).iter().position(|(k, _)| vm.eql(*k, a[0])); match pos { Some(i) => with_mut(vm, s, |h| h.entries.remove(i).1), None => Ok(Value::Nil) } }),
         ("__update", |vm, s, a, _b| { argc!(vm, a, 1); for (k, v) in entries(vm, a[0]) { vm.hash_set(s, k, v)?; } Ok(s) }),
-        ("__merge", |vm, s, a, _b| { for other in a { for (k, v) in entries(vm, *other) { vm.hash_set(s, k, v)?; } } Ok(s) }),
+        ("__merge", |vm, s, a, _b| { for other in a { if !matches!(other.obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(_))) { let d = vm.describe_for_type_error(*other); return Err(vm.raise_type(&format!("{d} cannot be converted to Hash"))); } for (k, v) in entries(vm, *other) { vm.hash_set(s, k, v)?; } } Ok(s) }),
         ("dup", |vm, s, _a, _b| { let e = entries(vm, s); let d = default_of(vm, s); let c = vm.real_class_of(s); let ivars = s.obj().map(|o| vm.heap.get(o).ivars.clone()).unwrap_or_default(); let n = vm.heap.alloc(c, ObjKind::Hash(crate::object::HashData { entries: e, default: d })); vm.heap.get_mut(n).ivars = ivars; Ok(Value::Obj(n)) }),
         ("freeze", |vm, s, _a, _b| { if let Some(o) = s.obj() { vm.heap.get_mut(o).frozen = true; } Ok(s) }),
         ("frozen?", |vm, s, _a, _b| Ok(Value::bool(s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(true)))),
