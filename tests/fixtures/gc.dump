@@ -1,0 +1,556 @@
+irep 0x55d4cc4eef10 nregs=22 nlocals=14 pools=5 syms=33 reps=17 ilen=740
+local variable names:
+  R1:base
+  R2:h
+  R3:inc
+  R4:get
+  R5:f
+  R6:r
+  R7:e
+  R8:ex
+  R9:a
+  R10:d
+  R11:k
+  R12:s
+  R13:ids
+catch type: rescue   begin: 0234 end: 0272 target: 0275
+catch type: rescue   begin: 0494 end: 0505 target: 0508
+file: /w/gc.rb
+    5 000 GETCONST	R14	GC
+    5 003 SEND0		R14	:start
+    6 006 GETCONST	R14	GC
+    6 009 SEND0		R14	:stat
+    6 012 LOADSYM	R15	:live
+    6 015 GETIDX	R14	(R15)
+    6 017 MOVE		R1	R14	; R1:base
+    7 020 LOADI16	R14	1000
+    7 024 BLOCK		R15	I[0]
+    7 027 SENDB		R14	:times	n=0
+    8 031 GETCONST	R14	GC
+    8 034 SEND0		R14	:start
+    9 037 GETCONST	R15	GC
+    9 040 SEND0		R15	:stat
+    9 043 LOADSYM	R16	:live
+    9 046 GETIDX	R15	(R16)
+    9 048 MOVE		R16	R1	; R1:base
+    9 051 SUB		R15	(R16)
+    9 053 LOADI8	R16	50
+    9 056 LT		R15	(R16)
+    9 058 SSEND		R14	:p	n=1
+   10 062 GETCONST	R15	GC
+   10 065 SEND0		R15	:disable
+   10 068 SSEND		R14	:p	n=1
+   11 072 LOADI16	R14	1000
+   11 076 BLOCK		R15	I[1]
+   11 079 SENDB		R14	:times	n=0
+   12 083 GETCONST	R14	GC
+   12 086 SEND0		R14	:start
+   13 089 GETCONST	R15	GC
+   13 092 SEND0		R15	:stat
+   13 095 LOADSYM	R16	:live
+   13 098 GETIDX	R15	(R16)
+   13 100 MOVE		R16	R1	; R1:base
+   13 103 SUB		R15	(R16)
+   13 105 LOADI16	R16	900
+   13 109 GT		R15	(R16)
+   13 111 SSEND		R14	:p	n=1
+   14 115 GETCONST	R15	GC
+   14 118 SEND0		R15	:enable
+   14 121 SSEND		R14	:p	n=1
+   15 125 GETCONST	R14	GC
+   15 128 SEND0		R14	:start
+   16 131 GETCONST	R15	GC
+   16 134 SEND0		R15	:stat
+   16 137 LOADSYM	R16	:live
+   16 140 GETIDX	R15	(R16)
+   16 142 MOVE		R16	R1	; R1:base
+   16 145 SUB		R15	(R16)
+   16 147 LOADI8	R16	50
+   16 150 LT		R15	(R16)
+   16 152 SSEND		R14	:p	n=1
+   20 156 LOADNIL	R14	(nil)
+   20 158 LOADNIL	R15	(nil)
+   20 160 CLASS		R14	:Key
+   20 163 EXEC		R14	I[2]
+   26 166 GETCONST	R14	Key
+   26 169 LOADI_1	R15	(1)
+   26 171 SEND		R14	:new	n=1
+   26 175 STRING	R15	L[0]	; a
+   26 178 GETCONST	R16	Key
+   26 181 LOADI_2	R17	(2)
+   26 183 SEND		R16	:new	n=1
+   26 187 STRING	R17	L[1]	; b
+   26 190 GETCONST	R18	Key
+   26 193 LOADI_1	R19	(1)
+   26 195 SEND		R18	:new	n=1
+   26 199 STRING	R19	L[2]	; c
+   26 202 HASH		R14	3
+   26 205 MOVE		R2	R14	; R2:h
+   27 208 GETCONST	R14	GC
+   27 211 SEND0		R14	:start
+   28 214 MOVE		R15	R2	; R2:h
+   28 217 SEND0		R15	:size
+   28 220 MOVE		R16	R2	; R2:h
+   28 223 SEND0		R16	:values
+   28 226 SSEND		R14	:p	n=2
+   29 230 TDEF		R14	:kw	I[3]
+   30 234 HASH		R16	0
+   30 237 GETCONST	R17	Key
+   30 240 LOADI_3	R18	(3)
+   30 242 SEND		R17	:new	n=1
+   30 246 LOADI_1	R18	(1)
+   30 248 GETCONST	R19	Key
+   30 251 LOADI_4	R20	(4)
+   30 253 SEND		R19	:new	n=1
+   30 257 LOADI_2	R20	(2)
+   30 259 HASH		R17	2
+   30 262 HASHCAT	R16	(R17)
+   30 264 SSEND		R15	:kw	n=0|nk=*
+   30 268 SSEND		R14	:p	n=1
+   30 272 JMP		299
+   30 275 EXCEPT	R14	
+   30 277 GETCONST	R15	StandardError
+   30 280 RESCUE	R14	R15
+   30 283 JMPIF		R15	289
+   30 287 RAISEIF	R14	
+   30 289 GETGV		R15	$!
+   30 292 SEND0		R15	:class
+   30 295 SSEND		R14	:p	n=1
+   33 299 TDEF		R14	:counter	I[4]
+   37 303 SSEND0	R14	:counter
+   37 306 AREF		R3	R14	0	; R3:inc
+   37 310 AREF		R4	R14	1	; R4:get
+   38 314 GETCONST	R14	GC
+   38 317 SEND0		R14	:start
+   39 320 LOADI_3	R14	(3)
+   39 322 BLOCK		R15	I[5]
+   39 325 SENDB		R14	:times	n=0
+   40 329 MOVE		R15	R4	; R4:get
+   40 332 SEND0		R15	:call
+   40 335 SSEND		R14	:p	n=1
+   43 339 GETCONST	R14	Fiber
+   43 342 BLOCK		R15	I[6]
+   43 345 SENDB		R14	:new	n=0
+   43 349 MOVE		R5	R14	; R5:f
+   44 352 MOVE		R15	R5	; R5:f
+   44 355 SEND0		R15	:resume
+   44 358 SSEND		R14	:p	n=1
+   45 362 LOADNIL	R5	(nil)	; R5:f
+   46 364 GETCONST	R14	GC
+   46 367 SEND0		R14	:start
+   47 370 GETGV		R15	$pr
+   47 373 SEND0		R15	:call
+   47 376 SSEND		R14	:p	n=1
+   50 380 GETCONST	R14	Fiber
+   50 383 BLOCK		R15	I[7]
+   50 386 SENDB		R14	:new	n=0
+   50 390 SEND0		R14	:resume
+   50 393 MOVE		R6	R14	; R6:r
+   56 396 MOVE		R15	R6	; R6:r
+   56 399 SSEND		R14	:p	n=1
+   59 403 LOADI8	R14	100
+   59 406 BLOCK		R15	I[8]
+   59 409 SENDB		R14	:times	n=0
+   60 413 GETCONST	R14	GC
+   60 416 SEND0		R14	:start
+   61 419 GETCONST	R15	Fiber
+   61 422 BLOCK		R16	I[9]
+   61 425 SENDB		R15	:new	n=0
+   61 429 SEND0		R15	:resume
+   61 432 SSEND		R14	:p	n=1
+   64 436 LOADI_1	R14	(1)
+   64 438 LOADI_2	R15	(2)
+   64 440 LOADI_3	R16	(3)
+   64 442 ARRAY		R14	3
+   64 445 SEND0		R14	:each
+   64 448 MOVE		R7	R14	; R7:e
+   65 451 MOVE		R15	R7	; R7:e
+   65 454 SEND0		R15	:next
+   65 457 SSEND		R14	:p	n=1
+   66 461 GETCONST	R14	GC
+   66 464 SEND0		R14	:start
+   67 467 MOVE		R15	R7	; R7:e
+   67 470 SEND0		R15	:next
+   67 473 MOVE		R16	R7	; R7:e
+   67 476 SEND0		R16	:next
+   67 479 SSEND		R14	:p	n=2
+   70 483 TDEF		R14	:ret	I[10]
+   80 487 SSEND0	R15	:ret
+   80 490 SSEND		R14	:p	n=1
+   84 494 STRING	R15	L[3]	; e
+   84 497 LOADI_3	R16	(3)
+   84 499 MUL		R15	(R16)
+   84 501 SSEND		R14	:raise	n=1
+   84 505 JMP		547
+   84 508 EXCEPT	R14	
+   84 510 GETCONST	R15	StandardError
+   84 513 RESCUE	R14	R15
+   84 516 JMPIF		R15	523
+   84 520 JMP		545
+   84 523 MOVE		R8	R14	; R8:ex
+   86 526 GETCONST	R14	GC
+   86 529 SEND0		R14	:start
+   87 532 MOVE		R15	R8	; R8:ex
+   87 535 SEND0		R15	:message
+   87 538 SSEND		R14	:p	n=1
+   87 542 JMP		547
+   87 545 RAISEIF	R14	
+   91 547 ARRAY		R9	0	; R9:a
+   92 550 LOADI32	R14	100000
+   92 556 BLOCK		R15	I[11]
+   92 559 SENDB		R14	:times	n=0
+   93 563 GETCONST	R14	GC
+   93 566 SEND0		R14	:start
+   94 569 LOADI_0	R10	(0)	; R10:d
+   95 571 MOVE		R14	R9	; R9:a
+   95 574 SEND0		R14	:size
+   95 577 LOADI_0	R15	(0)
+   95 579 GT		R14	(R15)
+   95 581 JMPNOT	R14	599
+   95 585 NOP
+   96 586 GETIDX0	R14	R9[0]
+   96 589 MOVE		R9	R14	; R9:a
+   97 592 ADDILV	R10	R14	1	; R10:d
+   97 596 JMP		571
+   99 599 MOVE		R15	R10	; R10:d
+   99 602 SSEND		R14	:p	n=1
+  102 606 LOADI8	R14	100
+  102 609 BLOCK		R15	I[12]
+  102 612 SENDB		R14	:times	n=0
+  107 616 GETCONST	R14	Class
+  107 619 BLOCK		R15	I[13]
+  107 622 SENDB		R14	:new	n=0
+  107 626 MOVE		R11	R14	; R11:k
+  108 629 SETCONST	Kept	R11	; R11:k
+  109 632 GETCONST	R14	GC
+  109 635 SEND0		R14	:start
+  110 638 GETCONST	R15	Kept
+  110 641 SEND0		R15	:new
+  110 644 SEND0		R15	:m
+  110 647 SSEND		R14	:p	n=1
+  113 651 LOADI_1	R15	(1)
+  113 653 LOADI8	R16	20
+  113 656 RANGE_INC	R15
+  113 658 SEND0		R15	:to_a
+  113 661 BLOCK		R16	I[14]
+  113 664 SENDB		R15	:sort_by	n=0
+  113 668 LOADI_3	R16	(3)
+  113 670 SEND		R15	:first	n=1
+  113 674 SSEND		R14	:p	n=1
+  114 678 STRING	R15	L[1]	; b
+  114 681 STRING	R16	L[2]	; c
+  114 684 STRING	R17	L[0]	; a
+  114 687 ARRAY		R15	3
+  114 690 BLOCK		R16	I[15]
+  114 693 SENDB		R15	:sort	n=0
+  114 697 SSEND		R14	:p	n=1
+  117 701 STRING	R12	L[4]	; keep	; R12:s
+  118 704 ARRAY		R13	0	; R13:ids
+  119 707 LOADI16	R14	1000
+  119 711 BLOCK		R15	I[16]
+  119 714 SENDB		R14	:times	n=0
+  120 718 GETCONST	R14	GC
+  120 721 SEND0		R14	:start
+  121 724 MOVE		R15	R12	; R12:s
+  121 727 MOVE		R16	R13	; R13:ids
+  121 730 SEND0		R16	:size
+  121 733 SSEND		R14	:p	n=2
+  121 737 RETURN	R14	
+  121 739 STOP
+
+irep 0x55d4cc4f1790 nregs=4 nlocals=2 pools=0 syms=2 reps=0 ilen=12
+file: /w/gc.rb
+    7 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    7 004 GETCONST	R2	Object
+    7 007 SEND0		R2	:new
+    7 010 RETURN	R2	
+
+irep 0x55d4cc4f2260 nregs=4 nlocals=2 pools=0 syms=2 reps=0 ilen=12
+file: /w/gc.rb
+   11 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   11 004 GETCONST	R2	Object
+   11 007 SEND0		R2	:new
+   11 010 RETURN	R2	
+
+irep 0x55d4cc4f29c0 nregs=4 nlocals=1 pools=0 syms=5 reps=3 ilen=21
+file: /w/gc.rb
+   21 000 LOADSYM	R2	:n
+   21 003 SSEND		R1	:attr_reader	n=1
+   22 007 TDEF		R1	:initialize	I[0]
+   23 011 TDEF		R1	:hash	I[1]
+   24 015 TDEF		R1	:eql?	I[2]
+   24 019 RETURN	R1	
+
+irep 0x55d4cc4f4570 nregs=4 nlocals=3 pools=0 syms=1 reps=0 ilen=12
+local variable names:
+  R1:n
+file: /w/gc.rb
+   22 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   22 004 MOVE		R3	R1	; R1:n
+   22 007 SETIV		@n	R3
+   22 010 RETURN	R3	
+
+irep 0x55d4cc4f5060 nregs=5 nlocals=2 pools=1 syms=3 reps=0 ilen=24
+file: /w/gc.rb
+   23 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   23 004 STRING	R2	L[0]	; k
+   23 007 LOADI_3	R3	(3)
+   23 009 MUL		R2	(R3)
+   23 011 GETIV		R3	@n
+   23 014 SEND0		R3	:to_s
+   23 017 ADD		R2	(R3)
+   23 019 SEND0		R2	:hash
+   23 022 RETURN	R2	
+
+irep 0x55d4cc4f57e0 nregs=6 nlocals=3 pools=0 syms=2 reps=0 ilen=23
+local variable names:
+  R1:o
+file: /w/gc.rb
+   24 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   24 004 GETIV		R3	@n
+   24 007 ARRAY		R3	1
+   24 010 MOVE		R4	R1	; R1:o
+   24 013 SEND0		R4	:n
+   24 016 ARRAY		R4	1
+   24 019 EQ		R3	(R4)
+   24 021 RETURN	R3	
+
+irep 0x55d4cc4f5a40 nregs=5 nlocals=3 pools=0 syms=1 reps=0 ilen=12
+local variable names:
+  R1:o
+file: /w/gc.rb
+   29 000 ENTER		0:0:0:0:0:1:0:0 (0x2)
+   29 004 MOVE		R3	R1	; R1:o
+   29 007 SEND0		R3	:size
+   29 010 RETURN	R3	
+
+irep 0x55d4cc4f2f00 nregs=6 nlocals=3 pools=0 syms=1 reps=2 ilen=25
+local variable names:
+  R2:n
+file: /w/gc.rb
+   33 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   34 004 LOADI_0	R2	(0)	; R2:n
+   35 006 BLOCK		R4	I[0]
+   35 009 SSENDB	R3	:proc	n=0
+   35 013 BLOCK		R5	I[1]
+   35 016 SSENDB	R4	:proc	n=0
+   35 020 ARRAY		R3	2
+   35 023 RETURN	R3	
+
+irep 0x55d4cc4f3210 nregs=5 nlocals=2 pools=0 syms=0 reps=0 ilen=17
+file: /w/gc.rb
+   35 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   35 004 GETUPVAR	R2	2	0
+   35 008 ADDI		R2	1
+   35 011 SETUPVAR	R2	2	0
+   35 015 RETURN	R2	
+
+irep 0x55d4cc4f3fd0 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=10
+file: /w/gc.rb
+   35 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   35 004 GETUPVAR	R2	2	0
+   35 008 RETURN	R2	
+
+irep 0x55d4cc4f43b0 nregs=4 nlocals=2 pools=0 syms=1 reps=0 ilen=13
+file: /w/gc.rb
+   39 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   39 004 GETUPVAR	R2	3	0
+   39 008 SEND0		R2	:call
+   39 011 RETURN	R2	
+
+irep 0x55d4cc4f44f0 nregs=6 nlocals=3 pools=1 syms=4 reps=1 ilen=30
+local variable names:
+  R2:x
+file: /w/gc.rb
+   43 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   43 004 STRING	R2	L[0]	; in fiber	; R2:x
+   43 007 BLOCK		R4	I[0]
+   43 010 SSENDB	R3	:proc	n=0
+   43 014 SETGV		$pr	R3
+   43 017 GETCONST	R3	Fiber
+   43 020 LOADI_1	R4	(1)
+   43 022 SEND		R3	:yield	n=1
+   43 026 LOADI_2	R3	(2)
+   43 028 RETURN	R3	
+
+irep 0x55d4cc4f6ec0 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=10
+file: /w/gc.rb
+   43 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   43 004 GETUPVAR	R2	2	0
+   43 008 RETURN	R2	
+
+irep 0x55d4cc4f7690 nregs=5 nlocals=2 pools=1 syms=3 reps=1 ilen=24
+file: /w/gc.rb
+   50 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   51 004 GETCONST	R2	Fiber
+   51 007 BLOCK		R3	I[0]
+   51 010 SENDB		R2	:new	n=0
+   51 014 SEND0		R2	:resume
+   54 017 STRING	R3	L[0]	; !
+   54 020 ADD		R2	(R3)
+   54 022 RETURN	R2	
+
+irep 0x55d4cc4f7790 nregs=6 nlocals=2 pools=1 syms=4 reps=0 ilen=26
+file: /w/gc.rb
+   51 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   52 004 GETCONST	R2	GC
+   52 007 SEND0		R2	:start
+   53 010 GETCONST	R2	Fiber
+   53 013 STRING	R3	L[0]	; x
+   53 016 LOADI_5	R4	(5)
+   53 018 MUL		R3	(R4)
+   53 020 SEND		R2	:yield	n=1
+   53 024 RETURN	R2	
+
+irep 0x55d4cc4f3cd0 nregs=5 nlocals=3 pools=0 syms=3 reps=1 ilen=23
+local variable names:
+  R1:i
+file: /w/gc.rb
+   59 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   59 004 GETCONST	R3	Fiber
+   59 007 BLOCK		R4	I[0]
+   59 010 SENDB		R3	:new	n=0
+   59 014 SETUPVAR	R3	5	0
+   59 018 SEND0		R3	:resume
+   59 021 RETURN	R3	
+
+irep 0x55d4cc4f6260 nregs=5 nlocals=2 pools=0 syms=2 reps=0 ilen=17
+file: /w/gc.rb
+   59 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   59 004 GETCONST	R2	Fiber
+   59 007 GETUPVAR	R3	1	0
+   59 011 SEND		R2	:yield	n=1
+   59 015 RETURN	R2	
+
+irep 0x55d4cc4f8ae0 nregs=3 nlocals=2 pools=0 syms=1 reps=0 ilen=9
+file: /w/gc.rb
+   61 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   61 004 LOADSYM	R2	:still_works
+   61 007 RETURN	R2	
+
+irep 0x55d4cc4f8c20 nregs=4 nlocals=2 pools=0 syms=1 reps=1 ilen=20
+file: /w/gc.rb
+   70 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   71 004 LOADI_1	R2	(1)
+   71 006 LOADI_2	R3	(2)
+   71 008 ARRAY		R2	2
+   71 011 BLOCK		R3	I[0]
+   71 014 SENDB		R2	:each	n=0
+   71 018 RETURN	R2	
+
+irep 0x55d4cc4f8f30 nregs=9 nlocals=3 pools=2 syms=2 reps=0 ilen=36
+local variable names:
+  R1:x
+catch type: ensure   begin: 0004 end: 0017 target: 0017
+catch type: rescue   begin: 0004 end: 0014 target: 0017
+file: /w/gc.rb
+   71 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   73 004 STRING	R3	L[0]	; r
+   73 007 MOVE		R4	R1	; R1:x
+   73 010 STRCAT	R3	(R4)
+   73 012 RETURN_BLK	R3	
+   73 014 JMP		017
+   73 017 EXCEPT	R5	
+   75 019 GETCONST	R6	GC
+   75 022 SEND0		R6	:start
+   76 025 STRING	R6	L[1]	; t
+   76 028 LOADI_2	R7	(2)
+   76 030 MUL		R6	(R7)
+   76 032 RAISEIF	R5	
+   76 034 RETURN	R3	
+
+irep 0x55d4cc4fa440 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=17
+file: /w/gc.rb
+   92 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   92 004 GETUPVAR	R2	9	0
+   92 008 ARRAY		R2	1
+   92 011 SETUPVAR	R2	9	0
+   92 015 RETURN	R2	
+
+irep 0x55d4cc4f8750 nregs=7 nlocals=5 pools=0 syms=3 reps=2 ilen=35
+local variable names:
+  R1:i
+  R3:c
+  R4:o
+file: /w/gc.rb
+  102 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  103 004 GETCONST	R5	Class
+  103 007 BLOCK		R6	I[0]
+  103 010 SENDB		R5	:new	n=0
+  103 014 MOVE		R3	R5	; R3:c
+  104 017 MOVE		R5	R3	; R3:c
+  104 020 SEND0		R5	:new
+  104 023 MOVE		R4	R5	; R4:o
+  105 026 MOVE		R5	R4	; R4:o
+  105 029 SDEF		R5	:w	I[1]
+  105 033 RETURN	R5	
+
+irep 0x55d4cc4f8830 nregs=5 nlocals=2 pools=0 syms=2 reps=1 ilen=16
+file: /w/gc.rb
+  103 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  103 004 LOADSYM	R3	:v
+  103 007 BLOCK		R4	I[0]
+  103 010 SSENDB	R2	:define_method	n=1
+  103 014 RETURN	R2	
+
+irep 0x55d4cc4f7f00 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=10
+file: /w/gc.rb
+  103 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  103 004 GETUPVAR	R2	1	1
+  103 008 RETURN	R2	
+
+irep 0x55d4cc4fa770 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/gc.rb
+  105 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  105 004 LOADI_1	R2	(1)
+  105 006 RETURN	R2	
+
+irep 0x55d4cc4f96c0 nregs=3 nlocals=2 pools=0 syms=1 reps=1 ilen=10
+file: /w/gc.rb
+  107 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  107 004 TDEF		R2	:m	I[0]
+  107 008 RETURN	R2	
+
+irep 0x55d4cc4f9780 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/gc.rb
+  107 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  107 004 STRING	R2	L[0]	; kept
+  107 007 RETURN	R2	
+
+irep 0x55d4cc4f9fc0 nregs=7 nlocals=3 pools=1 syms=1 reps=0 ilen=22
+local variable names:
+  R1:x
+file: /w/gc.rb
+  113 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  113 004 MOVE		R3	R1	; R1:x
+  113 007 SEND0		R3	:-@
+  113 010 STRING	R4	L[0]	; s
+  113 013 LOADI_2	R5	(2)
+  113 015 MUL		R4	(R5)
+  113 017 ARRAY		R3	2
+  113 020 RETURN	R3	
+
+irep 0x55d4cc4fa0c0 nregs=7 nlocals=4 pools=0 syms=3 reps=0 ilen=22
+local variable names:
+  R1:x
+  R2:y
+file: /w/gc.rb
+  114 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+  114 004 GETCONST	R4	GC
+  114 007 SEND0		R4	:start
+  114 010 MOVE		R4	R1	; R1:x
+  114 013 MOVE		R5	R2	; R2:y
+  114 016 SEND		R4	:<=>	n=1
+  114 020 RETURN	R4	
+
+irep 0x55d4cc4f83f0 nregs=5 nlocals=2 pools=0 syms=4 reps=0 ilen=23
+file: /w/gc.rb
+  119 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  119 004 GETUPVAR	R2	13	0
+  119 008 GETCONST	R3	Object
+  119 011 SEND0		R3	:new
+  119 014 SEND0		R3	:object_id
+  119 017 SEND		R2	:<<	n=1
+  119 021 RETURN	R2	
+
+/w/gc.rb:76:7: syntax warning, possibly useless use of * in void context

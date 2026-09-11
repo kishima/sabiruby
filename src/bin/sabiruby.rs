@@ -2,8 +2,20 @@
 use std::io::Write;
 use std::process::ExitCode;
 
+/// `SABIRUBY_GC_STRESS=1`: collect at every instruction boundary after an allocation.
+fn gc_stress() -> bool {
+    std::env::var("SABIRUBY_GC_STRESS").map(|v| !v.is_empty() && v != "0").unwrap_or(false)
+}
+
+/// Nanoseconds since the first call (the library has no clock of its own).
+fn clock_ns() -> u64 {
+    static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+    T0.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
+}
+
 fn usage() -> ExitCode {
-    eprintln!("usage: sabiruby run [--stats] <file.mrb>   run a compiled script (--stats: instructions and time to stderr)");
+    eprintln!("usage: sabiruby run [--stats] <file.mrb>   run a compiled script (--stats: instructions, time and GC to stderr)");
+    eprintln!("       (SABIRUBY_GC_STRESS=1: collect at every instruction boundary after an allocation)");
     eprintln!("       sabiruby dump <file.mrb>       print the instruction sequence");
     eprintln!("       sabiruby mrbtest [-v] <assert.mrb> <test.mrb>...");
     eprintln!("                                      run mruby's test suite, print a Markdown report");
@@ -26,7 +38,7 @@ fn mrbtest(args: &[String]) -> ExitCode {
     for f in &files[1..] {
         let bin = match std::fs::read(f) { Ok(b) => b, Err(e) => { eprintln!("{f}: {e}"); return ExitCode::from(1); } };
         let name = std::path::Path::new(f).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let sum = match sabiruby::mrbtest::run_file_opt(&assert_mrb, &bin, cap, verbose) {
+        let sum = match sabiruby::mrbtest::run_file_cfg(&assert_mrb, &bin, cap, verbose, gc_stress()) {
             Ok(s) => s,
             Err(e) => { eprintln!("{name}: {e}"); return ExitCode::from(1); }
         };
@@ -91,19 +103,22 @@ fn real_main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "run" => {
-            let mut vm = match sabiruby::Vm::with_mrblib() {
-                Ok(vm) => vm,
-                Err(e) => { let mut vm = sabiruby::Vm::new(); eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e)); return ExitCode::from(1); }
-            };
+            let mut vm = sabiruby::Vm::new();
+            vm.set_gc_stress(gc_stress());
+            if stats { vm.gc_clock = Some(clock_ns); }
+            if let Err(e) = vm.load_mrblib() { eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e)); return ExitCode::from(1); }
             // like the `mruby` command: ARGV holds the arguments after the script
             let argv: Vec<sabiruby::Value> = args[3..].iter().map(|a| vm.str_new(a.as_bytes())).collect();
             let argv = vm.ary_new(argv);
             let n = vm.intern("ARGV");
             vm.heap.class_mut(vm.core.object).consts.insert(n, sabiruby::value::Slot::from(argv));
+            let (gc0, gct0) = (vm.gc_count, vm.gc_time_ns);
             let started = std::time::Instant::now();
             let result = vm.load_and_run(&bin);
             if stats {
                 let e = started.elapsed();
+                // before the instructions line: tools/bench.sh reads the last line
+                eprintln!("gc: {} collections, {:.3} ms, live: {}, heap slots: {}", vm.gc_count - gc0, (vm.gc_time_ns - gct0) as f64 / 1e6, vm.heap.live_count(), vm.heap.len());
                 eprintln!("instructions: {} elapsed_ms: {:.3} ns_per_instruction: {:.1}", vm.instructions, e.as_secs_f64() * 1000.0, e.as_nanos() as f64 / vm.instructions.max(1) as f64);
             }
             let out = std::io::stdout();

@@ -17,13 +17,15 @@ fn run_all() {
         Err(_) => { eprintln!("no baseline; run tools/mrbtest.sh --update"); return; }
     };
     let assert_mrb = std::fs::read(dir.join("assert.mrb")).expect("assert.mrb");
+    // SABIRUBY_GC_STRESS=1: collect after every allocation (finds missing GC roots)
+    let stress = std::env::var("SABIRUBY_GC_STRESS").map(|v| !v.is_empty() && v != "0").unwrap_or(false);
     let mut failures = vec![];
     for line in baseline.lines() {
         let mut it = line.split_whitespace();
         let (Some(name), Some(min)) = (it.next(), it.next()) else { continue };
         let min: u64 = min.parse().unwrap();
         let bin = std::fs::read(dir.join(format!("{name}.mrb"))).expect("test .mrb");
-        let sum = sabiruby::mrbtest::run_file(&assert_mrb, &bin, 300_000_000).expect("runner");
+        let sum = sabiruby::mrbtest::run_file_cfg(&assert_mrb, &bin, 300_000_000, false, stress).expect("runner");
         if sum.ok < min {
             failures.push(format!("{name}: ok {} < baseline {} ({})", sum.ok, min, sum.aborted.clone().unwrap_or_default()));
         }

@@ -1,7 +1,8 @@
 //! Heap objects. Every non-immediate value is an entry in [`Heap`], addressed
-//! by [`ObjId`]. There is no garbage collector yet: the heap only grows
-//! (a mark & sweep collector driven by a step budget is planned; see the
-//! design notes in the book repository).
+//! by [`ObjId`]. Unreachable objects are reclaimed by a stop-the-world,
+//! non-moving mark & sweep collector (`Vm::gc_collect`, see `docs/gc.md`):
+//! the heap marks from the roots the VM hands it, sweeps what stayed white
+//! and reuses the freed slots through a free list.
 
 use alloc::vec::Vec;
 
@@ -148,16 +149,71 @@ pub struct HeapObject {
     pub kind: ObjKind,
 }
 
-#[derive(Default)]
+/// `flags` bit: reached in the current mark phase.
+const MARKED: u8 = 1;
+/// `flags` bit: the slot is on the free list.
+const FREE: u8 = 2;
+/// Estimated bytes of one object header, for `malloc_increase`.
+const OBJ_BYTES: usize = 64;
+/// Fewest allocations between two automatic collections.
+pub const GC_MIN_INTERVAL: usize = 4096;
+
 pub struct Heap {
     objs: Vec<HeapObject>,
+    /// `MARKED` / `FREE` per slot, parallel to `objs`.
+    flags: Vec<u8>,
+    /// Free slots, lowest index last (reused first).
+    free: Vec<u32>,
+    /// Allocations since the last collection.
+    pub allocated_since_gc: usize,
+    /// `allocated_since_gc` at which a collection becomes due.
+    pub alloc_threshold: usize,
+    /// Estimated bytes allocated since the last collection (`GC.stat[:malloc_increase]`).
+    pub malloc_increase: usize,
+    /// `GC.malloc_threshold`; 0 = the byte axis is off.
+    pub malloc_threshold: usize,
+    /// A collection is due; the VM runs it at the next instruction boundary.
+    pub gc_pending: bool,
+}
+
+impl Default for Heap {
+    fn default() -> Heap {
+        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: usize::MAX, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false }
+    }
+}
+
+/// Estimated payload bytes of a new object (strings, arrays and hashes only).
+fn payload_bytes(kind: &ObjKind) -> usize {
+    match kind {
+        ObjKind::String(s) => s.len(),
+        ObjKind::Array(a) => 16 * a.len(),
+        ObjKind::Hash(h) => 40 * h.entries.len(),
+        _ => 0,
+    }
 }
 
 impl Heap {
+    /// Never collects: at most it flags a collection as due (`gc_pending`).
     pub fn alloc(&mut self, class: ObjId, kind: ObjKind) -> ObjId {
-        let id = ObjId(self.objs.len() as u32);
-        self.objs.push(HeapObject { class, ivars: Vec::new(), frozen: false, kind });
-        id
+        self.allocated_since_gc += 1;
+        self.malloc_increase += OBJ_BYTES + payload_bytes(&kind);
+        if self.allocated_since_gc >= self.alloc_threshold {
+            self.gc_pending = true;
+        }
+        let o = HeapObject { class, ivars: Vec::new(), frozen: false, kind };
+        match self.free.pop() {
+            Some(i) => {
+                self.flags[i as usize] = 0;
+                self.objs[i as usize] = o;
+                ObjId(i)
+            }
+            None => {
+                let id = ObjId(self.objs.len() as u32);
+                self.objs.push(o);
+                self.flags.push(0);
+                id
+            }
+        }
     }
     /// Allocates a class object whose own class is filled in later.
     pub fn alloc_raw(&mut self, kind: ObjKind) -> ObjId {
@@ -165,17 +221,126 @@ impl Heap {
     }
     #[inline]
     pub fn get(&self, id: ObjId) -> &HeapObject {
+        debug_assert!(!self.is_free(id), "access to freed object {:?}", id);
         &self.objs[id.0 as usize]
     }
     #[inline]
     pub fn get_mut(&mut self, id: ObjId) -> &mut HeapObject {
+        debug_assert!(!self.is_free(id), "access to freed object {:?}", id);
         &mut self.objs[id.0 as usize]
     }
+    /// Number of slots (live and free). Slot ids are below this.
     pub fn len(&self) -> usize {
         self.objs.len()
     }
     pub fn is_empty(&self) -> bool {
         self.objs.is_empty()
+    }
+    /// Objects in use (`GC.stat[:live]`).
+    pub fn live_count(&self) -> usize {
+        self.objs.len() - self.free.len()
+    }
+    /// True for a slot that was swept and not reused yet.
+    #[inline]
+    pub fn is_free(&self, id: ObjId) -> bool {
+        self.flags.get(id.0 as usize).is_some_and(|f| f & FREE != 0)
+    }
+
+    // ------------------------------------------------------------------ collection
+
+    /// Marks `id` grey: pushes it on `work` unless already marked.
+    #[inline]
+    pub fn mark_id(&mut self, id: ObjId, work: &mut Vec<ObjId>) {
+        let f = &mut self.flags[id.0 as usize];
+        if *f & MARKED != 0 { return; }
+        assert!(*f & FREE == 0, "GC: live reference to freed object {:?}", id);
+        *f |= MARKED;
+        work.push(id);
+    }
+    #[inline]
+    pub fn mark_value(&mut self, v: Value, work: &mut Vec<ObjId>) {
+        if let Value::Obj(o) = v { self.mark_id(o, work); }
+    }
+    pub fn mark_slots(&mut self, slots: &[Slot], work: &mut Vec<ObjId>) {
+        for s in slots { self.mark_value(s.get(), work); }
+    }
+    /// Blackens the grey objects in `work` until none is left. Contexts
+    /// reached through a Fiber or an on-stack environment are appended to
+    /// `ctxs` for the VM to scan (their stacks are not heap objects).
+    pub fn mark_drain(&mut self, work: &mut Vec<ObjId>, ctxs: &mut Vec<usize>) {
+        while let Some(id) = work.pop() {
+            // `objs` is only read and `flags` only written here: split the borrow.
+            let Heap { objs, flags, .. } = self;
+            let o = &objs[id.0 as usize];
+            let mut mark = |v: Value| {
+                if let Value::Obj(x) = v {
+                    let f = &mut flags[x.0 as usize];
+                    if *f & MARKED == 0 {
+                        assert!(*f & FREE == 0, "GC: {:?} refers to freed object {:?}", id, x);
+                        *f |= MARKED;
+                        work.push(x);
+                    }
+                }
+            };
+            if o.class.0 != u32::MAX { mark(Value::Obj(o.class)); }
+            for (_, v) in &o.ivars { mark(v.get()); }
+            match &o.kind {
+                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception => {}
+                ObjKind::Break { value, .. } => mark(*value),
+                ObjKind::Array(a) => { for v in a { mark(v.get()); } }
+                ObjKind::Hash(h) => {
+                    for (k, v) in &h.entries { mark(k.get()); mark(v.get()); }
+                    mark(h.default.get());
+                }
+                ObjKind::Range { begin, end, .. } => { mark(begin.get()); mark(end.get()); }
+                ObjKind::Proc(p) => {
+                    for x in [p.upper, p.env, p.target_class].into_iter().flatten() { mark(Value::Obj(x)); }
+                }
+                ObjKind::Env(e) => {
+                    for v in &e.values { mark(v.get()); }
+                    if let Some(t) = e.target_class { mark(Value::Obj(t)); }
+                    // the values of an attached env live on its context's stack
+                    if e.attached { ctxs.push(e.ctx); }
+                }
+                ObjKind::Class(c) => {
+                    for x in [c.superclass, c.iclass_of, c.origin, c.origin_of, c.outer].into_iter().flatten() { mark(Value::Obj(x)); }
+                    for m in c.methods.values() { if let Method::Ruby(p) = m { mark(Value::Obj(*p)); } }
+                    for v in c.consts.values() { mark(v.get()); }
+                    for v in c.cvars.values() { mark(v.get()); }
+                    if let Some(a) = c.attached { mark(a.get()); }
+                }
+                ObjKind::Fiber(ctx) => { if *ctx != usize::MAX { ctxs.push(*ctx); } }
+            }
+        }
+    }
+    /// Frees every slot the mark phase did not reach and clears the marks.
+    /// Trailing free slots are dropped from the table. Returns the number freed.
+    pub fn sweep(&mut self) -> usize {
+        let mut freed = 0;
+        for i in 0..self.objs.len() {
+            let f = self.flags[i];
+            if f & MARKED != 0 {
+                self.flags[i] = 0;
+            } else if f & FREE == 0 {
+                // drop the payload; ObjKind::Object with class 0 is inert if touched by mistake
+                self.objs[i] = HeapObject { class: ObjId(0), ivars: Vec::new(), frozen: false, kind: ObjKind::Object };
+                self.flags[i] = FREE;
+                freed += 1;
+            }
+        }
+        let mut len = self.objs.len();
+        while len > 0 && self.flags[len - 1] & FREE != 0 { len -= 1; }
+        self.objs.truncate(len);
+        self.flags.truncate(len);
+        if self.objs.capacity() > 4 * len + 4096 {
+            self.objs.shrink_to(2 * len + 1024);
+            self.flags.shrink_to(2 * len + 1024);
+        }
+        self.free.clear();
+        for i in (0..len).rev() {
+            if self.flags[i] & FREE != 0 { self.free.push(i as u32); }
+        }
+        freed
     }
     pub fn class(&self, id: ObjId) -> &ClassData {
         match &self.get(id).kind {

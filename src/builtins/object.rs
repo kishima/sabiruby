@@ -183,24 +183,25 @@ pub fn init(vm: &mut Vm) {
         let n = vm.intern(name);
         vm.heap.class_mut(c.object).consts.insert(n, Slot::from(s));
     }
-    // GC module: no collector yet, so these are the interface only (values as in the reference defaults).
+    // GC module (docs/gc.md): `start`, `enable`/`disable`, `interval_ratio` and `malloc_threshold` drive the
+    // collector; the incremental/generational knobs are kept as values only.
     let gc = vm.define_module("GC");
     let gsc = vm.singleton_class(Value::Obj(gc)).unwrap();
     vm.define_methods(gsc, &[
-        ("start", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("start", |vm, _s, _a, _b| { vm.gc_start(); Ok(Value::Nil) }),
         ("enable", |vm, _s, _a, _b| { let old = vm.gc_disabled; vm.gc_disabled = false; Ok(Value::bool(old)) }),
         ("disable", |vm, _s, _a, _b| { let old = vm.gc_disabled; vm.gc_disabled = true; Ok(Value::bool(old)) }),
-        ("interval_ratio", |_vm, _s, _a, _b| Ok(Value::Int(200))),
-        ("interval_ratio=", |vm, _s, a, _b| { argc!(vm, a, 1); vm.expect_int(a[0], "ratio")?; Ok(Value::Nil) }),
+        ("interval_ratio", |vm, _s, _a, _b| Ok(Value::Int(vm.gc_interval_ratio))),
+        ("interval_ratio=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "ratio")?; vm.gc_interval_ratio = r; Ok(Value::Int(r)) }),
         ("step_ratio", |_vm, _s, _a, _b| Ok(Value::Int(200))),
         ("step_ratio=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "ratio")?; if r <= 0 { return Err(vm.raise_arg("step_ratio must be positive")); } Ok(Value::Nil) }),
         ("step_limit", |vm, _s, _a, _b| Ok(Value::Int(vm.gc_step_limit))),
         ("step_limit=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "limit")?; if r < 0 { return Err(vm.raise_arg("step_limit must be non-negative")); } vm.gc_step_limit = r; Ok(Value::Int(r)) }),
         ("generational_mode", |_vm, _s, _a, _b| Ok(Value::False)),
         ("generational_mode=", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
-        ("malloc_threshold", |vm, _s, _a, _b| Ok(Value::Int(vm.gc_malloc_threshold))),
-        ("malloc_threshold=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "threshold")?; if r < 0 { return Err(vm.raise_arg("malloc_threshold must be non-negative")); } vm.gc_malloc_threshold = r; Ok(Value::Int(r)) }),
-        ("stat", |vm, _s, _a, _b| { let h = vm.hash_new(); let live = vm.heap.len() as i64; for (k, v) in [("live", live), ("debt", 0), ("state", 0), ("generational", 0), ("full", 0), ("step_limit", 0), ("malloc_increase", 0), ("malloc_threshold", 16777216), ("symbol_count", vm.syms.len() as i64), ("dynamic_symbol_count", 0)] { let ks = Value::Sym(vm.intern(k)); vm.hash_set(h, ks, Value::Int(v))?; } Ok(h) }),
+        ("malloc_threshold", |vm, _s, _a, _b| Ok(Value::Int(vm.heap.malloc_threshold as i64))),
+        ("malloc_threshold=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "threshold")?; if r < 0 { return Err(vm.raise_arg("malloc_threshold must be non-negative")); } vm.heap.malloc_threshold = r as usize; Ok(Value::Int(r)) }),
+        ("stat", |vm, _s, _a, _b| { let h = vm.hash_new(); let live = vm.heap.live_count() as i64; let (mi, mt) = (vm.heap.malloc_increase as i64, vm.heap.malloc_threshold as i64); for (k, v) in [("live", live), ("debt", 0), ("state", 0), ("generational", 0), ("full", 0), ("step_limit", vm.gc_step_limit), ("malloc_increase", mi), ("malloc_threshold", mt), ("symbol_count", vm.syms.len() as i64), ("dynamic_symbol_count", 0)] { let ks = Value::Sym(vm.intern(k)); vm.hash_set(h, ks, Value::Int(v))?; } Ok(h) }),
     ]);
     let n = vm.intern("MRUBY_RELEASE_NO");
     vm.heap.class_mut(c.object).consts.insert(n, Slot::from(Value::Int(40100)));

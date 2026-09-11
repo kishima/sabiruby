@@ -195,7 +195,15 @@ pub fn run_file(assert_mrb: &[u8], test_mrb: &[u8], cap: u64) -> VmResult<Summar
 
 /// `verbose` sets `$mrbtest_verbose`, so `assert` prints each test name before running it.
 pub fn run_file_opt(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool) -> VmResult<Summary> {
-    let mut vm = Vm::with_mrblib()?;
+    run_file_cfg(assert_mrb, test_mrb, cap, verbose, false)
+}
+
+/// `gc_stress` collects at every instruction boundary that follows an allocation
+/// (`SABIRUBY_GC_STRESS`), from the loading of mrblib on.
+pub fn run_file_cfg(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool) -> VmResult<Summary> {
+    let mut vm = Vm::new();
+    vm.set_gc_stress(gc_stress);
+    vm.load_mrblib()?;
     install(&mut vm);
     if verbose { let g = vm.intern("$mrbtest_verbose"); vm.globals.insert(g, Slot::from(Value::True)); }
     vm.load_and_run(assert_mrb)?;

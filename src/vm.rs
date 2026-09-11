@@ -135,6 +135,19 @@ pub struct Core {
     pub fiber_error: ObjId,
 }
 
+impl Core {
+    /// Every class in the set (GC roots).
+    pub fn ids(&self) -> [ObjId; 39] {
+        [self.basic_object, self.object, self.module, self.class, self.kernel, self.comparable, self.enumerable,
+         self.nil_class, self.true_class, self.false_class, self.numeric, self.integer, self.float, self.symbol,
+         self.string, self.array, self.hash, self.range, self.proc_, self.exception, self.standard_error,
+         self.runtime_error, self.argument_error, self.type_error, self.name_error, self.no_method_error,
+         self.zero_division_error, self.local_jump_error, self.index_error, self.range_error, self.key_error,
+         self.not_implemented_error, self.stop_iteration, self.frozen_error, self.float_domain_error,
+         self.no_matching_pattern_error, self.system_stack_error, self.fiber, self.fiber_error]
+    }
+}
+
 /// Frequently used symbols.
 #[derive(Clone, Copy)]
 pub struct Syms {
@@ -193,13 +206,30 @@ pub struct Vm {
     pub pending_kw: Option<Value>,
     /// Pairs whose `==`/`eql?` is in progress (recursive containers compare equal).
     pub eq_guard: Vec<(ObjId, ObjId)>,
-    /// `GC.disable` state (no collector yet; the interface is kept).
+    /// `GC.disable` state: collections are postponed until `GC.enable`.
     pub gc_disabled: bool,
     pending_vis_break: bool,
     /// Native fns that stand for `mrb_notimplement()`: `respond_to?` answers false for them.
     pub notimpl_fns: Vec<crate::object::NativeFn>,
     pub gc_step_limit: i64,
-    pub gc_malloc_threshold: i64,
+    /// `GC.interval_ratio` (percent): the heap may grow to `live * ratio / 100` between collections.
+    pub gc_interval_ratio: i64,
+    /// Collect at the first instruction boundary after every allocation (`SABIRUBY_GC_STRESS`).
+    pub gc_stress: bool,
+    /// Natives running on the host stack (SEND -> native, `funcall` -> native).
+    /// Their Rust locals may hold values the collector cannot see, so it does not
+    /// run while this is non-zero (see `docs/gc.md`, "Contract for native code").
+    pub native_active: u32,
+    /// Objects the host keeps across calls (`mrb_gc_register`).
+    pub gc_registered: Vec<ObjId>,
+    /// Objects alive after the last collection.
+    pub live_after_gc: usize,
+    /// Collections run so far.
+    pub gc_count: u64,
+    /// Total time in the collector, measured with `gc_clock` when the host sets one.
+    pub gc_time_ns: u64,
+    /// Monotonic clock in nanoseconds (the library is no_std; the CLI supplies one).
+    pub gc_clock: Option<fn() -> u64>,
     /// All contexts (fibers); `contexts[cur]` is the running one (its stack/ci are in `stack`/`ci`).
     pub contexts: Vec<Context>,
     pub cur: usize,
@@ -334,7 +364,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_malloc_threshold: 16777216, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
         };
         // Constants for the core classes, Object includes Kernel.
@@ -362,6 +392,14 @@ impl Vm {
     /// A VM with `mrblib` (the Ruby part of mruby's core library) loaded.
     pub fn with_mrblib() -> VmResult<Vm> {
         let mut vm = Vm::new();
+        vm.load_mrblib()?;
+        Ok(vm)
+    }
+
+    /// Loads `mrblib` and the Ruby parts of the gems into a VM made by [`Vm::new`]
+    /// (so a host can set options such as `gc_stress` first).
+    pub fn load_mrblib(&mut self) -> VmResult<()> {
+        let vm = self;
         vm.load_and_run(crate::MRBLIB_MRB)?;
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
@@ -369,7 +407,7 @@ impl Vm {
         for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
-        Ok(vm)
+        Ok(())
     }
 
     // ------------------------------------------------------------------ output
@@ -920,7 +958,7 @@ impl Vm {
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 self.native_depth += 1;
                 let direct = core::mem::replace(&mut self.direct_send, false);
-                let r = f(self, recv, args, blk);
+                let r = self.call_native(f, recv, args, blk);
                 self.direct_send = direct;
                 self.native_depth -= 1;
                 self.orphan_block_of_native(blk);
@@ -1069,7 +1107,7 @@ impl Vm {
         let ctx0 = self.cur;
         let direct = core::mem::replace(&mut self.direct_send, true);
         let reg0 = core::mem::replace(&mut self.native_ret_reg, ret_reg);
-        let r = f(self, recv, args, blk);
+        let r = self.call_native(f, recv, args, blk);
         self.native_ret_reg = reg0;
         self.direct_send = direct;
         self.orphan_block_of_native(blk);
@@ -1078,6 +1116,15 @@ impl Vm {
         if self.loop_exit.is_some() { return Ok((v, true)); }
         self.deliver(v);
         Ok((v, true))
+    }
+
+    /// Runs a native with the collector held off (its Rust locals are not roots).
+    #[inline]
+    pub fn call_native(&mut self, f: crate::object::NativeFn, recv: Value, args: &[Value], blk: Value) -> VmResult<Value> {
+        self.native_active += 1;
+        let r = f(self, recv, args, blk);
+        self.native_active -= 1;
+        r
     }
 
     /// A block made by the running frame and passed to a native that has now
@@ -1314,6 +1361,113 @@ impl Vm {
         }
         if c == self.cur { return Ok(self.fiber_result(args)); }
         self.fiber_switch(fib, args, false, false)
+    }
+
+    // ------------------------------------------------------------------ garbage collection
+
+    /// Keeps `id` alive until [`Vm::gc_unregister`] (`mrb_gc_register`): for objects a
+    /// host holds across calls into the VM, which the collector cannot otherwise see.
+    pub fn gc_register(&mut self, id: ObjId) {
+        self.gc_registered.push(id);
+    }
+    /// Drops one registration made by [`Vm::gc_register`].
+    pub fn gc_unregister(&mut self, id: ObjId) {
+        if let Some(i) = self.gc_registered.iter().rposition(|x| *x == id) { self.gc_registered.swap_remove(i); }
+    }
+    /// Stress mode (mruby `MRB_GC_STRESS`): every allocation makes a collection due.
+    pub fn set_gc_stress(&mut self, on: bool) {
+        self.gc_stress = on;
+        self.heap.alloc_threshold = if on { 1 } else { usize::MAX };
+    }
+
+    /// The due collection, at an instruction boundary. Postponed (it stays due)
+    /// while a native is on the host stack or `GC.disable` is in effect.
+    #[cold]
+    #[inline(never)]
+    fn gc_maybe(&mut self) {
+        if self.native_active == 0 && !self.gc_disabled { self.gc_collect(); }
+    }
+
+    /// `GC.start`. Called from a SEND, the native `GC.start` is the only one on the
+    /// host stack and every register is in the Vm, so it collects at once; under
+    /// another native (`funcall`) it only makes the collection due.
+    pub fn gc_start(&mut self) {
+        if self.gc_disabled { return; }
+        if self.native_active <= 1 { self.gc_collect(); } else { self.heap.gc_pending = true; }
+    }
+
+    /// Mark & sweep (stop the world). The caller guarantees that no Rust frame
+    /// holds a value that is not reachable from the roots.
+    pub fn gc_collect(&mut self) {
+        let t0 = self.gc_clock.map(|c| c());
+        let mut work: Vec<ObjId> = Vec::new();
+        let mut ctxs: Vec<usize> = Vec::new();
+        let mut ctx_marked = vec![false; self.contexts.len()];
+        self.gc_mark_roots(&mut work, &mut ctxs);
+        loop {
+            self.heap.mark_drain(&mut work, &mut ctxs);
+            let Some(c) = ctxs.pop() else { break };
+            if ctx_marked[c] { continue; }
+            ctx_marked[c] = true;
+            self.gc_mark_context(c, &mut work);
+        }
+        // A context nothing reached (its Fiber object is garbage) can never run
+        // again: drop its stack and frames. The index is not reused.
+        for (c, ctx) in self.contexts.iter_mut().enumerate() {
+            if ctx_marked[c] { continue; }
+            if ctx.status != FiberState::Terminated || !ctx.stack.is_empty() || !ctx.ci.is_empty() || ctx.fib.is_some() || ctx.proc_.is_some() {
+                *ctx = Context::new(FiberState::Terminated);
+            }
+        }
+        self.heap.sweep();
+        let live = self.heap.live_count();
+        self.live_after_gc = live;
+        self.heap.allocated_since_gc = 0;
+        self.heap.malloc_increase = 0;
+        self.heap.gc_pending = false;
+        self.heap.alloc_threshold = if self.gc_stress { 1 } else { usize::MAX };
+        self.gc_count += 1;
+        if let (Some(t0), Some(c)) = (t0, self.gc_clock) { self.gc_time_ns += c().saturating_sub(t0); }
+    }
+
+    /// The root set (see `docs/gc.md`). Contexts to scan go to `ctxs`.
+    fn gc_mark_roots(&mut self, work: &mut Vec<ObjId>, ctxs: &mut Vec<usize>) {
+        let h = &mut self.heap;
+        // the running context: its stack and frames are the Vm's
+        ctxs.push(self.cur);
+        // the root context, and the chain of contexts waiting for a resumed fiber
+        ctxs.push(ROOT);
+        for (i, c) in self.contexts.iter().enumerate() {
+            if matches!(c.status, FiberState::Running | FiberState::Resumed) || c.vmexec { ctxs.push(i); }
+        }
+        for s in self.globals.values() { h.mark_value(s.get(), work); }
+        for v in [self.exc, self.loop_exit, self.pending_kw].into_iter().flatten() { h.mark_value(v, work); }
+        for id in self.core.ids() { h.mark_id(id, work); }
+        h.mark_id(self.top_self, work);
+        h.mark_id(self.call_proc, work);
+        for id in &self.inspect_guard { h.mark_id(*id, work); }
+        for (x, y) in &self.eq_guard { h.mark_id(*x, work); h.mark_id(*y, work); }
+        for id in &self.gc_registered { h.mark_id(*id, work); }
+    }
+
+    /// Marks what a context holds: registers, frames, its Fiber and block.
+    fn gc_mark_context(&mut self, c: usize, work: &mut Vec<ObjId>) {
+        fn mark_ci(h: &mut Heap, ci: &[CallInfo], work: &mut Vec<ObjId>) {
+            for f in ci {
+                h.mark_id(f.proc_, work);
+                h.mark_id(f.target_class, work);
+                if let Some(e) = f.env { h.mark_id(e, work); }
+            }
+        }
+        let h = &mut self.heap;
+        if c == self.cur {
+            h.mark_slots(&self.stack, work);
+            mark_ci(h, &self.ci, work);
+        }
+        let ctx = &self.contexts[c];
+        h.mark_slots(&ctx.stack, work);
+        mark_ci(h, &ctx.ci, work);
+        for id in [ctx.fib, ctx.proc_].into_iter().flatten() { h.mark_id(id, work); }
     }
 
     // ------------------------------------------------------------------ environments
@@ -1601,6 +1755,8 @@ impl Vm {
                 }
                 self.step_left = Some(left.saturating_sub(1));
             }
+            // the only place the collector runs: every register and frame is in the Vm
+            if self.heap.gc_pending { self.gc_maybe(); }
             self.instructions += 1;
             let ci = self.ci.last().unwrap().clone();
             let mut pc = ci.pc;
@@ -2162,7 +2318,11 @@ impl Vm {
         match k {
             Value::Obj(o) if !matches!(self.heap.get(o).kind, ObjKind::String(_)) => {
                 let hs = self.s.hash;
-                match self.funcall(k, hs, &[], Value::Nil)? { Value::Int(i) => Ok(i), Value::Float(f) => Ok(f as i64), _ => Ok(self.value_hash(k)) }
+                // callers (HASH, keyword packing) hold the hash being built in a Rust local
+                self.native_active += 1;
+                let r = self.funcall(k, hs, &[], Value::Nil);
+                self.native_active -= 1;
+                match r? { Value::Int(i) => Ok(i), Value::Float(f) => Ok(f as i64), _ => Ok(self.value_hash(k)) }
             }
             _ => Ok(self.value_hash(k)),
         }
@@ -2170,7 +2330,13 @@ impl Vm {
     /// Key equality for lookups: `eql?` (natively for immediates and Strings).
     pub fn key_eql(&mut self, a: Value, b: Value) -> VmResult<bool> {
         match (a, b) {
-            (Value::Obj(x), _) if !matches!(self.heap.get(x).kind, ObjKind::String(_)) => { let eql = self.s.eql; Ok(self.funcall(a, eql, &[b], Value::Nil)?.truthy()) }
+            (Value::Obj(x), _) if !matches!(self.heap.get(x).kind, ObjKind::String(_)) => {
+                let eql = self.s.eql;
+                self.native_active += 1; // as in key_hash
+                let r = self.funcall(a, eql, &[b], Value::Nil);
+                self.native_active -= 1;
+                Ok(r?.truthy())
+            }
             _ => Ok(self.eql(a, b)),
         }
     }

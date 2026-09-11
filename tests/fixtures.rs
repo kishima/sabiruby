@@ -8,7 +8,10 @@ fn run_fixture(name: &str) {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures");
     let mrb = std::fs::read(dir.join(format!("{name}.mrb"))).expect("fixture .mrb");
     let expected = std::fs::read(dir.join(format!("{name}.out"))).expect("fixture .out");
-    let mut vm = sabiruby::Vm::with_mrblib().expect("mrblib loads");
+    let mut vm = sabiruby::Vm::new();
+    // SABIRUBY_GC_STRESS=1: collect after every allocation (finds missing GC roots)
+    vm.set_gc_stress(std::env::var("SABIRUBY_GC_STRESS").map(|v| !v.is_empty() && v != "0").unwrap_or(false));
+    vm.load_mrblib().expect("mrblib loads");
     let result = vm.load_and_run(&mrb);
     let mut out = vm.take_output();
     if let Err(e) = result {
@@ -20,7 +23,7 @@ fn run_fixture(name: &str) {
 
 macro_rules! fixture { ($($n:ident),*) => { $( #[test] fn $n() { run_fixture(stringify!($n)); } )* } }
 
-fixture!(hello, arith, method, control, block, collections, klass, exception, closure, strings, objects, errors, errors2, args);
+fixture!(hello, arith, method, control, block, collections, klass, exception, closure, strings, objects, errors, errors2, args, gc);
 
 #[test]
 fn kwargs() { run_fixture("kwargs"); }
