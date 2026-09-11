@@ -47,9 +47,10 @@ binding 側の変数空間（`lvspace` proc）を広げてから本コンパイ�
 
 ### 本家 4.1.0-rc と PicoRuby 同梱版の差
 
-PicoRuby 同梱の `mruby-compiler` は本家より新しく、`search_upvar` と `mrc_pm_options_init` の Proc 連鎖の走査が
-`MRC_PROC_LVAR_BOUNDARY_P`（`SCOPE` かつ env 無しの proc）で止まる。本家 4.1.0-rc は C 関数の proc に当たるまで辿る。
-SabiRuby の `local_variables` は `pd.scope` で止めており、新しい版の考え方に近い。eval でも `scope` で止めてよい（メソッド本体の外の変数は見えないのが Ruby の仕様）。
+本家 4.1.0-rc の `search_upvar` は `MRC_PROC_SCOPE_P` の proc（メソッド本体など）を調べたところで止まる。ただし `mrc_pm_options_init` の方は C 関数の proc まで辿るので、
+パーサに教える名前の範囲とコード生成が引ける範囲が一致していない（外側のメソッドの変数を Prism はローカル変数と解析し、codegen が「Can't find local variables」にする）。
+PicoRuby 同梱の `mruby-compiler` は本家より新しく、両方の走査が `MRC_PROC_LVAR_BOUNDARY_P`（`SCOPE` かつ env 無しの proc）で止まるように揃えてある。
+SabiRuby の `local_variables` は `pd.scope` で止めており、これと同じ。eval の名前表も `scope` で止める（メソッド本体の外の変数は見えないのが Ruby の仕様）。
 
 ## 2. PicoRuby の手法
 
