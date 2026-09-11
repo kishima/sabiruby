@@ -61,8 +61,11 @@ wasi-sdk's clang (see `compiler.md`):
   until `SystemStackError` (`NATIVE_DEPTH_MAX`) and 250 nested literals (Prism's depth limit is
   256), already pass with the default 1 MB.
 
-Module: 1,165,312 bytes after `wasm-opt -Oz` (413,230 gzipped). Fetch + compile + VM with mrblib:
-33 ms in headless Chromium from a local server.
+Module as deployed: 1,169,017 bytes after `wasm-opt -Oz`, 421,881 over gzip (Pages compresses it).
+Page ready (navigation start to the Run button enabled: fonts, CodeMirror, the module, the worker,
+the VM with mrblib) on the deployed site in a fresh headless Chromium: 0.43–1.46 s over three runs
+on 2026-09-12; about 0.37 s from a local server. Instantiating the module and creating the VM:
+15 ms in Node.
 
 ## Verification
 
