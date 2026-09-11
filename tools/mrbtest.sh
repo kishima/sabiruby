@@ -17,7 +17,7 @@ fi
 # copy sources (they are MIT, from mruby test/) and compile.
 # Gem tests (mrbgems/<gem>/test/*.rb) are copied as gem_<file>.rb; the gem's
 # mrblib is compiled into src/mrblib_<gem>.mrb and loaded by Vm::with_mrblib.
-GEMS="mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext"
+GEMS="mruby-sprintf mruby-metaprog mruby-proc-ext mruby-method mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext"
 cp "$MRUBY/test/assert.rb" $DIR/src/
 cp "$MRUBY"/test/t/*.rb $DIR/src/
 mkdir -p target/mrblib
@@ -30,10 +30,13 @@ for g in $GEMS; do
     cp target/mrblib/mrblib_$short.mrb src/mrblib_$short.mrb
   fi
 done
+# -g keeps the LVAR section (local variable names): the reference test driver
+# compiles the tests from source, so `local_variables` and `Proc#parameters`
+# see the names there too.
 docker run --rm -v "$PWD/$DIR:/w" $IMG /bin/sh -c '
-  mrbc -o /w/assert.mrb /w/src/assert.rb
+  mrbc -g -o /w/assert.mrb /w/src/assert.rb
   for rb in /w/src/*.rb; do b=$(basename "$rb" .rb); [ "$b" = assert ] && continue
-    mrbc -o /w/$b.mrb "$rb" || echo "compile failed: $b"; done'
+    mrbc -g -o /w/$b.mrb "$rb" || echo "compile failed: $b"; done'
 cargo build --release -q
 {
   echo "# mruby test suite on SabiRuby"

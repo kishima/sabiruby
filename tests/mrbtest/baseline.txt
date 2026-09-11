@@ -19,8 +19,12 @@ gem_enumerator 52
 gem_fiber 21
 gem_fiber2 4
 gem_hash 27
+gem_metaprog 33
+gem_method 30
 gem_numeric 1
+gem_proc 9
 gem_range 4
+gem_sprintf 10
 gem_string 64
 hash 44
 indexerror 1

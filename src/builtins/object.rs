@@ -16,7 +16,7 @@ pub fn init(vm: &mut Vm) {
         ("equal?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| same_object(*x, s)).unwrap_or(false)))),
         ("!", |_vm, s, _a, _b| Ok(Value::bool(!s.truthy()))),
         ("!=", |vm, s, a, _b| { argc!(vm, a, 1); let r = vm.equal(s, a[0])?; Ok(Value::bool(!r)) }),
-        ("__id__", |_vm, s, _a, _b| Ok(object_id(s))),
+        ("__id__", |vm, s, a, _b| { argc!(vm, a, 0); Ok(object_id(s)) }),
         ("__send__", send),
         ("instance_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
         ("method_missing", method_missing),

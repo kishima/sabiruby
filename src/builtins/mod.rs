@@ -9,7 +9,11 @@ pub mod array;
 pub mod exception;
 pub mod ext_array;
 pub mod ext_hash;
+pub mod ext_metaprog;
+pub mod ext_method;
+pub mod ext_proc;
 pub mod ext_range;
+pub mod ext_sprintf;
 pub mod ext_string;
 pub mod fiber;
 pub mod hash;
@@ -43,6 +47,10 @@ pub fn init(vm: &mut Vm) {
     ext_hash::init(vm);
     ext_range::init(vm);
     ext_string::init(vm);
+    ext_sprintf::init(vm);
+    ext_metaprog::init(vm);
+    ext_proc::init(vm);
+    ext_method::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers

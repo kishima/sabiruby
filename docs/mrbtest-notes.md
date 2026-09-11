@@ -40,12 +40,16 @@ Categories:
 | gem_string | 9 skip | build | `swapcase`/`casecmp?` Unicode and the six `scrub` tests skip themselves without `MRB_UTF8_STRING` (`UNICODECASE` false); the reference build is a byte-string build too. |
 | gem_fiber2 | (all pass) | — | Needs the six natives of `mruby-fiber/test/fibertest.c`; SabiRuby provides them in `src/mrbtest.rs`. The reference `mruby` command lacks them and crashes on all 4. |
 | gem_array | (C helper) | — | `__unshift_from_c` of `mruby-array-ext/test/array.c` is provided by `src/mrbtest.rs`. |
+| gem_sprintf | 3 skip | build | Tests of `%c` with UTF-8 code points and of the result's encoding skip unless `__ENCODING__ == "UTF-8"` / `String#encoding` exists; neither does on the reference build either. |
+| gem_proc | 2 crash | C fixture | `ProcExtTest.mrb_proc_new_cfunc_with_env` / `mrb_cfunc_env_get` test the C closure API of `mruby-proc-ext/test/proc.c`; there is no C closure here. The reference `mruby` crashes too. |
+| gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
+| gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |
 
-Summary (2026-09-11, after the *-ext gems): 1137 assertions, 1098 pass. Not passing:
-12 crashes (11 C fixtures, 1 core-test-vs-gem conflict the reference shares), 9 KO (5 GC arena,
-4 deliberate deviations, all NaN identity or the pattern-matching guard), 18 skips (bigint 3,
-regexp 1, backtrace 2, Float defined 1, revision 1, UTF-8 9, plus the empty `regexperror`),
-0 warnings (one was a bug, see below).
+Summary (2026-09-11, after sprintf, metaprog, proc-ext and method): 1227 assertions, 1180 pass.
+Not passing: 14 crashes (13 C fixtures, 1 core-test-vs-gem conflict the reference shares), 9 KO
+(5 GC arena, 4 deliberate deviations: NaN identity and the pattern-matching guard), 24 skips
+(bigint 3, regexp 1, backtrace 2, Float defined 1, revision 1, UTF-8/encoding 12, DBG-dependent
+`source_location` 3, plus the empty `regexperror`), 0 warnings (one was a bug, see below).
 
 ## Warnings
 

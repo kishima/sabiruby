@@ -224,7 +224,6 @@ pub fn init(vm: &mut Vm) {
         ("sub", |vm, s, a, b| str_sub(vm, s, a, b, false)),
         ("gsub", |vm, s, a, b| str_sub(vm, s, a, b, true)),
         ("lines", |vm, s, _a, _b| { let b = bytes(vm, s); let mut items = vec![]; let mut start = 0; for (i, c) in b.iter().enumerate() { if *c == b'\n' { items.push(vm.str_new(&b[start..=i])); start = i + 1; } } if start < b.len() { items.push(vm.str_new(&b[start..])); } Ok(vm.ary_new(items)) }),
-        ("%", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "String#% (mruby-sprintf) is not implemented"))),
         ("__upto_endless", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "endless string range"))),
         ("upto", |vm, s, a, b| { argc!(vm, a, 1, 2); let last = vm.expect_str(a[0], "argument")?; let excl = a.len() == 2 && a[1].truthy(); let mut cur = bytes(vm, s); let mut n = 0; loop { if cur.len() > last.len() { break; } if cur == last { if !excl { let v = vm.str_new(&cur); vm.call_block(b, &[v])?; } break; } let v = vm.str_new(&cur); vm.call_block(b, &[v])?; cur = str_succ(&cur); n += 1; if n > 1_000_000 { break; } } Ok(s) }),
     ]);

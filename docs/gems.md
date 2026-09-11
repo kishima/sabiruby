@@ -59,3 +59,39 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
 * NaN identity: every NaN is one immediate here, the reference allocates one object per NaN
   (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`).
 * `String#slice!`, `tr` and friends work on bytes; the multibyte tests skip themselves.
+* **mruby-sprintf** — `Kernel#sprintf`/`format` (`ext_sprintf.rs`): the reference's state machine
+  for flags, `n$`, `<name>`/`{name}` and `*`, with its error messages; integers follow
+  `mrb_int_to_cstr`/`mrb_uint_to_cstr` including the `..f` two's-complement form for negative
+  `%x`/`%o`/`%b`; floats are rendered with `core::fmt` (correct rounding) and reshaped to C's
+  `%f`/`%e`/`%g` (exponent of at least two digits, `%g` trailing-zero removal, `#` keeps them).
+  `String#%` is the gem's Ruby part. The core-stage `String#%` stub was removed.
+* **mruby-metaprog** (`ext_metaprog.rs`) — instance/class variable name checks (`'@0' is not
+  allowed as an instance variable name`), `methods`/`instance_methods` families with the
+  `regular`/`inherit` argument and the reference's listing rule (first table wins, `undef`
+  hides), `singleton_methods(recur)`, `local_variables` from the caller's irep names,
+  `included_modules`, `constants(inherit)`, `Module.constants`, `Module.nesting`,
+  `remove_method` (+ `method_removed` hook), `undefined_instance_methods`, `public_send` with
+  `method_missing` fallback. Two structural fixes came with it: the natives SabiRuby's core stage
+  had defined on **Object** are moved to **Kernel** at init (the reference defines them in
+  `mrb_init_kernel`; owners, listings and `Kernel.instance_method(:inspect)` depend on it), and
+  `Vm::funcall` now dispatches a user-defined `method_missing` like a SEND does.
+* **mruby-proc-ext** (`ext_proc.rs`) — `Proc#inspect` (`#<Proc:0x... -:-> (lambda)`),
+  `lambda?`, `parameters` (from the ENTER operand and the irep's local names),
+  `source_location` (nil), `Kernel#proc`; `curry`, `<<`, `>>`, `===`, `yield` are Ruby.
+  `proc { break }.call` raising LocalJumpError needed the orphan rule for natives: when a native
+  returns, a non-strict block made by the calling frame and passed to it is marked orphan
+  (`Vm::orphan_block_of_native`; the reference does it in `cipop` of the C frame).
+* **mruby-method** (`ext_method.rs`) — `Method`/`UnboundMethod` as plain objects with the
+  reference's ivars `_owner`, `_recv`, `_name`, `_proc`, `_klass` (plus `_missing` for
+  `respond_to_missing?` methods). A native method has no Proc object here: it is looked up again
+  by owner and name when called or compared (two natives are `==` when they are the same
+  function). Native arity comes from a small table keyed by function (`Vm::native_arity`),
+  `-1` otherwise, because SabiRuby natives carry no `MRB_ARGS_*` spec.
+
+## Compiling the tests
+
+`tools/mrbtest.sh` compiles the test files with `mrbc -g`, which keeps the LVAR section:
+`local_variables` and `Proc#parameters` need the names, and the reference driver compiles the
+tests from source so it has them too. Reading LVAR uncovered a bug of the loader: the symbol
+count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
+

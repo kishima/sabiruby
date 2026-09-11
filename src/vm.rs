@@ -190,7 +190,7 @@ pub struct Vm {
     pub inspect_guard: Vec<ObjId>,
     /// Keyword hash of the native call in progress. `Vm::funcall` re-attaches it
     /// as keywords when a native forwards its arguments unchanged (`send`, `new`).
-    pending_kw: Option<Value>,
+    pub pending_kw: Option<Value>,
     /// Pairs whose `==`/`eql?` is in progress (recursive containers compare equal).
     pub eq_guard: Vec<(ObjId, ObjId)>,
     /// `GC.disable` state (no collector yet; the interface is kept).
@@ -213,6 +213,8 @@ pub struct Vm {
     /// Set by a fiber switch that must end the innermost run loop (yield or
     /// termination of a fiber resumed by native code): the loop returns this value.
     loop_exit: Option<Value>,
+    /// Arity of natives as the reference declares it (`MRB_ARGS_*`), for `Method#arity`.
+    pub native_arity: Vec<(crate::object::NativeFn, i64)>,
 }
 
 /// Result of [`Vm::step`].
@@ -333,7 +335,7 @@ impl Vm {
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_malloc_threshold: 16777216, call_proc,
-            contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None,
+            contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -364,7 +366,7 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
         Ok(vm)
@@ -921,6 +923,7 @@ impl Vm {
                 let r = f(self, recv, args, blk);
                 self.direct_send = direct;
                 self.native_depth -= 1;
+                self.orphan_block_of_native(blk);
                 r
             }
             Some((Method::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
@@ -940,9 +943,25 @@ impl Vm {
                 }
             }
             Some((Method::Undef, _)) | None => {
+                // a user-defined method_missing takes the call (the basic one only reports)
+                let mm = self.s.method_missing;
+                if let Some((m, owner)) = self.find_method(cls, mm) {
+                    if !matches!(m, Method::Native(_)) {
+                        let mut nargs = vec![Value::Sym(mid)];
+                        nargs.extend_from_slice(args);
+                        if let Method::Ruby(p) = m {
+                            let kw = match (self.pending_kw, args.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => Some(k), _ => None };
+                            let pos = if kw.is_some() { &nargs[..nargs.len() - 1] } else { &nargs[..] };
+                            let tc = if self.heap.proc_data(p).env.is_some() { None } else { Some(owner) };
+                            return self.call_proc_with(p, recv, pos, kw, blk, Some(mm), tc);
+                        }
+                    }
+                }
                 let name = self.sym_name(mid);
                 let desc = self.describe_for_error(recv);
-                Err(self.no_method_error(mid, recv, &format!("undefined method '{name}' for {desc}")))
+                let e = self.no_method_error(mid, recv, &format!("undefined method '{name}' for {desc}"));
+                if let VmError::Raise(Value::Obj(o)) = e { let av = self.ary_new(args.to_vec()); let k = self.intern("@args"); self.heap.ivar_set(o, k, av); }
+                Err(e)
             }
         }
     }
@@ -979,6 +998,14 @@ impl Vm {
 
     /// Pushes a frame for `proc_` and runs it to completion (re-entrant
     /// execution; native code waits for the result).
+    /// Runs a method body proc with keywords (`mrb_exec_irep` for `Method#call`).
+    pub fn call_method_proc(&mut self, proc_: ObjId, self_: Value, args: &[Value], kw: Option<Value>, blk: Value, mid: Option<Sym>, target_class: ObjId) -> VmResult<Value> {
+        let tc = if self.heap.proc_data(proc_).env.is_some() { None } else { Some(target_class) };
+        self.call_proc_with(proc_, self_, args, kw, blk, mid, tc)
+    }
+    /// `mrb_cv_set` from native code.
+    pub fn cvar_store(&mut self, class: ObjId, s: Sym, v: Value) -> VmResult<()> { self.cvar_set(class, s, v) }
+
     pub fn call_proc(&mut self, proc_: ObjId, self_: Value, args: &[Value], blk: Value, mid: Option<Sym>, target_class: ObjId) -> VmResult<Value> {
         let tc = if self.heap.proc_data(proc_).env.is_some() { None } else { Some(target_class) };
         self.call_proc_with(proc_, self_, args, None, blk, mid, tc)
@@ -1045,11 +1072,26 @@ impl Vm {
         let r = f(self, recv, args, blk);
         self.native_ret_reg = reg0;
         self.direct_send = direct;
+        self.orphan_block_of_native(blk);
         let v = r?;
         if self.cur == ctx0 { return Ok((v, false)); }
         if self.loop_exit.is_some() { return Ok((v, true)); }
         self.deliver(v);
         Ok((v, true))
+    }
+
+    /// A block made by the running frame and passed to a native that has now
+    /// returned loses its home (mruby `cipop` of the C frame: MRB_PROC_ORPHAN),
+    /// so `proc { break }.call` is a LocalJumpError.
+    fn orphan_block_of_native(&mut self, blk: Value) {
+        if let Value::Obj(b) = blk {
+            if let ObjKind::Proc(pd) = &self.heap.get(b).kind {
+                let caller_env = self.ci.last().and_then(|c| c.env);
+                if !pd.strict && pd.env.is_some() && pd.env == caller_env {
+                    if let ObjKind::Proc(pd) = &mut self.heap.get_mut(b).kind { pd.orphan = true; }
+                }
+            }
+        }
     }
 
     /// `send`/`__send__` issued by a SEND: shifts the arguments down and

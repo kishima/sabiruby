@@ -239,8 +239,9 @@ fn read_record(c: &mut Cur, out: &mut Vec<Irep>) -> VmResult<usize> {
 }
 
 fn read_lvar(c: &mut Cur, ireps: &mut [Irep], root: usize) -> VmResult<()> {
-    // syms table: slen:u16 then (len:u16 name) ... ; then per-irep records (pre-order)
-    let slen = c.u16()? as usize;
+    // syms table: slen:u32 then (len:u16 name) ... ; then per-irep records (pre-order)
+    // (`write_lv_sym_table`: the count is 32-bit, each name length 16-bit)
+    let slen = c.u32()? as usize;
     let mut names = Vec::with_capacity(slen);
     for _ in 0..slen {
         let n = c.u16()? as usize;

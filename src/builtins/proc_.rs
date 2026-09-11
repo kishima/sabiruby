@@ -73,7 +73,7 @@ pub fn init(vm: &mut Vm) {
 }
 
 /// Decodes the leading `OP_ENTER` to compute `Proc#arity` (mruby `mrb_proc_arity`).
-fn arity_of(irep: &crate::vm::VmIrep, lambda: bool) -> i64 {
+pub(crate) fn arity_of(irep: &crate::vm::VmIrep, lambda: bool) -> i64 {
     if irep.iseq.first() != Some(&(crate::opcode::Op::Enter as u8)) { return 0; }
     let a = ((irep.iseq[1] as u32) << 16) | ((irep.iseq[2] as u32) << 8) | irep.iseq[3] as u32;
     let m1 = ((a >> 18) & 0x1f) as i64;

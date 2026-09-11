@@ -15,3 +15,6 @@ range	crash: `(1..).last` raises RangeError with mruby-range-ext loaded; the ref
 gem_array	deliberate deviation: NaN identity (`[nan].uniq`, `- [nan]`, `include?(nan)`)
 gem_enum	deliberate deviation: NaN identity (`[nan].count(nan)`)
 gem_string	9 skips: Unicode case mapping and `scrub` need MRB_UTF8_STRING (the reference build is bytes too)
+gem_sprintf	3 skips: encoding / UTF-8 tests (`__ENCODING__` is ASCII-8BIT here and on the reference build)
+gem_proc	2 crashes: `ProcExtTest` is the C fixture of mruby-proc-ext (`mrb_proc_new_cfunc_with_env`); skip: `source_location` needs DBG
+gem_method	2 skips: `source_location` needs the DBG section (not read)
