@@ -5,9 +5,9 @@ Docker image on the same machine (so the numbers are a ratio, not an absolute). 
 
 | benchmark | mruby ms | SabiRuby ms | ratio | instructions | ns/instruction |
 |---|---:|---:|---:|---:|---:|
-| bm_ao_render | 2538 | fail: undefined method 'printf' for Object (NoMethodError) | | | |
-| bm_fib | 1795 | 6110.880 | 3.40x | 742675365 | 8.2 |
-| bm_mandel_term | 12 | fail: undefined method 'putc' for Object (NoMethodError) | | | |
-| bm_so_lists | 244 | 3810.375 | 15.61x | 57014273 | 66.8 |
-| bm_so_mandelbrot | 899 | 1644.408 | 1.82x | 341835676 | 4.8 |
-| vm_optimization_bench | 3418 | fail: uninitialized constant Time (NameError) | | | |
+| bm_ao_render | 2543 | fail: undefined method 'printf' for Object (NoMethodError) | | | |
+| bm_fib | 1783 | 6261.381 | 3.51x | 742675423 | 8.4 |
+| bm_mandel_term | 10 | fail: undefined method 'putc' for Object (NoMethodError) | | | |
+| bm_so_lists | 246 | 3868.406 | 15.72x | 57014331 | 67.8 |
+| bm_so_mandelbrot | 891 | 1658.508 | 1.86x | 341835734 | 4.9 |
+| vm_optimization_bench | 3385 | fail: uninitialized constant Time (NameError) | | | |

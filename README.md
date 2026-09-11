@@ -27,10 +27,14 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 
 * Keyword parameters, visibility (`private`/`protected`/`module_function`), `prepend`,
   hooks (`inherited`, `included`, `method_added`, …), `defined?`, frozen objects.
+* Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
+  [`docs/fibers.md`](docs/fibers.md)) and mruby-enumerator (its `mrblib` embedded as
+  `src/mrblib_enumerator.mrb`). `send`/`__send__` from bytecode dispatch in place, as in
+  mruby, so a `Fiber.yield` behind them is not a native boundary.
 
-Not yet: Fiber (and therefore Enumerator), garbage collection (the heap only grows), bigint,
-`$~`/`$_`, mrbgems (`sprintf`, `*-ext`, …), encodings. Native code may re-enter the VM
-(`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
+Not yet: garbage collection (the heap only grows), bigint, `$~`/`$_`, the other mrbgems
+(`sprintf`, `*-ext`, …), encodings. Native code may re-enter the VM (`Vm::funcall`,
+`Vm::call_block`); the Future-native design is a later step.
 
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
 NaNs made apart are `equal?`), and a hash pattern whose keys mutate the subject during
@@ -51,13 +55,15 @@ matching is not detected.
 (Docker image `kishima/mruby:4.1.0-rc`, see `tools/fixtures.sh`); `.out` holds the
 reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every `.mrb`
 on SabiRuby and compares stdout byte for byte. 15 fixtures pass; `enumerator` is `#[ignore]`d
-until Fiber/Enumerator exist.
+until mruby-enum-ext (`each_slice`, `each_cons`) is ported.
 
-mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) passes 805 (see
-[`docs/mrbtest.md`](docs/mrbtest.md)). The rest: 16 need the C test fixtures of mruby-test
-(`env.c`, `vformat.c`, `sysfail.c`, `ary_shared.c`) or a real garbage collector (arena tests),
-2 are the deviations above, and the remaining ones are skips the reference makes too
-(bigint, regexp, build-dependent).
+mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
+gems (`gem_*`, 77 assertions: mruby-fiber's `fiber.rb`/`fiber2.rb` and mruby-enumerator's)
+passes 882 of 910 (see [`docs/mrbtest.md`](docs/mrbtest.md)); every gem assertion passes.
+The rest: 16 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
+`ary_shared.c`) or a real garbage collector (arena tests), 2 are the deviations above, and
+the remaining ones are skips the reference makes too (bigint, regexp, build-dependent).
+`tools/mrbtest.sh` compiles the gem tests and gem mrblibs too (`GEMS` in the script).
 
 The reference image includes some mrbgems (array-ext, hash-ext, compar-ext, …); the
 fixtures stay on core behaviour, and the few gem methods that were convenient (`Array#to_h`,

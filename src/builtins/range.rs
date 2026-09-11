@@ -46,6 +46,8 @@ pub fn init(vm: &mut Vm) {
         Ok(r)
     });
     vm.define_methods(c.range, &[
+        // private (set below); `dup`/`clone` call it on the fresh copy
+        ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); if s == a[0] { return Ok(s); } let cls = vm.real_class_of(s); if vm.real_class_of(a[0]) != cls { return Err(vm.raise_type("wrong argument class")); } if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { let n = vm.intern("initialize"); return Err(vm.name_error(n, "'initialize' called twice")); } let (b, e, x) = match a[0].obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Range { begin, end, excl }) => (*begin, *end, *excl), _ => return Err(vm.raise_type("wrong argument class")) }; if let Some(o) = s.obj() { vm.heap.get_mut(o).kind = ObjKind::Range { begin: b, end: e, excl: x }; vm.heap.get_mut(o).frozen = true; } Ok(s) }),
         ("initialize", |vm, s, a, _b| { argc!(vm, a, 2, 3); if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { let n = vm.intern("initialize"); return Err(vm.name_error(n, "'initialize' called twice")); } let excl = a.len() == 3 && a[2].truthy(); vm.check_range_ends(a[0], a[1])?; if let Some(o) = s.obj() { vm.heap.get_mut(o).kind = ObjKind::Range { begin: Slot::from(a[0]), end: Slot::from(a[1]), excl }; vm.heap.get_mut(o).frozen = true; } Ok(s) }),
 
         ("begin", |vm, s, _a, _b| Ok(parts(vm, s).0)),
@@ -67,4 +69,6 @@ pub fn init(vm: &mut Vm) {
         ("dup", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); Ok(vm.range_new(b, e, x)) }),
         ("hash", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); Ok(Value::Int(vm.value_hash(b).wrapping_mul(31).wrapping_add(vm.value_hash(e)).wrapping_add(x as i64))) }),
     ]);
+    let ic = vm.intern("initialize_copy");
+    vm.set_visibility(c.range, ic, crate::object::Vis::Private).expect("Range#initialize_copy private");
 }

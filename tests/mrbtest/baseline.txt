@@ -13,6 +13,9 @@ exception 33
 false 6
 float 28
 gc 18
+gem_enumerator 52
+gem_fiber 21
+gem_fiber2 4
 hash 44
 indexerror 1
 integer 40

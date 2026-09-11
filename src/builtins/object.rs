@@ -17,7 +17,7 @@ pub fn init(vm: &mut Vm) {
         ("!", |_vm, s, _a, _b| Ok(Value::bool(!s.truthy()))),
         ("!=", |vm, s, a, _b| { argc!(vm, a, 1); let r = vm.equal(s, a[0])?; Ok(Value::bool(!r)) }),
         ("__id__", |_vm, s, _a, _b| Ok(object_id(s))),
-        ("__send__", |vm, s, a, b| { if a.is_empty() { return Err(vm.argnum_error(0, "1+")); } send(vm, s, a, b) }),
+        ("__send__", send),
         ("instance_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
         ("method_missing", method_missing),
     ]);
@@ -38,7 +38,7 @@ pub fn init(vm: &mut Vm) {
         ("respond_to?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let m = sym_arg(vm, a[0])?; let include_private = a.get(1).map(|v| v.truthy()).unwrap_or(false); if let Some((mth, owner)) = vm.find_method(vm.class_of(s), m) { if let Method::Native(f) = mth { if vm.notimpl_fns.iter().any(|g| core::ptr::fn_addr_eq(*g, f)) { return Ok(Value::False); } } let vis = vm.method_vis(owner, m); if vis == Vis::Public || include_private { return Ok(Value::True); } return Ok(Value::False); } let rtm = vm.intern("respond_to_missing?"); let priv_ = a.get(1).copied().unwrap_or(Value::False); let r = vm.funcall(s, rtm, &[Value::Sym(m), priv_], Value::Nil)?; Ok(Value::bool(r.truthy())) }),
         ("respond_to_missing?", |_vm, _s, _a, _b| Ok(Value::False)),
         ("remove_instance_variable", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; match s { Value::Obj(o) => { if vm.heap.get(o).frozen { return Err(vm.frozen_error(s)); } let pos = vm.heap.get(o).ivars.iter().position(|(k, _)| *k == n); match pos { Some(i) => Ok(vm.heap.get_mut(o).ivars.remove(i).1.get()), None => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("instance variable {nn} not defined"))) } } } _ => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("instance variable {nn} not defined"))) } } }),
-        ("send", |vm, s, a, b| { if a.is_empty() { return Err(vm.argnum_error(0, "1+")); } send(vm, s, a, b) }),
+        ("send", send),
         ("public_send", |vm, s, a, b| { if a.is_empty() { return Err(vm.raise_arg("no method name given")); } let m = sym_arg(vm, a[0])?; if let Some((_, owner)) = vm.find_method(vm.class_of(s), m) { if vm.method_vis(owner, m) != Vis::Public { let name = vm.sym_name(m); let d = vm.describe_for_error(s); let v = if vm.method_vis(owner, m) == Vis::Private { "private" } else { "protected" }; return Err(vm.no_method_error(m, s, &format!("{v} method '{name}' called for {d}"))); } } vm.funcall(s, m, &a[1..], b) }),
         ("singleton_method_added", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("methods", |vm, s, a, _b| { let all = a.first().map(|v| v.truthy()).unwrap_or(true); let list = method_list(vm, vm.class_of(s), Some(Vis::Public), all); Ok(vm.ary_new(list)) }),
@@ -59,8 +59,6 @@ pub fn init(vm: &mut Vm) {
         ("itself", |_vm, s, _a, _b| Ok(s)),
         ("tap", |vm, s, _a, b| { vm.call_block(b, &[s])?; Ok(s) }),
         ("then", |vm, s, _a, b| vm.call_block(b, &[s])),
-        ("to_enum", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "fiber required for enumerator"))),
-        ("enum_for", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "fiber required for enumerator"))),
     ]);
 
     // Module
@@ -372,8 +370,11 @@ fn class_le(vm: &Vm, a: crate::value::ObjId, b: crate::value::ObjId) -> bool {
     false
 }
 
-fn send(vm: &mut Vm, s: Value, a: &[Value], b: Value) -> VmResult<Value> {
-    if a.is_empty() { return Err(vm.raise_arg("no method name given")); }
+/// `Kernel#send` / `__send__` when reached from native code. From bytecode the
+/// VM redirects in place instead (`Vm::op_send_redirect`), which is why this
+/// must stay a plain fn: the VM recognises it by address.
+pub fn send(vm: &mut Vm, s: Value, a: &[Value], b: Value) -> VmResult<Value> {
+    if a.is_empty() { return Err(vm.argnum_error(0, "1+")); }
     let m = sym_arg(vm, a[0])?;
     vm.funcall(s, m, &a[1..], b)
 }
@@ -419,12 +420,15 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
                 } else if !is_module { vm.singleton_class(Value::Obj(n))?; }
                 return Ok(Value::Obj(n));
             }
-            ObjKind::Proc(_) | ObjKind::Env(_) | ObjKind::Break { .. } => return Ok(s),
+            ObjKind::Proc(_) | ObjKind::Env(_) | ObjKind::Break { .. } | ObjKind::Fiber(_) => return Ok(s),
         };
         (vm.real_class_of(s), h.ivars.clone(), kind)
     };
     let n = vm.heap.alloc(class, kind);
     vm.heap.get_mut(n).ivars = ivars;
+    // mruby `init_copy`: the copy gets `initialize_copy(original)` (Ruby overrides may refuse)
+    let ic = vm.intern("initialize_copy");
+    vm.funcall(Value::Obj(n), ic, &[s], Value::Nil)?;
     Ok(Value::Obj(n))
 }
 

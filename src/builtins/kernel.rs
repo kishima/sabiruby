@@ -10,7 +10,10 @@ use crate::vm::Vm;
 
 pub fn init(vm: &mut Vm) {
     let k = vm.core.kernel;
+    let ic = vm.intern("initialize_copy");
     vm.define_methods(k, &[
+        // `mrb_obj_init_copy`: called on every dup/clone; Module has its own
+        ("initialize_copy", |vm, s, a, _b| { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } if s == a[0] { return Ok(s); } if vm.real_class_of(s) != vm.real_class_of(a[0]) || core::mem::discriminant(&s) != core::mem::discriminant(&a[0]) { return Err(vm.raise_type("initialize_copy should take same class object")); } Ok(s) }),
         ("puts", puts),
         ("print", print),
         ("p", p),
@@ -58,6 +61,7 @@ pub fn init(vm: &mut Vm) {
         ("__printstr__", |vm, _s, a, _b| { for v in a { let b = vm.as_string(*v)?; vm.write_out(&b); } Ok(Value::Nil) }),
         ("!~", |vm, s, a, _b| { argc!(vm, a, 1); let m = vm.intern("=~"); let r = vm.funcall(s, m, &[a[0]], Value::Nil)?; Ok(Value::bool(!r.truthy())) }),
     ]);
+    vm.set_visibility(k, ic, crate::object::Vis::Private).expect("initialize_copy private");
     // module functions: callable as Kernel.raise, private as instance methods (kernel.c MRB_MT_PRIVATE)
     let ksc = vm.singleton_class(Value::Obj(k)).unwrap();
     for name in ["raise", "block_given?", "iterator?", "p", "print", "puts", "lambda", "proc", "Integer", "Float", "String", "Array", "__printstr__"] {

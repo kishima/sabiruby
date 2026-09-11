@@ -14,9 +14,22 @@ if [ "${1:-}" = "-v" ]; then
   cargo run --release -q -- mrbtest -v $DIR/assert.mrb $DIR/${2}.mrb
   exit 0
 fi
-# copy sources (they are MIT, from mruby test/) and compile
+# copy sources (they are MIT, from mruby test/) and compile.
+# Gem tests (mrbgems/<gem>/test/*.rb) are copied as gem_<file>.rb; the gem's
+# mrblib is compiled into src/mrblib_<gem>.mrb and loaded by Vm::with_mrblib.
+GEMS="mruby-fiber mruby-enumerator"
 cp "$MRUBY/test/assert.rb" $DIR/src/
 cp "$MRUBY"/test/t/*.rb $DIR/src/
+mkdir -p target/mrblib
+for g in $GEMS; do
+  for rb in "$MRUBY"/mrbgems/$g/test/*.rb; do cp "$rb" $DIR/src/gem_$(basename "$rb"); done
+  short=${g#mruby-}
+  if ls "$MRUBY"/mrbgems/$g/mrblib/*.rb >/dev/null 2>&1; then
+    cat "$MRUBY"/mrbgems/$g/mrblib/*.rb > target/mrblib/mrblib_$short.rb
+    docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/mrblib_$short.mrb /w/mrblib_$short.rb
+    cp target/mrblib/mrblib_$short.mrb src/mrblib_$short.mrb
+  fi
+done
 docker run --rm -v "$PWD/$DIR:/w" $IMG /bin/sh -c '
   mrbc -o /w/assert.mrb /w/src/assert.rb
   for rb in /w/src/*.rb; do b=$(basename "$rb" .rb); [ "$b" = assert ] && continue

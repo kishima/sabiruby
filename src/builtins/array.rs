@@ -176,7 +176,6 @@ pub fn init(vm: &mut Vm) {
         ("to_ary", |_vm, s, _a, _b| Ok(s)),
         // to_h / zip are mruby-array-ext (gem) methods, provided natively here.
         ("to_h", |vm, s, _a, b| { let h = vm.hash_new(); for it in items(vm, s) { let it = if b.is_nil() { it } else { vm.call_block(b, &[it])? }; match vm.ary_vals(it) { Some(p) if p.len() == 2 => vm.hash_set(h, p[0], p[1])?, _ => { let d = vm.describe_for_error(it); return Err(vm.raise_type(&format!("wrong element type {d} (expected array)"))); } } } Ok(h) }),
-        ("zip", |vm, s, a, b| { let list = items(vm, s); let others: Vec<Vec<Value>> = a.iter().map(|o| vm.to_array(*o)).collect::<VmResult<_>>()?; let mut out = vec![]; for (i, it) in list.iter().enumerate() { let mut row = vec![*it]; for o in &others { row.push(o.get(i).copied().unwrap_or(Value::Nil)); } out.push(vm.ary_new(row)); } if b.is_nil() { Ok(vm.ary_new(out)) } else { for r in out { vm.call_block(b, &[r])?; } Ok(Value::Nil) } }),
         ("join", |vm, s, a, _b| { argc!(vm, a, 0, 1); let sep = match a.first() { Some(v) if !v.is_nil() => vm.expect_str(*v, "separator")?, _ => vec![] }; ary_join(vm, s, &sep) }),
         ("reverse", |vm, s, _a, _b| { let mut v = items(vm, s); v.reverse(); Ok(vm.ary_new(v)) }),
         ("reverse!", |vm, s, _a, _b| { with_mut(vm, s, |arr| arr.reverse())?; Ok(s) }),

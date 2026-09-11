@@ -7,6 +7,7 @@ use alloc::{format, string::String, vec::Vec};
 
 pub mod array;
 pub mod exception;
+pub mod fiber;
 pub mod hash;
 pub mod kernel;
 pub mod numeric;
@@ -32,6 +33,7 @@ pub fn init(vm: &mut Vm) {
     range::init(vm);
     proc_::init(vm);
     exception::init(vm);
+    fiber::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers
@@ -91,6 +93,7 @@ impl Vm {
         let kind = match ik {
             InstanceKind::Object => ObjKind::Object,
             InstanceKind::Exception => ObjKind::Exception,
+            InstanceKind::Fiber => ObjKind::Fiber(usize::MAX),
             InstanceKind::String => ObjKind::String(Vec::new()),
             InstanceKind::Array => ObjKind::Array(Vec::new()),
             InstanceKind::Hash => ObjKind::Hash(Default::default()),

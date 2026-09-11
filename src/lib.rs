@@ -30,3 +30,5 @@ pub use vm::{Step, Vm};
 /// mruby's core library written in Ruby (`mrblib/*.rb` of 4.1.0-rc), compiled
 /// with the reference `mrbc`. Loaded by [`Vm::with_mrblib`].
 pub const MRBLIB_MRB: &[u8] = include_bytes!("mrblib.mrb");
+/// `mrbgems/mruby-enumerator/mrblib/enumerator.rb` (pure Ruby, needs Fiber), loaded after the core mrblib.
+pub const MRBLIB_ENUMERATOR_MRB: &[u8] = include_bytes!("mrblib_enumerator.mrb");

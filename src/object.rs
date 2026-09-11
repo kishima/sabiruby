@@ -60,7 +60,7 @@ pub struct ClassData {
 pub enum Vis { Public, Private, Protected }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
-pub enum InstanceKind { Object, String, Array, Hash, Range, Exception, Proc, NoAlloc }
+pub enum InstanceKind { Object, String, Array, Hash, Range, Exception, Proc, Fiber, NoAlloc }
 
 pub struct ProcData {
     pub irep: IrepId,
@@ -81,6 +81,8 @@ pub struct ProcData {
 /// values live on the VM stack (`attached`); when the frame is popped they are
 /// copied into `values` (mruby's `mrb_env_detach`).
 pub struct EnvData {
+    /// The context (fiber) whose stack `base` indexes while `attached`.
+    pub ctx: usize,
     pub base: usize,
     pub len: usize,
     /// Register (relative to `base`) holding the frame's block (`MRB_ENV_BIDX`).
@@ -135,6 +137,8 @@ pub enum ObjKind {
     Proc(ProcData),
     Env(EnvData),
     Exception,
+    /// `RFiber`: index of the fiber's context in `Vm::contexts` (`usize::MAX` = not initialized).
+    Fiber(usize),
 }
 
 pub struct HeapObject {

@@ -91,11 +91,10 @@ fn real_main() -> ExitCode {
             ExitCode::SUCCESS
         }
         "run" => {
-            let mut vm = sabiruby::Vm::new();
-            if let Err(e) = vm.load_and_run(sabiruby::MRBLIB_MRB) {
-                eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e));
-                return ExitCode::from(1);
-            }
+            let mut vm = match sabiruby::Vm::with_mrblib() {
+                Ok(vm) => vm,
+                Err(e) => { let mut vm = sabiruby::Vm::new(); eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e)); return ExitCode::from(1); }
+            };
             // like the `mruby` command: ARGV holds the arguments after the script
             let argv: Vec<sabiruby::Value> = args[3..].iter().map(|a| vm.str_new(a.as_bytes())).collect();
             let argv = vm.ary_new(argv);

@@ -35,6 +35,41 @@ pub enum Cci {
     Skip,
 }
 
+/// `mrb_fiber_state`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FiberState { Created, Running, Resumed, Suspended, Transferred, Terminated }
+
+/// `mrb_context`: one register stack and one frame stack. The running
+/// context's `stack`/`ci` live in the `Vm` fields; the entry here is empty
+/// while it runs (they are swapped on every switch).
+pub struct Context {
+    pub stack: Vec<Slot>,
+    pub ci: Vec<CallInfo>,
+    pub status: FiberState,
+    /// The context to return to on `Fiber.yield` / termination (`prev`).
+    pub prev: Option<usize>,
+    /// The Fiber object of this context, made lazily by `Fiber.current` for the root.
+    pub fib: Option<ObjId>,
+    /// The block the fiber runs (set by `Fiber#initialize`).
+    pub proc_: Option<ObjId>,
+    /// Resumed by native code (`mrb_fiber_resume`): a nested run loop is
+    /// waiting on the host stack and the fiber's next yield must return from it.
+    pub vmexec: bool,
+    /// Register (absolute index into `stack`) of the `resume`/`yield`/`transfer`
+    /// call this context is suspended in; the value it is switched back with
+    /// lands there (mruby writes it to the pending C frame's `stack[0]`).
+    pub pending_reg: Option<usize>,
+}
+
+impl Context {
+    pub fn new(status: FiberState) -> Context {
+        Context { stack: Vec::new(), ci: Vec::new(), status, prev: None, fib: None, proc_: None, vmexec: false, pending_reg: None }
+    }
+}
+
+/// Index of the root context in `Vm::contexts`.
+pub const ROOT: usize = 0;
+
 #[derive(Clone, Copy, Debug)]
 pub struct CallInfo {
     pub base: usize,
@@ -96,6 +131,8 @@ pub struct Core {
     pub float_domain_error: ObjId,
     pub no_matching_pattern_error: ObjId,
     pub system_stack_error: ObjId,
+    pub fiber: ObjId,
+    pub fiber_error: ObjId,
 }
 
 /// Frequently used symbols.
@@ -163,6 +200,19 @@ pub struct Vm {
     pub notimpl_fns: Vec<crate::object::NativeFn>,
     pub gc_step_limit: i64,
     pub gc_malloc_threshold: i64,
+    /// All contexts (fibers); `contexts[cur]` is the running one (its stack/ci are in `stack`/`ci`).
+    pub contexts: Vec<Context>,
+    pub cur: usize,
+    /// True while a native method called straight from a SEND instruction runs
+    /// (mruby: the frame's `cci == CINFO_NONE`); false when called through
+    /// `funcall` from other native code. Decides whether a fiber switch can
+    /// continue in the current run loop or needs a nested one.
+    pub direct_send: bool,
+    /// Absolute register the native call in progress writes its result to.
+    native_ret_reg: usize,
+    /// Set by a fiber switch that must end the innermost run loop (yield or
+    /// termination of a fiber resumed by native code): the loop returns this value.
+    loop_exit: Option<Value>,
 }
 
 /// Result of [`Vm::step`].
@@ -230,13 +280,16 @@ impl Vm {
         let float_domain_error = c(&mut heap, &mut syms, "FloatDomainError", range_error);
         let no_matching_pattern_error = c(&mut heap, &mut syms, "NoMatchingPatternError", standard_error);
         let system_stack_error = c(&mut heap, &mut syms, "SystemStackError", exception);
+        // mruby-fiber
+        let fiber = c(&mut heap, &mut syms, "Fiber", object);
+        let fiber_error = c(&mut heap, &mut syms, "FiberError", standard_error);
         let core = Core {
             basic_object, object, module, class, kernel, comparable, enumerable, nil_class, true_class,
             false_class, numeric, integer, float, symbol, string, array, hash, range, proc_, exception,
             standard_error, runtime_error, argument_error, type_error, name_error, no_method_error,
             zero_division_error, local_jump_error, index_error, range_error, key_error,
             not_implemented_error, stop_iteration, frozen_error, float_domain_error,
-            no_matching_pattern_error, system_stack_error,
+            no_matching_pattern_error, system_stack_error, fiber, fiber_error,
         };
         // Every object allocated so far is a class or module: set its class.
         for i in 0..heap.len() {
@@ -245,7 +298,7 @@ impl Vm {
             heap.get_mut(id).class = if is_mod { module } else { class };
         }
         for (cls, kind) in [(basic_object, InstanceKind::Object), (string, InstanceKind::String), (array, InstanceKind::Array), (hash, InstanceKind::Hash),
-                            (range, InstanceKind::Range), (exception, InstanceKind::Exception), (proc_, InstanceKind::Proc),
+                            (range, InstanceKind::Range), (exception, InstanceKind::Exception), (proc_, InstanceKind::Proc), (fiber, InstanceKind::Fiber),
                             (integer, InstanceKind::NoAlloc), (float, InstanceKind::NoAlloc), (symbol, InstanceKind::NoAlloc), (nil_class, InstanceKind::NoAlloc),
                             (true_class, InstanceKind::NoAlloc), (false_class, InstanceKind::NoAlloc)] {
             heap.class_mut(cls).instance_kind = Some(kind);
@@ -280,6 +333,7 @@ impl Vm {
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_malloc_threshold: 16777216, call_proc,
+            contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -307,6 +361,8 @@ impl Vm {
     pub fn with_mrblib() -> VmResult<Vm> {
         let mut vm = Vm::new();
         vm.load_and_run(crate::MRBLIB_MRB)?;
+        // gems with a Ruby part, in dependency order (mruby-fiber has none)
+        vm.load_and_run(crate::MRBLIB_ENUMERATOR_MRB)?;
         Ok(vm)
     }
 
@@ -838,12 +894,12 @@ impl Vm {
             return Ok(Step::Finished(Value::Nil));
         }
         self.step_left = Some(budget);
-        let r = self.run_loop(0);
+        let r = self.run_loop_ctx(ROOT, 0);
         self.step_left = None;
         match r {
-            Ok(v) if self.ci.is_empty() => { self.stack.clear(); Ok(Step::Finished(v)) }
+            Ok(v) if self.cur == ROOT && self.ci.is_empty() => { self.stack.clear(); Ok(Step::Finished(v)) }
             Ok(_) => Ok(Step::Paused),
-            Err(e) => { self.ci.clear(); self.stack.clear(); Err(e) }
+            Err(e) => { self.reset_to_root(); Err(e) }
         }
     }
 
@@ -857,7 +913,9 @@ impl Vm {
                 // native -> native recursion (e.g. inspect of nested containers) also uses the host stack
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 self.native_depth += 1;
+                let direct = core::mem::replace(&mut self.direct_send, false);
                 let r = f(self, recv, args, blk);
+                self.direct_send = direct;
                 self.native_depth -= 1;
                 r
             }
@@ -968,16 +1026,268 @@ impl Vm {
         r
     }
 
+
+    // ------------------------------------------------------------------ fibers (mruby-fiber)
+
+    /// Calls a native method on behalf of a SEND instruction. Returns the value
+    /// and whether the native switched fibers; in that case the value was
+    /// delivered to the register the new context waits on (or, when the fiber
+    /// that yielded had been resumed by native code, the run loop is told to
+    /// return it) and the caller must not write it to its own register.
+    fn call_native_direct(&mut self, f: crate::object::NativeFn, recv: Value, args: &[Value], blk: Value, ret_reg: usize) -> VmResult<(Value, bool)> {
+        let ctx0 = self.cur;
+        let direct = core::mem::replace(&mut self.direct_send, true);
+        let reg0 = core::mem::replace(&mut self.native_ret_reg, ret_reg);
+        let r = f(self, recv, args, blk);
+        self.native_ret_reg = reg0;
+        self.direct_send = direct;
+        let v = r?;
+        if self.cur == ctx0 { return Ok((v, false)); }
+        if self.loop_exit.is_some() { return Ok((v, true)); }
+        self.deliver(v);
+        Ok((v, true))
+    }
+
+    /// `send`/`__send__` issued by a SEND: shifts the arguments down and
+    /// dispatches the named method in the same frame (visibility ignored).
+    fn op_send_redirect(&mut self, base: usize, a: usize, argc: usize, kw: bool, has_blk: bool, blk: Value) -> VmResult<()> {
+        let (mut args, kd) = self.native_args(base + a, argc, kw);
+        if kd.is_some() { args.pop(); }
+        if args.is_empty() { return Err(self.argnum_error(0, "1+")); }
+        let mid = match args[0] {
+            Value::Sym(m) => m,
+            v => match self.str_bytes(v) { Some(b) => { let n = String::from_utf8_lossy(b).into_owned(); self.intern(&n) } None => { let d = self.inspect_str(v)?; return Err(self.raise_type(&format!("{d} is not a symbol nor a string"))) } },
+        };
+        let rest: Vec<Value> = args[1..].to_vec();
+        let (n, mut next) = if rest.len() >= 15 {
+            let packed = self.ary_new(rest);
+            if self.stack.len() < base + a + 2 { self.stack.resize(base + a + 2, Slot::NIL); }
+            self.stack[base + a + 1] = Slot::from(packed);
+            (15usize, base + a + 2)
+        } else {
+            if self.stack.len() < base + a + 1 + rest.len() { self.stack.resize(base + a + 1 + rest.len(), Slot::NIL); }
+            for (i, v) in rest.iter().enumerate() { self.stack[base + a + 1 + i] = Slot::from(*v); }
+            (rest.len(), base + a + 1 + rest.len())
+        };
+        let c = if let Some(k) = kd { if self.stack.len() <= next { self.stack.resize(next + 1, Slot::NIL); } self.stack[next] = Slot::from(k); next += 1; n | (15 << 4) } else { n };
+        if self.stack.len() <= next { self.stack.resize(next + 1, Slot::NIL); }
+        self.stack[next] = Slot::from(blk);
+        self.op_send_vis(base, a, mid, c, has_blk, false, false)
+    }
+
+    /// Writes `v` into the register the current context is suspended in.
+    fn deliver(&mut self, v: Value) {
+        if let Some(reg) = self.contexts[self.cur].pending_reg.take() {
+            if reg < self.stack.len() { self.stack[reg] = Slot::from(v); }
+        }
+    }
+
+    /// Makes `to` the running context (`fiber_switch_context`).
+    fn switch_context(&mut self, to: usize) {
+        let from = self.cur;
+        if from == to { return; }
+        core::mem::swap(&mut self.stack, &mut self.contexts[from].stack);
+        core::mem::swap(&mut self.ci, &mut self.contexts[from].ci);
+        core::mem::swap(&mut self.stack, &mut self.contexts[to].stack);
+        core::mem::swap(&mut self.ci, &mut self.contexts[to].ci);
+        self.contexts[to].status = FiberState::Running;
+        self.cur = to;
+    }
+
+    /// Back to the root context with everything unwound (after an abort).
+    pub fn reset_to_root(&mut self) {
+        if self.cur != ROOT {
+            self.ci.clear();
+            self.stack.clear();
+            self.contexts[self.cur].status = FiberState::Terminated;
+            self.switch_context(ROOT);
+        }
+        self.ci.clear();
+        self.stack.clear();
+        self.loop_exit = None;
+    }
+
+    /// Terminates the running fiber and switches to the context it returns to
+    /// (`fiber_terminate`). Returns whether the fiber was running under a
+    /// native resume, in which case the caller ends the nested run loop.
+    fn fiber_terminate(&mut self) -> bool {
+        let c = self.cur;
+        let vmexec = core::mem::take(&mut self.contexts[c].vmexec);
+        self.contexts[c].status = FiberState::Terminated;
+        let prev = self.contexts[c].prev.take();
+        self.switch_context(prev.unwrap_or(ROOT));
+        self.contexts[c].stack = Vec::new();
+        self.contexts[c].ci = Vec::new();
+        vmexec
+    }
+
+    fn fiber_context(&mut self, fib: Value) -> VmResult<usize> {
+        match fib.obj().map(|o| &self.heap.get(o).kind) {
+            Some(ObjKind::Fiber(c)) if *c != usize::MAX => Ok(*c),
+            Some(ObjKind::Fiber(_)) => Err(self.raise(self.core.fiber_error, "uninitialized Fiber")),
+            _ => Err(self.raise_type("not a Fiber")),
+        }
+    }
+
+    /// `Fiber#initialize`: gives the Fiber object a fresh context that will run `proc_`.
+    pub fn fiber_init(&mut self, fib: Value, proc_: ObjId) -> VmResult<()> {
+        let o = match fib { Value::Obj(o) => o, _ => return Err(self.raise_type("not a Fiber")) };
+        if !matches!(self.heap.get(o).kind, ObjKind::Fiber(_)) { return Err(self.raise_type("not a Fiber")); }
+        if let ObjKind::Fiber(c) = self.heap.get(o).kind { if c != usize::MAX { return Err(self.raise(self.core.runtime_error, "cannot initialize twice")); } }
+        let mut ctx = Context::new(FiberState::Created);
+        ctx.fib = Some(o);
+        ctx.proc_ = Some(proc_);
+        self.contexts.push(ctx);
+        let id = self.contexts.len() - 1;
+        if let ObjKind::Fiber(c) = &mut self.heap.get_mut(o).kind { *c = id; }
+        Ok(())
+    }
+
+    /// `Fiber.current`: the Fiber object of the running context (made on first use for the root).
+    pub fn fiber_current(&mut self) -> Value {
+        if let Some(f) = self.contexts[self.cur].fib { return Value::Obj(f); }
+        let f = self.heap.alloc(self.core.fiber, ObjKind::Fiber(self.cur));
+        self.contexts[self.cur].fib = Some(f);
+        Value::Obj(f)
+    }
+
+    pub fn fiber_state(&mut self, fib: Value) -> VmResult<FiberState> {
+        let c = self.fiber_context(fib)?;
+        Ok(self.contexts[c].status)
+    }
+
+    fn fiber_result(&mut self, args: &[Value]) -> Value {
+        match args.len() { 0 => Value::Nil, 1 => args[0], _ => self.ary_new(args.to_vec()) }
+    }
+
+    /// `fiber_check_cfunc`: a context with a native frame on the host stack
+    /// cannot be switched. The entry frame of a context (index 0: the fiber's
+    /// block, or the top-level program of the root) does not count, like
+    /// mruby's `cibase` in `task_across_c_boundary`.
+    fn fiber_check_native(&self, ctx: usize) -> bool {
+        let ci = if ctx == self.cur { &self.ci } else { &self.contexts[ctx].ci };
+        ci.iter().skip(1).any(|c| c.cci == Cci::Skip)
+    }
+
+    /// `Fiber#resume` from native code (`mrb_fiber_resume`): runs the fiber in a
+    /// nested loop until it yields or finishes, and returns that value.
+    pub fn fiber_resume(&mut self, fib: Value, args: &[Value]) -> VmResult<Value> {
+        self.fiber_switch(fib, args, true, true)
+    }
+
+    /// `Fiber#resume` / `Fiber#transfer` core (`fiber_switch`). With `vmexec` false the
+    /// switch takes effect in the current run loop (the native returns and the
+    /// loop continues in the new context); `resume` false is a transfer.
+    pub fn fiber_switch(&mut self, fib: Value, args: &[Value], resume: bool, vmexec: bool) -> VmResult<Value> {
+        let c = self.fiber_context(fib)?;
+        let old = self.cur;
+        if resume && c == old { return Err(self.raise(self.core.fiber_error, "attempt to resume the current fiber")); }
+        let status = self.contexts[c].status;
+        match status {
+            FiberState::Transferred if resume => return Err(self.raise(self.core.fiber_error, "resuming transferred fiber")),
+            FiberState::Running | FiberState::Resumed => return Err(self.raise(self.core.fiber_error, "double resume")),
+            FiberState::Terminated => return Err(self.raise(self.core.fiber_error, "resuming dead fiber")),
+            _ => {}
+        }
+        if self.fiber_check_native(c) { return Err(self.raise(self.core.fiber_error, "can't cross C function boundary")); }
+        if resume {
+            self.contexts[old].status = FiberState::Resumed;
+            self.contexts[c].prev = Some(old);
+        } else {
+            self.contexts[old].status = FiberState::Transferred;
+            self.contexts[c].prev = None;
+        }
+        if vmexec { self.contexts[c].vmexec = true; } else { self.contexts[old].pending_reg = Some(self.native_ret_reg); }
+        self.switch_context(c);
+        let value;
+        if status == FiberState::Created {
+            let p = match self.contexts[c].proc_ { Some(p) => p, None => return Err(self.raise(self.core.fiber_error, "double resume (current)")) };
+            let (irep, env, tc) = { let pd = self.heap.proc_data(p); (pd.irep, pd.env, pd.target_class) };
+            let self_ = match env { Some(e) => self.env_get(e, 0), None => Value::Obj(self.top_self) };
+            let nregs = self.ireps[irep].nregs.max(args.len() + 3).max(4);
+            self.stack.clear();
+            self.stack.resize(nregs, Slot::NIL);
+            self.stack[0] = Slot::from(self_);
+            let n = if args.len() >= 15 { let packed = self.ary_new(args.to_vec()); self.stack[1] = Slot::from(packed); 15 } else { for (i, v) in args.iter().enumerate() { self.stack[1 + i] = Slot::from(*v); } args.len() };
+            let tc = tc.unwrap_or(self.core.object);
+            self.ci.clear();
+            self.ci.push(CallInfo { base: 0, pc: 0, irep, proc_: p, n: n as u8, kw: false, mid: None, target_class: tc, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
+            value = self_;
+        } else {
+            value = self.fiber_result(args);
+            if vmexec { self.deliver(value); }
+        }
+        if vmexec {
+            let r = self.run_loop_ctx(c, 0);
+            // the fiber yielded (loop_exit) or terminated: we are back in `old`
+            debug_assert_eq!(self.cur, old);
+            r
+        } else {
+            Ok(value)
+        }
+    }
+
+    /// `Fiber.yield` (`mrb_fiber_yield`): switch back to the resumer. The value
+    /// returned must be returned as-is by the native that called this.
+    pub fn fiber_yield(&mut self, args: &[Value]) -> VmResult<Value> {
+        let c = self.cur;
+        let prev = match self.contexts[c].prev { Some(p) => p, None => return Err(self.raise(self.core.fiber_error, "attempt to yield on a not resumed fiber")) };
+        if c == ROOT { return Err(self.raise(self.core.fiber_error, "can't yield from root fiber")); }
+        if self.contexts[prev].status == FiberState::Transferred { return Err(self.raise(self.core.fiber_error, "attempt to yield on a not resumed fiber")); }
+        if !self.direct_send || self.fiber_check_native(c) { return Err(self.raise(self.core.fiber_error, "can't cross C function boundary")); }
+        let value = self.fiber_result(args);
+        self.contexts[c].status = FiberState::Suspended;
+        self.contexts[c].pending_reg = Some(self.native_ret_reg);
+        self.contexts[c].prev = None;
+        let vmexec = core::mem::take(&mut self.contexts[c].vmexec);
+        self.switch_context(prev);
+        if vmexec { self.loop_exit = Some(value); }
+        Ok(value)
+    }
+
+    /// `Fiber#transfer`.
+    pub fn fiber_transfer(&mut self, fib: Value, args: &[Value]) -> VmResult<Value> {
+        let c = self.fiber_context(fib)?;
+        // fiber_check_cfunc_recursive: no native frame anywhere on the chain of resumers
+        if !self.direct_send { return Err(self.raise(self.core.fiber_error, "can't cross C function boundary")); }
+        let mut x = Some(self.cur);
+        while let Some(i) = x {
+            if self.fiber_check_native(i) || self.contexts[i].vmexec { return Err(self.raise(self.core.fiber_error, "can't cross C function boundary")); }
+            if i == ROOT { break; }
+            x = self.contexts[i].prev;
+        }
+        if self.contexts[c].status == FiberState::Resumed { return Err(self.raise(self.core.fiber_error, "attempt to transfer to a resuming fiber")); }
+        if c == ROOT {
+            let value = self.fiber_result(args);
+            let cur = self.cur;
+            if cur == ROOT { return Ok(value); }
+            self.contexts[cur].status = FiberState::Transferred;
+            self.contexts[cur].pending_reg = Some(self.native_ret_reg);
+            self.switch_context(ROOT);
+            return Ok(value);
+        }
+        if c == self.cur { return Ok(self.fiber_result(args)); }
+        self.fiber_switch(fib, args, false, false)
+    }
+
     // ------------------------------------------------------------------ environments
 
+    /// The register stack of a context: the running one is in `self.stack`.
+    fn stack_of(&self, ctx: usize) -> &Vec<Slot> {
+        if ctx == self.cur { &self.stack } else { &self.contexts[ctx].stack }
+    }
+    fn stack_of_mut(&mut self, ctx: usize) -> &mut Vec<Slot> {
+        if ctx == self.cur { &mut self.stack } else { &mut self.contexts[ctx].stack }
+    }
     fn env_get(&self, env: ObjId, idx: usize) -> Value {
         let e = self.heap.env(env);
-        if e.attached { self.stack.get(e.base + idx).map(|s| s.get()).unwrap_or(Value::Nil) } else { e.values.get(idx).map(|s| s.get()).unwrap_or(Value::Nil) }
+        if e.attached { self.stack_of(e.ctx).get(e.base + idx).map(|s| s.get()).unwrap_or(Value::Nil) } else { e.values.get(idx).map(|s| s.get()).unwrap_or(Value::Nil) }
     }
     fn env_set(&mut self, env: ObjId, idx: usize, v: Value) {
-        let (attached, base) = { let e = self.heap.env(env); (e.attached, e.base) };
+        let (attached, base, ctx) = { let e = self.heap.env(env); (e.attached, e.base, e.ctx) };
         if attached {
-            if base + idx < self.stack.len() { self.stack[base + idx] = Slot::from(v); }
+            let st = self.stack_of_mut(ctx);
+            if base + idx < st.len() { st[base + idx] = Slot::from(v); }
         } else {
             let e = self.heap.env_mut(env);
             if idx < e.values.len() { e.values[idx] = Slot::from(v); }
@@ -1017,7 +1327,7 @@ impl Vm {
         let len = self.ireps[ci.irep].nlocals;
         let bidx = Self::frame_bidx(ci);
         let e = self.heap.alloc(self.core.object, ObjKind::Env(EnvData {
-            base: ci.base, len, bidx, attached: true, values: Vec::new(), mid: ci.mid, target_class: Some(ci.target_class),
+            ctx: self.cur, base: ci.base, len, bidx, attached: true, values: Vec::new(), mid: ci.mid, target_class: Some(ci.target_class),
             vis: ci.vis, modfunc: ci.modfunc, vis_break: ci.vis_break,
         }));
         self.ci[i].env = Some(e);
@@ -1051,17 +1361,25 @@ impl Vm {
 
     // ------------------------------------------------------------------ the loop
 
-    /// Runs until the frame at index `stop_depth` returns, and returns its value.
+    /// Runs until the frame at index `stop_depth` of the current context returns, and returns its value.
     fn run_loop(&mut self, stop_depth: usize) -> VmResult<Value> {
+        self.run_loop_ctx(self.cur, stop_depth)
+    }
+
+    /// Runs until frame `stop_depth` of context `lc` returns. Frames of other
+    /// contexts the loop is switched into (non-native fiber resume/yield) never
+    /// end the loop; only a fiber's base frame terminating does, and then the
+    /// loop carries on in the previous context.
+    fn run_loop_ctx(&mut self, lc: usize, stop_depth: usize) -> VmResult<Value> {
         let mut pending: Option<VmResult<Value>> = None;
         loop {
-            let r = match pending.take() { Some(r) => r, None => self.exec_frames(stop_depth) };
+            let r = match pending.take() { Some(r) => r, None => self.exec_frames(stop_depth, lc) };
             match r {
                 Ok(v) => return Ok(v),
                 Err(VmError::Raise(exc)) => {
                     if let Value::Obj(o) = exc { if matches!(self.heap.get(o).kind, ObjKind::Exception) { let k = self.intern("@__raised"); self.heap.ivar_set(o, k, Value::True); } }
                     // Unwind: look for a catch handler in frames >= stop_depth.
-                    if self.handle_raise(exc, stop_depth) {
+                    if self.handle_raise(exc, stop_depth, lc) {
                         continue;
                     }
                     return Err(VmError::Raise(exc));
@@ -1075,8 +1393,8 @@ impl Vm {
                 }
                 Err(VmError::Break(brk)) => {
                     // A return/break came back through native code: keep unwinding here.
-                    if self.ci.len() <= stop_depth { return Err(VmError::Break(brk)); }
-                    match self.resume_break(brk, stop_depth) {
+                    if self.cur == lc && self.ci.len() <= stop_depth { return Err(VmError::Break(brk)); }
+                    match self.resume_break(brk, stop_depth, lc) {
                         Ok(Some(v)) => return Ok(v),
                         Ok(None) => continue,
                         Err(e) => { pending = Some(Err(e)); continue; }
@@ -1110,11 +1428,11 @@ impl Vm {
     }
 
     /// Continues a pending non-local exit (`L_BREAK` dispatch by tag).
-    fn resume_break(&mut self, brk: ObjId, stop_depth: usize) -> VmResult<Option<Value>> {
+    fn resume_break(&mut self, brk: ObjId, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
         let (tag, idx, value) = match self.heap.get(brk).kind { ObjKind::Break { tag, ci_index, value } => (tag, ci_index, value), _ => return Err(VmError::Internal("not a break object".into())) };
         self.exc = Some(Value::Obj(brk));
         match tag {
-            BreakTag::Break => self.unwind_return(idx, value, stop_depth),
+            BreakTag::Break => self.unwind_return(idx, value, stop_depth, lc),
             BreakTag::Jump => { let target = match value { Value::Int(t) => t as usize, _ => 0 }; self.jmpuw(target); Ok(None) }
         }
     }
@@ -1138,7 +1456,7 @@ impl Vm {
     /// Unwinds to frame `return_idx` (running ensure bodies on the way, mruby
     /// `L_RETURN`/`UNWIND_ENSURE`) and returns `v` from it. `Ok(Some(v))` means
     /// the interpreter loop must hand `v` to its native caller.
-    fn unwind_return(&mut self, return_idx: usize, v: Value, stop_depth: usize) -> VmResult<Option<Value>> {
+    fn unwind_return(&mut self, return_idx: usize, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
         loop {
             let top = self.ci.len() - 1;
             let (irep, pc) = { let ci = &self.ci[top]; (ci.irep, ci.pc) };
@@ -1149,7 +1467,7 @@ impl Vm {
             }
             if top == return_idx { break; }
             let popped = self.pop_frame();
-            if popped.cci == Cci::Skip || top <= stop_depth {
+            if popped.cci == Cci::Skip || (self.cur == lc && top <= stop_depth) {
                 // crossing a native frame: let the native caller propagate it
                 let brk = self.break_new(BreakTag::Break, return_idx, v);
                 self.exc = None;
@@ -1158,7 +1476,14 @@ impl Vm {
         }
         self.exc = None;
         let popped = self.pop_frame();
-        if popped.cci == Cci::Skip || return_idx <= stop_depth {
+        if self.ci.is_empty() && self.cur != ROOT {
+            // the fiber's block returned (mruby: `ci == cibase` → fiber_terminate)
+            let vmexec = self.fiber_terminate();
+            if vmexec { return Ok(Some(v)); }
+            self.deliver(v);
+            return Ok(None);
+        }
+        if popped.cci == Cci::Skip || (self.cur == lc && return_idx <= stop_depth) {
             return Ok(Some(v));
         }
         // the callee's R0 is the caller's R[a]
@@ -1168,7 +1493,7 @@ impl Vm {
 
     /// Finds a rescue/ensure handler for `exc`; on success sets pc and `exc`
     /// and returns true. Otherwise pops frames down to `stop_depth` and returns false.
-    fn handle_raise(&mut self, exc: Value, stop_depth: usize) -> bool {
+    fn handle_raise(&mut self, exc: Value, stop_depth: usize, lc: usize) -> bool {
         loop {
             let i = self.ci.len() - 1;
             let (irep, pc) = { let ci = &self.ci[i]; (ci.irep, ci.pc) };
@@ -1180,7 +1505,16 @@ impl Vm {
                 self.exc = Some(exc);
                 return true;
             }
-            if i <= stop_depth {
+            if i == 0 && self.cur != ROOT {
+                // uncaught in a fiber: it terminates and the exception continues in
+                // the context that resumed it (mruby `L_FTOP`); a fiber resumed by
+                // native code hands it to that native instead
+                self.pop_frame();
+                let vmexec = self.fiber_terminate();
+                if vmexec { return false; }
+                continue;
+            }
+            if self.cur == lc && i <= stop_depth {
                 self.pop_frame();
                 return false;
             }
@@ -1209,14 +1543,14 @@ impl Vm {
         v
     }
 
-    fn exec_frames(&mut self, stop_depth: usize) -> VmResult<Value> {
+    fn exec_frames(&mut self, stop_depth: usize, lc: usize) -> VmResult<Value> {
         let mut ext: u8 = 0;
         loop {
             if let Some(left) = self.step_left {
                 // Suspend only in the outermost loop: a nested loop (native code
                 // waiting for a block) must run to completion, so the pause lands
                 // at the next instruction boundary of the top-level program.
-                if left == 0 && stop_depth == 0 {
+                if left == 0 && stop_depth == 0 && lc == ROOT {
                     return Ok(Value::Nil);
                 }
                 self.step_left = Some(left.saturating_sub(1));
@@ -1392,7 +1726,7 @@ impl Vm {
                     match exc {
                         Value::Nil => { self.exc = None; }
                         Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Break { .. }) => {
-                            if let Some(r) = self.resume_break(o, stop_depth)? { return Ok(r); }
+                            if let Some(r) = self.resume_break(o, stop_depth, lc)? { return Ok(r); }
                         }
                         _ => return Err(VmError::Raise(exc)),
                     }
@@ -1405,12 +1739,14 @@ impl Vm {
                     let explicit = matches!(op, Op::Send | Op::Send0 | Op::Sendb);
                     if !explicit { setreg!(a, reg!(0)); }
                     self.op_send_vis(base, a, mid, argc, has_blk, false, explicit)?;
+                    if let Some(v) = self.loop_exit.take() { return Ok(v); }
                 }
                 Op::Super => {
                     let argc = b;
                     setreg!(a, reg!(0));
                     let mid = ci.mid.ok_or_else(|| self.raise(self.core.no_method_error, "super called outside of method"))?;
                     self.op_send(base, a, mid, argc, true, true)?;
+                    if let Some(v) = self.loop_exit.take() { return Ok(v); }
                 }
                 Op::Call => {
                     // `Proc#call`: replace this frame (pushed by SEND) with the proc's body.
@@ -1449,18 +1785,18 @@ impl Vm {
                         if let Some(k) = first { let d = match k { Value::Sym(s) => self.sym_name(s), v => self.inspect_str(v)? }; return Err(self.raise_arg(&format!("unknown keyword: {d}"))); }
                     }
                 }
-                Op::Return => { let v = reg!(a); if let Some(r) = self.op_return(v, stop_depth)? { return Ok(r); } }
+                Op::Return => { let v = reg!(a); if let Some(r) = self.op_return(v, stop_depth, lc)? { return Ok(r); } }
                 Op::ReturnBlk => {
                     let v = reg!(a);
-                    if let Some(r) = self.op_return_blk(v, stop_depth)? { return Ok(r); }
+                    if let Some(r) = self.op_return_blk(v, stop_depth, lc)? { return Ok(r); }
                 }
-                Op::Retself => { let v = reg!(0); if let Some(r) = self.op_return(v, stop_depth)? { return Ok(r); } }
-                Op::Retnil => { if let Some(r) = self.op_return(Value::Nil, stop_depth)? { return Ok(r); } }
-                Op::Rettrue => { if let Some(r) = self.op_return(Value::True, stop_depth)? { return Ok(r); } }
-                Op::Retfalse => { if let Some(r) = self.op_return(Value::False, stop_depth)? { return Ok(r); } }
+                Op::Retself => { let v = reg!(0); if let Some(r) = self.op_return(v, stop_depth, lc)? { return Ok(r); } }
+                Op::Retnil => { if let Some(r) = self.op_return(Value::Nil, stop_depth, lc)? { return Ok(r); } }
+                Op::Rettrue => { if let Some(r) = self.op_return(Value::True, stop_depth, lc)? { return Ok(r); } }
+                Op::Retfalse => { if let Some(r) = self.op_return(Value::False, stop_depth, lc)? { return Ok(r); } }
                 Op::Break => {
                     let v = reg!(a);
-                    if let Some(r) = self.op_break(v, stop_depth)? { return Ok(r); }
+                    if let Some(r) = self.op_break(v, stop_depth, lc)? { return Ok(r); }
                 }
                 Op::Blkpush => { let v = self.op_blkpush(base, b)?; setreg!(a, v); }
                 Op::Add => { self.op_arith(base, a, self.s.plus)?; }
@@ -1967,7 +2303,7 @@ impl Vm {
                         let pos = if kd.is_some() { &args[..args.len() - 1] } else { &args[..] };
                         nargs.extend_from_slice(pos);
                         let r = match m {
-                            Method::Native(f) => { if let Some(k) = kd { nargs.push(k); } f(self, recv, &nargs, blk)? }
+                            Method::Native(f) => { if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_native_direct(f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
                             Method::Ruby(p) => { let tc = if self.heap.proc_data(p).env.is_some() { None } else { Some(owner) }; self.call_proc_with(p, recv, &nargs, kd, blk, Some(mm), tc)? }
                             _ => Value::Nil,
                         };
@@ -1986,11 +2322,18 @@ impl Vm {
         };
         match m {
             Method::Native(f) => {
+                if core::ptr::fn_addr_eq(f, crate::builtins::object::send as crate::object::NativeFn) {
+                    // `send`/`__send__` from bytecode re-dispatches in this frame
+                    // (mruby `mrb_f_send` → `mrb_exec_irep`): no native boundary,
+                    // so `Fiber.yield` and `break` inside the callee still work.
+                    return self.op_send_redirect(base, a, argc, kw, has_blk, blk);
+                }
                 let (args, kd) = self.native_args(base + a, argc, kw);
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
-                let r = f(self, recv, &args, blk);
+                let r = self.call_native_direct(f, recv, &args, blk, base + a);
                 self.pending_kw = saved;
-                self.stack[base + a] = Slot::from(r?);
+                let (v, switched) = r?;
+                if !switched { self.stack[base + a] = Slot::from(v); }
             }
             Method::AttrReader(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
@@ -2167,16 +2510,16 @@ impl Vm {
     }
 
     /// Returns `Some(value)` when the loop should return to its caller.
-    fn op_return(&mut self, v: Value, stop_depth: usize) -> VmResult<Option<Value>> {
+    fn op_return(&mut self, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
         let top = self.ci.len() - 1;
-        self.unwind_return(top, v, stop_depth)
+        self.unwind_return(top, v, stop_depth, lc)
     }
 
-    fn op_return_blk(&mut self, v: Value, stop_depth: usize) -> VmResult<Option<Value>> {
+    fn op_return_blk(&mut self, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
         let top = self.ci.len() - 1;
         let p = self.ci[top].proc_;
         let pd = self.heap.proc_data(p);
-        if pd.env.is_none() || pd.strict { return self.op_return(v, stop_depth); }
+        if pd.env.is_none() || pd.strict { return self.op_return(v, stop_depth, lc); }
         // top_proc: walk `upper` until the method/lambda that owns the locals;
         // its env identifies the frame to return from.
         let mut cur = p;
@@ -2192,16 +2535,16 @@ impl Vm {
             if self.ci[i].env.is_some() && self.ci[i].env == target_env { idx = Some(i); break; }
         }
         match idx {
-            Some(i) => self.unwind_return(i, v, stop_depth),
+            Some(i) => self.unwind_return(i, v, stop_depth, lc),
             None => Err(self.raise(self.core.local_jump_error, "unexpected return")),
         }
     }
 
-    fn op_break(&mut self, v: Value, stop_depth: usize) -> VmResult<Option<Value>> {
+    fn op_break(&mut self, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
         let top = self.ci.len() - 1;
         let p = self.ci[top].proc_;
         let pd = self.heap.proc_data(p);
-        if pd.strict { return self.op_return(v, stop_depth); }
+        if pd.strict { return self.op_return(v, stop_depth, lc); }
         let dst = match (pd.orphan, pd.env, pd.upper) { (false, Some(_), Some(u)) => u, _ => return Err(self.raise(self.core.local_jump_error, "break from proc-closure")) };
         // return from the frame whose *caller* runs `dst` (the method that received the block)
         let mut idx = None;
@@ -2209,7 +2552,7 @@ impl Vm {
             if self.ci[i - 1].proc_ == dst { idx = Some(i); break; }
         }
         match idx {
-            Some(i) => self.unwind_return(i, v, stop_depth),
+            Some(i) => self.unwind_return(i, v, stop_depth, lc),
             None => Err(self.raise(self.core.local_jump_error, "break from proc-closure")),
         }
     }

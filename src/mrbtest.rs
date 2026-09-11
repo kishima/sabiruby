@@ -39,6 +39,27 @@ pub fn install(vm: &mut Vm) {
     vm.define_method(tsc, "gone", gone);
     let nameless = vm.exc_new(vm.core.not_implemented_error, "function is unimplemented on this machine");
     for (k, v) in [("NAMELESS_RAISED", Value::True), ("NAMELESS_RESULT", nameless)] { let n = vm.intern(k); vm.heap.class_mut(tni).consts.insert(n, Slot::from(v)); }
+    // mrbgems/mruby-fiber/test/fibertest.c: switching across native code
+    let fiber = vm.core.fiber;
+    let fsc = vm.singleton_class(Value::Obj(fiber)).expect("Fiber singleton");
+    vm.define_method(fsc, "yield_by_c_func", |vm, _s, a, _b| { let v = a.first().copied().unwrap_or(Value::Nil); vm.fiber_yield(&[v]) });
+    vm.define_method(fsc, "yield_by_c_method", |vm, s, a, _b| { let v = a.first().copied().unwrap_or(Value::Nil); let m = vm.intern("yield"); vm.funcall(s, m, &[v], Value::Nil) });
+    vm.define_method(fiber, "resume_by_c_func", |vm, s, _a, _b| {
+        let depth = vm.ci.len();
+        let r = vm.fiber_resume(s, &[])?;
+        if depth != vm.ci.len() { return Err(vm.raise(vm.core.exception, &format!("[BUG] INVALID CI POSITION (expected {depth}, but actual {}) [BUG]", vm.ci.len()))); }
+        Ok(r)
+    });
+    vm.define_method(fiber, "resume_by_c_method", |vm, s, _a, _b| {
+        let depth = vm.ci.len();
+        let m = vm.intern("resume");
+        let r = vm.funcall(s, m, &[], Value::Nil)?;
+        if depth != vm.ci.len() { return Err(vm.raise(vm.core.exception, &format!("[BUG] INVALID CI POSITION (expected {depth}, but actual {}) [BUG]", vm.ci.len()))); }
+        Ok(r)
+    });
+    vm.define_method(fiber, "transfer_by_c", |vm, s, _a, _b| { let m = vm.intern("transfer"); vm.funcall(s, m, &[], Value::Nil) });
+    let psc = vm.singleton_class(Value::Obj(vm.core.proc_)).expect("Proc singleton");
+    vm.define_method(psc, "c_tunnel", |vm, _s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block(b, &[]) });
 }
 
 /// Port of `str_match_p` in `mrbgems/mruby-test/driver.c`: `*`, `?`, `[...]`,
@@ -189,8 +210,7 @@ pub fn run_file_opt(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool)
     }
     if sum.timeout {
         // leave the frames; report still works on the globals
-        vm.ci.clear();
-        vm.stack.clear();
+        vm.reset_to_root();
     }
     let report = vm.intern("report");
     let top = Value::Obj(vm.top_self);
