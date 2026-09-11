@@ -31,11 +31,15 @@ browser main thread                    Web Worker
   | `sabi_take_output(len_out) -> ptr` | `Vm::take_output` |
   | `sabi_take_text(len_out) -> ptr` | diagnostics (`FILE:LINE:COL: message`) or `describe_error` |
   | `sabi_dump(len_out) -> ptr` | `sabiruby::vm::dump` of the compiled binary |
+  | `sabi_ast(src, len, len_out) -> ptr` | Prism's pretty-printed syntax tree (`sabiruby-compiler`, feature `ast`) |
   | `sabi_stats(insns, live, gc)` | three u64 out-parameters |
   | `sabi_alloc` / `sabi_free`, `sabi_version` | buffers for JS; a NUL-terminated version string |
 
   Status: 0 ok, 1 compile error, 2 runtime error, 3 internal. Returned buffers stay valid until
   the next call that returns one.
+* The page shows four panes in the order of the pipeline: code, AST (Prism's tree, as in the
+  book's chapter 5), bytecode, result. AST and bytecode follow the editor (400 ms after the last
+  change) and can be hidden.
 * The worker runs `sabi_step(1_000_000)` in a loop and posts the output after each step.
   `Vm::step` pauses only at instruction boundaries of the top-level program and resumes where it
   stopped, fibers included (`fibers.md`), so the budget does not change the program's behaviour.

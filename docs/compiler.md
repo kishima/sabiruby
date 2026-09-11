@@ -55,6 +55,13 @@ touches `mrc_ccontext` (it has bit fields), so no bindgen. Diagnostics come back
 
 `mrc_presym.c` writes a static variable on every parse, so `compile` holds a global lock.
 
+With the feature `ast`, the shim also has `sabiruby_mrc_ast`: it parses with Prism as mrc does
+(no options, line 1, the file name as the file path) and returns `pm_prettyprint`'s text, the
+syntax tree mruby's code generator walks, in the format of a debug `mrbc --verbose` (the book's
+chapter 5 listing `cg_ast_ast` is reproduced line for line). `PRISM_BUILD_MINIMAL` is then
+replaced by its exclusions minus `PRISM_EXCLUDE_PRETTYPRINT`; the golden tests pass with the
+feature on as well. The browser playground uses it for its AST pane.
+
 ## Verification
 
 `compiler/tests/golden.rs` compiles every `.rb` of the repository that has a `.mrb` made by the

@@ -17,6 +17,22 @@ unsafe extern "C" {
                             out: *mut *mut u8, out_len: *mut usize, diag: *mut *mut c_char) -> c_int;
     fn sabiruby_mrc_free(p: *mut c_void);
     fn sabiruby_mrc_version() -> *const c_char;
+    #[cfg(feature = "ast")]
+    fn sabiruby_mrc_ast(src: *const u8, len: usize, filename: *const c_char) -> *mut c_char;
+}
+
+/// Prism's pretty-printed tree, or None when out of memory.
+#[cfg(feature = "ast")]
+pub fn ast(src: &[u8], filename: &CString) -> Option<String> {
+    // SAFETY: `src` and `filename` outlive the call; the result is null or a malloc'ed
+    // NUL-terminated string, copied and released with the shim's `free`.
+    unsafe {
+        let p = sabiruby_mrc_ast(src.as_ptr(), src.len(), filename.as_ptr());
+        if p.is_null() { return None; }
+        let s = CStr::from_ptr(p).to_string_lossy().into_owned();
+        sabiruby_mrc_free(p as *mut c_void);
+        Some(s)
+    }
 }
 
 /// One compilation: the shim's result code, the RITE binary (empty unless `OK`) and the

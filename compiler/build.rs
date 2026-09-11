@@ -23,6 +23,7 @@ fn main() {
     files.extend(c_files("vendor/prism/generated/src"));
     assert!(Path::new("vendor/prism/generated/include/prism/ast.h").exists(), "vendor/ is incomplete: run tools/vendor_compiler.sh");
     let wasi = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("wasi");
+    let ast = std::env::var_os("CARGO_FEATURE_AST").is_some();
     let mut build = cc::Build::new();
     build
         .files(&files)
@@ -35,11 +36,18 @@ fn main() {
         // no MRC_TARGET_MRUBY / MRC_TARGET_MRUBYC: the standalone path of mrc_common.h
         .define("PRISM_XALLOCATOR", None)
         .define("PRISM_DEPTH_MAXIMUM", "256")
-        .define("PRISM_BUILD_MINIMAL", None)
         // as the reference build (`-std=gnu99`); strict c99 hides POSIX declarations such as
         // memccpy (used by compile.c) in wasi-libc
         .std("gnu99")
         .warnings(false);
+    if ast {
+        // PRISM_BUILD_MINIMAL without PRISM_EXCLUDE_PRETTYPRINT (prism/defines.h): the parser
+        // is the same, pm_prettyprint() is compiled in
+        for d in ["PRISM_EXCLUDE_SERIALIZATION", "PRISM_EXCLUDE_JSON", "PRISM_EXCLUDE_PACK", "PRISM_ENCODING_EXCLUDE_FULL"] { build.define(d, None); }
+        build.define("SABIRUBY_SHIM_AST", None);
+    } else {
+        build.define("PRISM_BUILD_MINIMAL", None);
+    }
     if wasi {
         // MRC_TRY/MRC_THROW (codegen errors) are setjmp/longjmp, which wasi-libc implements
         // with WebAssembly exception handling. The legacy encoding runs on every current

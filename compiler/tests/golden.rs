@@ -84,3 +84,14 @@ fn parallel_compiles() {
     let hs: Vec<_> = (0..8).map(|i| std::thread::spawn(move || compile(format!("p {i}").as_bytes(), &Options::default()).unwrap())).collect();
     for h in hs { assert_eq!(&h.join().unwrap()[..4], b"RITE"); }
 }
+
+#[cfg(feature = "ast")]
+#[test]
+fn ast_is_prisms_pretty_print() {
+    let t = sabiruby_compiler::ast(b"def add(a, b) = a + b\nx = add(1, 2)\n", "t.rb").unwrap();
+    assert!(t.starts_with("@ ProgramNode (location: (1,0)-(2,13))\n+-- locals: [:x]\n+-- statements:\n"), "{t}");
+    assert!(t.contains("+-- @ DefNode (location: (1,0)-(1,21))") && t.contains("+-- name: :add"), "{t}");
+    // a syntax error still gives a tree; the error itself comes from compile()
+    assert!(sabiruby_compiler::ast(b"x = 1 +", "t.rb").unwrap().starts_with("@ ProgramNode"));
+    assert!(sabiruby_compiler::ast(b"__FILE__", "t.rb").unwrap().contains("filepath: \"t.rb\""));
+}

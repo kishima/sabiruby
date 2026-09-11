@@ -13,5 +13,10 @@ links = "sabiruby_mrc"
 # The golden tests read the reference mrbc output of the parent repository; they stay in git.
 include = ["/src/**/*", "/csrc/**/*", "/vendor/**/*", "/build.rs", "/README.md"]
 
+[features]
+# `ast()`: Prism's pretty-printed syntax tree (the format of the debug `mrbc --verbose`).
+# Off by default, so the default build is the reference mrbc's configuration.
+ast = []
+
 [build-dependencies]
 cc = "1"

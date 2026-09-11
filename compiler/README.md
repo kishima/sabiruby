@@ -40,6 +40,11 @@ licences in [`vendor/VENDOR.md`](vendor/VENDOR.md):
 * `Diagnostic { kind: Kind, message, filename, line, column }`,
   `Kind::{ParserWarning, ParserError, GeneratorWarning, GeneratorError}`
 * `version()`: `"mruby 4.1.0-rc (3cf73ee), Prism 1.9.0"`
+* feature `ast`: `ast(src, filename) -> Option<String>`, Prism's syntax tree pretty-printed by
+  `pm_prettyprint`, the format a debug build of `mrbc --verbose` prints (and the book's listings).
+  Off by default: the default build keeps the reference's `PRISM_BUILD_MINIMAL`; the feature
+  keeps every exclusion of it except the pretty-printer, which does not change the bytecode (the
+  golden tests pass with it too).
 
 Compilations are serialised by a lock: `mrc_presym.c` writes a global on every parse.
 

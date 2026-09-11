@@ -143,6 +143,17 @@ fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
         .collect()
 }
 
+/// Prism's syntax tree of `src`, pretty-printed (`pm_prettyprint`): the tree mruby's code
+/// generator walks, in the format a debug build of `mrbc --verbose` prints. Parsed as `compile`
+/// parses (the file name shows in `SourceFileNode`); a source with syntax errors still gets a
+/// tree (with missing nodes), the errors come from `compile`. Needs the feature `ast`.
+#[cfg(feature = "ast")]
+pub fn ast(src: &[u8], filename: &str) -> Option<String> {
+    let filename = CString::new(filename).ok()?;
+    let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+    ffi::ast(src, &filename)
+}
+
 /// The compiler this crate embeds, e.g. `"mruby 4.1.0-rc (3cf73ee), Prism 1.9.0"`.
 pub fn version() -> &'static str {
     ffi::version()

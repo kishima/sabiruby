@@ -130,6 +130,37 @@ sabiruby_mrc_compile(const uint8_t *src, size_t len, const char *filename, unsig
   return result;
 }
 
+#ifdef SABIRUBY_SHIM_AST
+/* Prism's pretty-printed tree of the source (what a debug mrbc prints for --verbose, and what
+   mruby's code generator walks). Parsed as mrc parses it: no options, the file name as the
+   file path (it shows in SourceFileNode). Returns a malloc'ed NUL-terminated string, or NULL. */
+char *
+sabiruby_mrc_ast(const uint8_t *src, size_t len, const char *filename)
+{
+  pm_options_t options = { 0 };
+  pm_options_line_set(&options, 1); /* the default when no options are given, as mrc parses */
+  if (filename) pm_options_filepath_set(&options, filename);
+  pm_parser_t parser;
+  pm_parser_init(&parser, src, len, &options);
+  pm_node_t *root = pm_parse(&parser);
+  pm_buffer_t buf;
+  char *out = NULL;
+  if (pm_buffer_init(&buf)) {
+    pm_prettyprint(&buf, &parser, root);
+    out = (char *)malloc(pm_buffer_length(&buf) + 1);
+    if (out) {
+      memcpy(out, pm_buffer_value(&buf), pm_buffer_length(&buf));
+      out[pm_buffer_length(&buf)] = '\0';
+    }
+    pm_buffer_free(&buf);
+  }
+  pm_node_destroy(&parser, root);
+  pm_parser_free(&parser);
+  pm_options_free(&options);
+  return out;
+}
+#endif
+
 void
 sabiruby_mrc_free(void *p)
 {
