@@ -9,7 +9,9 @@ fn exc_to_s(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     let o = s.obj().unwrap();
     let m = vm.heap.ivar_get(o, vm.s.mesg);
     if m.is_nil() { let c = vm.real_class_of(s); let n = vm.class_name(c); return Ok(vm.str_from(n)); }
-    Ok(m)
+    if vm.str_bytes(m).is_some() { return Ok(m); }
+    let b = vm.as_string(m)?; // non-String message (e.g. a Symbol) is converted
+    Ok(vm.str_new(&b))
 }
 
 pub fn init(vm: &mut Vm) {

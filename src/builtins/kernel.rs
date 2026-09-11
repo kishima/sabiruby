@@ -82,7 +82,8 @@ fn block_given(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Valu
 fn raise(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 0, 3);
     let exc = match a.len() {
-        0 => vm.exc_new(vm.core.runtime_error, "unhandled exception"),
+        // mruby 4.1.0-rc: a bare `raise` is RuntimeError with an empty message (verified, not a re-raise)
+        0 => vm.exc_new(vm.core.runtime_error, ""),
         _ => {
             if let Some(msg) = vm.str_bytes(a[0]).map(|b| b.to_vec()) {
                 if a.len() > 1 { return Err(vm.raise_type("exception class/object expected")); }
