@@ -104,6 +104,7 @@ hash entries, ivars, envs, constants, globals) holds `Slot`; computation works o
 `slot.get()` / `Slot::from(v)` are the only crossings, so an 8-byte representation can be
 tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](https://github.com/kishima/sabiruby/blob/main/docs/performance.md).
 Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github.com/kishima/sabiruby/blob/main/docs/exceptions.md).
+Compiling Ruby source in the CLI (planned; the reference compiler linked as C): [`docs/compiler-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler-plan.md).
 GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc-plan.md)).
 
 ## Usage
