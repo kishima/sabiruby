@@ -1,6 +1,6 @@
 //! Exception hierarchy natives (the classes themselves are created in `Vm::new`).
 
-use alloc::{format, string::String};
+use alloc::{format, string::String, vec, vec::Vec};
 
 use crate::argc;
 use crate::error::VmResult;

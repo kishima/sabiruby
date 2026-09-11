@@ -54,6 +54,7 @@ pub fn index_args(vm: &mut Vm, len: usize, a: &[Value]) -> VmResult<Option<(usiz
         [Value::Int(i), Value::Int(n)] => { if *n < 0 { return Ok(None); } Ok(norm(*i).map(|i| (i, (*n as usize).min(len - i)))) }
         [Value::Obj(o)] => {
             if let ObjKind::Range { begin, end, excl } = vm.heap.get(*o).kind {
+                let (begin, end) = (begin.get(), end.get());
                 let b = match begin { Value::Int(b) => b, Value::Nil => 0, _ => return Err(vm.raise_type("no implicit conversion into Integer")) };
                 let e = match end { Value::Int(e) => e, Value::Nil => len as i64, _ => return Err(vm.raise_type("no implicit conversion into Integer")) };
                 let b = match norm(b) { Some(b) => b, None => return Ok(None) };

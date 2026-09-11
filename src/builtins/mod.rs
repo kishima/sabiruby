@@ -94,7 +94,7 @@ impl Vm {
             InstanceKind::String => ObjKind::String(Vec::new()),
             InstanceKind::Array => ObjKind::Array(Vec::new()),
             InstanceKind::Hash => ObjKind::Hash(Default::default()),
-            InstanceKind::Range => ObjKind::Range { begin: Value::Nil, end: Value::Nil, excl: false },
+            InstanceKind::Range => ObjKind::Range { begin: crate::value::Slot::NIL, end: crate::value::Slot::NIL, excl: false },
             InstanceKind::Proc | InstanceKind::NoAlloc => { let n = self.class_name(class); return Err(self.raise(core.no_method_error, &format!("undefined method 'new' for {n}"))); }
         };
         Ok(Value::Obj(self.heap.alloc(class, kind)))

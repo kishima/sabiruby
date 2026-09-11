@@ -5,11 +5,11 @@ use alloc::{vec, vec::Vec};
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;
-use crate::value::Value;
+use crate::value::{Slot, Value};
 use crate::vm::Vm;
 
 fn parts(vm: &Vm, v: Value) -> (Value, Value, bool) {
-    match v.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Range { begin, end, excl }) => (*begin, *end, *excl), _ => (Value::Nil, Value::Nil, false) }
+    match v.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Range { begin, end, excl }) => (begin.get(), end.get(), *excl), _ => (Value::Nil, Value::Nil, false) }
 }
 
 pub fn range_inspect(vm: &mut Vm, v: Value, insp: bool) -> VmResult<Vec<u8>> {
@@ -42,11 +42,11 @@ pub fn init(vm: &mut Vm) {
         let excl = a.len() == 3 && a[2].truthy();
         vm.check_range_ends(a[0], a[1])?;
         let r = vm.instance_alloc(s.obj().unwrap())?;
-        if let Some(o) = r.obj() { vm.heap.get_mut(o).kind = ObjKind::Range { begin: a[0], end: a[1], excl }; vm.heap.get_mut(o).frozen = true; }
+        if let Some(o) = r.obj() { vm.heap.get_mut(o).kind = ObjKind::Range { begin: Slot::from(a[0]), end: Slot::from(a[1]), excl }; vm.heap.get_mut(o).frozen = true; }
         Ok(r)
     });
     vm.define_methods(c.range, &[
-        ("initialize", |vm, s, a, _b| { argc!(vm, a, 2, 3); if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { let n = vm.intern("initialize"); return Err(vm.name_error(n, "'initialize' called twice")); } let excl = a.len() == 3 && a[2].truthy(); vm.check_range_ends(a[0], a[1])?; if let Some(o) = s.obj() { vm.heap.get_mut(o).kind = ObjKind::Range { begin: a[0], end: a[1], excl }; vm.heap.get_mut(o).frozen = true; } Ok(s) }),
+        ("initialize", |vm, s, a, _b| { argc!(vm, a, 2, 3); if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { let n = vm.intern("initialize"); return Err(vm.name_error(n, "'initialize' called twice")); } let excl = a.len() == 3 && a[2].truthy(); vm.check_range_ends(a[0], a[1])?; if let Some(o) = s.obj() { vm.heap.get_mut(o).kind = ObjKind::Range { begin: Slot::from(a[0]), end: Slot::from(a[1]), excl }; vm.heap.get_mut(o).frozen = true; } Ok(s) }),
 
         ("begin", |vm, s, _a, _b| Ok(parts(vm, s).0)),
         ("first", |vm, s, a, b| { argc!(vm, a, 0, 1); let (bg, _, _) = parts(vm, s); if a.is_empty() { if bg.is_nil() { return Err(vm.raise(vm.core.range_error, "cannot get the first element of beginless range")); } return Ok(bg); } let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("negative array size (or size too big)")); } let mut out = vec![]; let (bb, e, x) = parts(vm, s); if let (Value::Int(mut i), Value::Int(last)) = (bb, e) { while out.len() < n as usize && (i < last || (i == last && !x)) { out.push(Value::Int(i)); i += 1; } } else { let each = vm.s.each; let _ = b; if n == 0 { return Ok(vm.ary_new(vec![])); } let _ = each; return Err(vm.raise(vm.core.not_implemented_error, "Range#first(n) for non-integer ranges")); } Ok(vm.ary_new(out)) }),

@@ -100,7 +100,7 @@ fn real_main() -> ExitCode {
             let argv: Vec<sabiruby::Value> = args[3..].iter().map(|a| vm.str_new(a.as_bytes())).collect();
             let argv = vm.ary_new(argv);
             let n = vm.intern("ARGV");
-            vm.heap.class_mut(vm.core.object).consts.insert(n, argv);
+            vm.heap.class_mut(vm.core.object).consts.insert(n, sabiruby::value::Slot::from(argv));
             let started = std::time::Instant::now();
             let result = vm.load_and_run(&bin);
             if stats {

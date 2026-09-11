@@ -13,7 +13,7 @@ use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Me
 use crate::opcode::{Op, Operands};
 use crate::rite::{self, CatchType, Pool};
 use crate::symbol::{Interner, Sym};
-use crate::value::{ObjId, Value};
+use crate::value::{slots_of, values_of, ObjId, Slot, Value};
 
 pub struct VmIrep {
     pub nlocals: usize,
@@ -129,9 +129,9 @@ pub struct Vm {
     pub heap: Heap,
     pub syms: Interner,
     pub ireps: Vec<VmIrep>,
-    pub stack: Vec<Value>,
+    pub stack: Vec<Slot>,
     pub ci: Vec<CallInfo>,
-    pub globals: HashMap<Sym, Value>,
+    pub globals: HashMap<Sym, Slot>,
     /// The exception being propagated (`mrb->exc`) between `L_RAISE` and `EXCEPT`.
     pub exc: Option<Value>,
     out: Vec<u8>,
@@ -286,7 +286,7 @@ impl Vm {
             let id = ObjId(i as u32);
             if vm.heap.is_class(id) {
                 if let Some(n) = vm.heap.class(id).name {
-                    vm.heap.class_mut(object).consts.insert(n, Value::Obj(id));
+                    vm.heap.class_mut(object).consts.insert(n, Slot::from(Value::Obj(id)));
                 }
             }
         }
@@ -338,13 +338,13 @@ impl Vm {
         Value::Obj(self.heap.alloc(self.core.string, ObjKind::String(s.into_bytes())))
     }
     pub fn ary_new(&mut self, v: Vec<Value>) -> Value {
-        Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(v)))
+        Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(slots_of(&v))))
     }
     pub fn hash_new(&mut self) -> Value {
         Value::Obj(self.heap.alloc(self.core.hash, ObjKind::Hash(Default::default())))
     }
     pub fn range_new(&mut self, begin: Value, end: Value, excl: bool) -> Value {
-        let o = self.heap.alloc(self.core.range, ObjKind::Range { begin, end, excl });
+        let o = self.heap.alloc(self.core.range, ObjKind::Range { begin: Slot::from(begin), end: Slot::from(end), excl });
         self.heap.get_mut(o).frozen = true;
         Value::Obj(o)
     }
@@ -398,8 +398,12 @@ impl Vm {
     pub fn str_bytes(&self, v: Value) -> Option<&[u8]> {
         v.obj().and_then(|o| self.heap.string(o))
     }
-    pub fn ary(&self, v: Value) -> Option<&Vec<Value>> {
+    pub fn ary(&self, v: Value) -> Option<&Vec<Slot>> {
         v.obj().and_then(|o| self.heap.array(o))
+    }
+    /// The elements of an Array as values (a copy).
+    pub fn ary_vals(&self, v: Value) -> Option<Vec<Value>> {
+        self.ary(v).map(|a| values_of(a))
     }
     pub fn expect_str(&mut self, v: Value, what: &str) -> VmResult<Vec<u8>> {
         match self.str_bytes(v) {
@@ -465,21 +469,21 @@ impl Vm {
     }
     pub fn define_class(&mut self, name: &str, superclass: ObjId) -> ObjId {
         let n = self.intern(name);
-        if let Some(Value::Obj(c)) = self.heap.class(self.core.object).consts.get(&n).copied() {
+        if let Some(Value::Obj(c)) = self.heap.class(self.core.object).consts.get(&n).map(|s| s.get()) {
             return c;
         }
         let c = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { name: Some(n), superclass: Some(superclass), ..Default::default() }));
-        self.heap.class_mut(self.core.object).consts.insert(n, Value::Obj(c));
+        self.heap.class_mut(self.core.object).consts.insert(n, Slot::from(Value::Obj(c)));
         self.singleton_class(Value::Obj(c)).expect("metaclass");
         c
     }
     pub fn define_module(&mut self, name: &str) -> ObjId {
         let n = self.intern(name);
-        if let Some(Value::Obj(c)) = self.heap.class(self.core.object).consts.get(&n).copied() {
+        if let Some(Value::Obj(c)) = self.heap.class(self.core.object).consts.get(&n).map(|s| s.get()) {
             return c;
         }
         let c = self.heap.alloc(self.core.module, ObjKind::Class(ClassData { name: Some(n), is_module: true, ..Default::default() }));
-        self.heap.class_mut(self.core.object).consts.insert(n, Value::Obj(c));
+        self.heap.class_mut(self.core.object).consts.insert(n, Slot::from(Value::Obj(c)));
         c
     }
     pub fn define_method(&mut self, class: ObjId, name: &str, f: crate::object::NativeFn) {
@@ -565,7 +569,7 @@ impl Vm {
     /// `mrb_method_added`: `method_added` / `singleton_method_added` hook.
     pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
         let cd = self.heap.class(class);
-        let (recv, hook) = if cd.is_singleton { (cd.attached.unwrap_or(Value::Nil), self.intern("singleton_method_added")) } else { (Value::Obj(class), self.intern("method_added")) };
+        let (recv, hook) = if cd.is_singleton { (cd.attached.map(|s| s.get()).unwrap_or(Value::Nil), self.intern("singleton_method_added")) } else { (Value::Obj(class), self.intern("method_added")) };
         if let Some((Method::Native(_), owner)) = self.find_method(self.class_of(recv), hook) {
             if owner == self.core.module || owner == self.core.basic_object { return Ok(()); }
         }
@@ -696,7 +700,7 @@ impl Vm {
             _ => return Err(self.raise_type("can't define singleton")),
         };
         let cur = self.heap.get(o).class;
-        if self.heap.class(cur).is_singleton && self.heap.class(cur).attached == Some(v) {
+        if self.heap.class(cur).is_singleton && self.heap.class(cur).attached == Some(Slot::from(v)) {
             return Ok(cur);
         }
         // For a class, the metaclass's superclass is the superclass's metaclass.
@@ -709,7 +713,7 @@ impl Vm {
         } else {
             Some(cur)
         };
-        let sc = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, is_singleton: true, attached: Some(v), ..Default::default() }));
+        let sc = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, is_singleton: true, attached: Some(Slot::from(v)), ..Default::default() }));
         self.heap.get_mut(o).class = sc;
         if self.heap.get(o).frozen { self.heap.get_mut(sc).frozen = true; }
         Ok(sc)
@@ -723,7 +727,7 @@ impl Vm {
                 None => &cd.consts,
             };
             if let Some(v) = tbl.get(&name) {
-                return Some(*v);
+                return Some(v.get());
             }
             c = cd.superclass;
         }
@@ -805,8 +809,8 @@ impl Vm {
         }));
         let base = self.stack.len();
         let nregs = self.ireps[irep].nregs.max(4);
-        self.stack.resize(base + nregs, Value::Nil);
-        self.stack[base] = Value::Obj(self.top_self);
+        self.stack.resize(base + nregs, Slot::NIL);
+        self.stack[base] = Slot::from(Value::Obj(self.top_self));
         let depth = self.ci.len();
         self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: 0, kw: false, mid: None, target_class: self.core.object, env: None, cci: Cci::Skip, vis: Vis::Public, modfunc: false, vis_break: false });
         let r = self.run_loop(depth);
@@ -821,8 +825,8 @@ impl Vm {
         }));
         let base = self.stack.len();
         let nregs = self.ireps[irep].nregs.max(4);
-        self.stack.resize(base + nregs, Value::Nil);
-        self.stack[base] = Value::Obj(self.top_self);
+        self.stack.resize(base + nregs, Slot::NIL);
+        self.stack[base] = Slot::from(Value::Obj(self.top_self));
         self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: 0, kw: false, mid: None, target_class: self.core.object, env: None, cci: Cci::Skip, vis: Vis::Public, modfunc: false, vis_break: false });
     }
 
@@ -936,21 +940,21 @@ impl Vm {
         let env = pd.env;
         let base = self.stack.len();
         let nregs = self.ireps[irep].nregs.max(args.len() + 3).max(4);
-        self.stack.resize(base + nregs, Value::Nil);
-        self.stack[base] = self_;
+        self.stack.resize(base + nregs, Slot::NIL);
+        self.stack[base] = Slot::from(self_);
         let mut n = args.len();
         let mut next;
         if n >= 15 {
             let packed = self.ary_new(args.to_vec());
-            self.stack[base + 1] = packed;
+            self.stack[base + 1] = Slot::from(packed);
             n = 15;
             next = base + 2;
         } else {
-            self.stack[base + 1..base + 1 + args.len()].copy_from_slice(args);
+            for (i, v) in args.iter().enumerate() { self.stack[base + 1 + i] = Slot::from(*v); }
             next = base + 1 + args.len();
         }
-        if let Some(k) = kw { self.stack[next] = k; next += 1; }
-        self.stack[next] = blk;
+        if let Some(k) = kw { self.stack[next] = Slot::from(k); next += 1; }
+        self.stack[next] = Slot::from(blk);
         let depth = self.ci.len();
         let tc = match (override_tc, env) {
             (Some(tc), _) => tc,
@@ -968,15 +972,15 @@ impl Vm {
 
     fn env_get(&self, env: ObjId, idx: usize) -> Value {
         let e = self.heap.env(env);
-        if e.attached { self.stack.get(e.base + idx).copied().unwrap_or(Value::Nil) } else { e.values.get(idx).copied().unwrap_or(Value::Nil) }
+        if e.attached { self.stack.get(e.base + idx).map(|s| s.get()).unwrap_or(Value::Nil) } else { e.values.get(idx).map(|s| s.get()).unwrap_or(Value::Nil) }
     }
     fn env_set(&mut self, env: ObjId, idx: usize, v: Value) {
         let (attached, base) = { let e = self.heap.env(env); (e.attached, e.base) };
         if attached {
-            if base + idx < self.stack.len() { self.stack[base + idx] = v; }
+            if base + idx < self.stack.len() { self.stack[base + idx] = Slot::from(v); }
         } else {
             let e = self.heap.env_mut(env);
-            if idx < e.values.len() { e.values[idx] = v; }
+            if idx < e.values.len() { e.values[idx] = Slot::from(v); }
         }
     }
     /// Reads a slot of an environment whether it is still on the stack or detached.
@@ -1025,7 +1029,7 @@ impl Vm {
         // A block created by the caller and passed to this frame loses its home
         // when the frame returns (mruby `cipop`: MRB_PROC_ORPHAN).
         let bidx = ci.base + Self::frame_bidx(&ci);
-        if let Some(Value::Obj(b)) = self.stack.get(bidx).copied() {
+        if let Some(Value::Obj(b)) = self.stack.get(bidx).map(|s| s.get()) {
             if let ObjKind::Proc(pd) = &self.heap.get(b).kind {
                 let caller_env = self.ci.last().and_then(|c| c.env);
                 if !pd.strict && pd.env.is_some() && pd.env == caller_env {
@@ -1101,7 +1105,7 @@ impl Vm {
         let top = self.ci.len() - 1;
         self.exc = Some(Value::Obj(brk));
         let (base, nregs) = { let ci = &self.ci[top]; (ci.base, self.ireps[ci.irep].nregs) };
-        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Value::Nil); }
+        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Slot::NIL); }
         self.ci[top].pc = h.target as usize;
     }
 
@@ -1158,7 +1162,7 @@ impl Vm {
             return Ok(Some(v));
         }
         // the callee's R0 is the caller's R[a]
-        self.stack[popped.base] = v;
+        self.stack[popped.base] = Slot::from(v);
         Ok(None)
     }
 
@@ -1172,7 +1176,7 @@ impl Vm {
                 self.ci[i].pc = h.target as usize;
                 let nregs = self.ireps[irep].nregs;
                 let base = self.ci[i].base;
-                if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Value::Nil); }
+                if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Slot::NIL); }
                 self.exc = Some(exc);
                 return true;
             }
@@ -1243,10 +1247,11 @@ impl Vm {
             self.ci[top].pc = pc;
             let base = ci.base;
             let (a, b, c) = (a as usize, b as usize, c as usize);
-            macro_rules! reg { ($i:expr) => { self.stack[base + $i] } }
+            macro_rules! reg { ($i:expr) => { self.stack[base + $i].get() } }
+            macro_rules! setreg { ($i:expr, $v:expr) => { { let v = $v; self.stack[base + $i] = Slot::from(v); } } }
             match op {
                 Op::Nop => {}
-                Op::Move => { reg!(a) = reg!(b); }
+                Op::Move => { setreg!(a, reg!(b)); }
                 Op::Loadl => {
                     let v = match &self.ireps[ci.irep].pool[b] {
                         Pool::Int(i) => Value::Int(*i),
@@ -1254,33 +1259,33 @@ impl Vm {
                         Pool::Str(s) => { let s = s.clone(); self.str_new(&s) }
                         Pool::BigInt(_) => return Err(VmError::Unimplemented("bigint literal".into())),
                     };
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
-                Op::Loadi8 => { reg!(a) = Value::Int(b as i64); }
-                Op::Loadineg => { reg!(a) = Value::Int(-(b as i64)); }
-                Op::LoadiM1 => { reg!(a) = Value::Int(-1); }
-                Op::Loadi0 => { reg!(a) = Value::Int(0); }
-                Op::Loadi1 => { reg!(a) = Value::Int(1); }
-                Op::Loadi2 => { reg!(a) = Value::Int(2); }
-                Op::Loadi3 => { reg!(a) = Value::Int(3); }
-                Op::Loadi4 => { reg!(a) = Value::Int(4); }
-                Op::Loadi5 => { reg!(a) = Value::Int(5); }
-                Op::Loadi6 => { reg!(a) = Value::Int(6); }
-                Op::Loadi7 => { reg!(a) = Value::Int(7); }
-                Op::Loadi16 => { reg!(a) = Value::Int(b as u16 as i16 as i64); }
-                Op::Loadi32 => { reg!(a) = Value::Int((((b as u32) << 16) | c as u32) as i32 as i64); }
-                Op::Loadsym => { reg!(a) = Value::Sym(self.ireps[ci.irep].syms[b]); }
-                Op::Loadnil => { reg!(a) = Value::Nil; }
-                Op::Loadself => { reg!(a) = reg!(0); }
-                Op::Loadtrue => { reg!(a) = Value::True; }
-                Op::Loadfalse => { reg!(a) = Value::False; }
+                Op::Loadi8 => { setreg!(a, Value::Int(b as i64)); }
+                Op::Loadineg => { setreg!(a, Value::Int(-(b as i64))); }
+                Op::LoadiM1 => { setreg!(a, Value::Int(-1)); }
+                Op::Loadi0 => { setreg!(a, Value::Int(0)); }
+                Op::Loadi1 => { setreg!(a, Value::Int(1)); }
+                Op::Loadi2 => { setreg!(a, Value::Int(2)); }
+                Op::Loadi3 => { setreg!(a, Value::Int(3)); }
+                Op::Loadi4 => { setreg!(a, Value::Int(4)); }
+                Op::Loadi5 => { setreg!(a, Value::Int(5)); }
+                Op::Loadi6 => { setreg!(a, Value::Int(6)); }
+                Op::Loadi7 => { setreg!(a, Value::Int(7)); }
+                Op::Loadi16 => { setreg!(a, Value::Int(b as u16 as i16 as i64)); }
+                Op::Loadi32 => { setreg!(a, Value::Int((((b as u32) << 16) | c as u32) as i32 as i64)); }
+                Op::Loadsym => { setreg!(a, Value::Sym(self.ireps[ci.irep].syms[b])); }
+                Op::Loadnil => { setreg!(a, Value::Nil); }
+                Op::Loadself => { setreg!(a, reg!(0)); }
+                Op::Loadtrue => { setreg!(a, Value::True); }
+                Op::Loadfalse => { setreg!(a, Value::False); }
                 Op::Getsv | Op::Setsv => { return Err(VmError::Unimplemented("special variables ($~, $_)".into())); }
-                Op::Getgv => { let s = self.ireps[ci.irep].syms[b]; reg!(a) = self.globals.get(&s).copied().unwrap_or(Value::Nil); }
-                Op::Setgv => { let s = self.ireps[ci.irep].syms[b]; let v = reg!(a); self.globals.insert(s, v); }
+                Op::Getgv => { let s = self.ireps[ci.irep].syms[b]; setreg!(a, self.globals.get(&s).map(|s| s.get()).unwrap_or(Value::Nil)); }
+                Op::Setgv => { let s = self.ireps[ci.irep].syms[b]; let v = reg!(a); self.globals.insert(s, Slot::from(v)); }
                 Op::Getiv => {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = match reg!(0) { Value::Obj(o) => self.heap.ivar_get(o, s), _ => Value::Nil };
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Setiv => {
                     let s = self.ireps[ci.irep].syms[b];
@@ -1297,7 +1302,7 @@ impl Vm {
                         Some(v) => v,
                         None => { let n = self.sym_name(s); let cn = self.class_name(cls); return Err(self.raise(self.core.name_error, &format!("uninitialized class variable {n} in {cn}"))); }
                     };
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Setcv => {
                     let s = self.ireps[ci.irep].syms[b];
@@ -1308,7 +1313,7 @@ impl Vm {
                 Op::Getconst => {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = self.const_lookup(&ci, s)?;
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Setconst => {
                     let s = self.ireps[ci.irep].syms[b];
@@ -1316,7 +1321,7 @@ impl Vm {
                     let tc = ci.target_class;
                     if self.heap.is_class(tc) {
                         if self.heap.get(tc).frozen { return Err(self.frozen_error(Value::Obj(tc))); }
-                        self.heap.class_mut(tc).consts.insert(s, v);
+                        self.heap.class_mut(tc).consts.insert(s, Slot::from(v));
                         // name anonymous classes on first assignment
                         if let Value::Obj(o) = v {
                             if self.heap.is_class(o) && self.heap.class(o).name.is_none() {
@@ -1334,14 +1339,14 @@ impl Vm {
                         Some(v) => v,
                         None => { let n = self.sym_name(s); let cn = self.class_name(cls); return Err(self.raise(self.core.name_error, &format!("uninitialized constant {cn}::{n}"))); }
                     };
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Setmcnst => {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = reg!(a);
                     match reg!(a + 1) {
                         Value::Obj(o) if self.heap.is_class(o) => {
-                            self.heap.class_mut(o).consts.insert(s, v);
+                            self.heap.class_mut(o).consts.insert(s, Slot::from(v));
                             if let Value::Obj(c) = v { if self.heap.is_class(c) && self.heap.class(c).name.is_none() { self.heap.class_mut(c).name = Some(s); self.heap.class_mut(c).outer = Some(o); } }
                         }
                         _ => return Err(self.raise_type("not a class/module")),
@@ -1349,7 +1354,7 @@ impl Vm {
                 }
                 Op::Getupvar => {
                     let v = match self.uvenv(c) { Some(e) if b < self.heap.env(e).len => self.env_get(e, b), _ => Value::Nil };
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Setupvar => {
                     if let Some(e) = self.uvenv(c) {
@@ -1359,28 +1364,28 @@ impl Vm {
                 Op::Getidx => {
                     let recv = reg!(a); let idx = reg!(a + 1);
                     let v = self.funcall(recv, self.s.aref, &[idx], Value::Nil)?;
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Getidx0 => {
                     let recv = reg!(b);
                     let v = self.funcall(recv, self.s.aref, &[Value::Int(0)], Value::Nil)?;
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::Setidx => {
                     let recv = reg!(a); let idx = reg!(a + 1); let val = reg!(a + 2);
                     self.funcall(recv, self.s.aset, &[idx, val], Value::Nil)?;
-                    reg!(a) = val; // the value of an index assignment is the assigned value
+                    setreg!(a, val); // the value of an index assignment is the assigned value
                 }
                 Op::Jmp => { self.ci[top].pc = jump(pc, a); }
                 Op::Jmpif => { if reg!(a).truthy() { self.ci[top].pc = jump(pc, b); } }
                 Op::Jmpnot => { if !reg!(a).truthy() { self.ci[top].pc = jump(pc, b); } }
                 Op::Jmpnil => { if reg!(a).is_nil() { self.ci[top].pc = jump(pc, b); } }
                 Op::Jmpuw => { self.jmpuw(jump(pc, a)); }
-                Op::Except => { reg!(a) = self.exc.take().unwrap_or(Value::Nil); }
+                Op::Except => { setreg!(a, self.exc.take().unwrap_or(Value::Nil)); }
                 Op::Rescue => {
                     let exc = reg!(a); let cls_v = reg!(b);
                     let cls = match cls_v { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("class or module required for rescue clause")) };
-                    reg!(b) = Value::bool(self.obj_is_kind_of(exc, cls));
+                    setreg!(b, Value::bool(self.obj_is_kind_of(exc, cls)));
                 }
                 Op::Raiseif => {
                     let exc = reg!(a);
@@ -1398,12 +1403,12 @@ impl Vm {
                     let argc = if matches!(op, Op::Send0 | Op::Ssend0) { 0 } else { c };
                     let has_blk = matches!(op, Op::Sendb | Op::Ssendb);
                     let explicit = matches!(op, Op::Send | Op::Send0 | Op::Sendb);
-                    if !explicit { reg!(a) = reg!(0); }
+                    if !explicit { setreg!(a, reg!(0)); }
                     self.op_send_vis(base, a, mid, argc, has_blk, false, explicit)?;
                 }
                 Op::Super => {
                     let argc = b;
-                    reg!(a) = reg!(0);
+                    setreg!(a, reg!(0));
                     let mid = ci.mid.ok_or_else(|| self.raise(self.core.no_method_error, "super called outside of method"))?;
                     self.op_send(base, a, mid, argc, true, true)?;
                 }
@@ -1427,20 +1432,20 @@ impl Vm {
                 Op::Enter => { self.op_enter(a as u32)?; }
                 Op::Karg => {
                     let k = Value::Sym(self.ireps[ci.irep].syms[b]);
-                    let v = match self.kidx(&ci).and_then(|ki| self.hash_delete(self.stack[ki], k)) {
+                    let v = match self.kidx(&ci).and_then(|ki| self.hash_delete(self.stack[ki].get(), k)) {
                         Some(v) => v,
                         None => { let n = self.sym_name(self.ireps[ci.irep].syms[b]); return Err(self.raise_arg(&format!("missing keyword: {n}"))); }
                     };
-                    reg!(a) = v;
+                    setreg!(a, v);
                 }
                 Op::KeyP => {
                     let k = Value::Sym(self.ireps[ci.irep].syms[b]);
-                    let has = match self.kidx(&ci) { Some(ki) => self.hash_get(self.stack[ki], k).is_some(), None => false };
-                    reg!(a) = Value::bool(has);
+                    let has = match self.kidx(&ci) { Some(ki) => self.hash_get(self.stack[ki].get(), k).is_some(), None => false };
+                    setreg!(a, Value::bool(has));
                 }
                 Op::Keyend => {
                     if let Some(ki) = self.kidx(&ci) {
-                        let first = match self.stack[ki].obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.first().map(|e| e.0), _ => None };
+                        let first = match self.stack[ki].get().obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.first().map(|e| e.0.get()), _ => None };
                         if let Some(k) = first { let d = match k { Value::Sym(s) => self.sym_name(s), v => self.inspect_str(v)? }; return Err(self.raise_arg(&format!("unknown keyword: {d}"))); }
                     }
                 }
@@ -1457,18 +1462,18 @@ impl Vm {
                     let v = reg!(a);
                     if let Some(r) = self.op_break(v, stop_depth)? { return Ok(r); }
                 }
-                Op::Blkpush => { let v = self.op_blkpush(base, b)?; reg!(a) = v; }
+                Op::Blkpush => { let v = self.op_blkpush(base, b)?; setreg!(a, v); }
                 Op::Add => { self.op_arith(base, a, self.s.plus)?; }
                 Op::Sub => { self.op_arith(base, a, self.s.minus)?; }
                 Op::Mul => { self.op_arith(base, a, self.s.mul)?; }
                 Op::Div => { self.op_arith(base, a, self.s.div)?; }
-                Op::Addi => { reg!(a + 1) = Value::Int(b as i64); self.op_arith(base, a, self.s.plus)?; }
-                Op::Subi => { reg!(a + 1) = Value::Int(b as i64); self.op_arith(base, a, self.s.minus)?; }
+                Op::Addi => { setreg!(a + 1, Value::Int(b as i64)); self.op_arith(base, a, self.s.plus)?; }
+                Op::Subi => { setreg!(a + 1, Value::Int(b as i64)); self.op_arith(base, a, self.s.minus)?; }
                 Op::Addilv | Op::Subilv => {
                     let mid = if matches!(op, Op::Addilv) { self.s.plus } else { self.s.minus };
                     match reg!(a) {
-                        Value::Int(_) | Value::Float(_) => { reg!(b) = reg!(a); reg!(b + 1) = Value::Int(c as i64); self.op_arith(base, b, mid)?; let v = reg!(b); reg!(a) = v; }
-                        recv => { let r = self.funcall(recv, mid, &[Value::Int(c as i64)], Value::Nil)?; reg!(a) = r; }
+                        Value::Int(_) | Value::Float(_) => { setreg!(b, reg!(a)); setreg!(b + 1, Value::Int(c as i64)); self.op_arith(base, b, mid)?; let v = reg!(b); setreg!(a, v); }
+                        recv => { let r = self.funcall(recv, mid, &[Value::Int(c as i64)], Value::Nil)?; setreg!(a, r); }
                     }
                 }
                 Op::Eq => { self.op_compare(base, a, self.s.eq)?; }
@@ -1476,55 +1481,55 @@ impl Vm {
                 Op::Le => { self.op_compare(base, a, self.s.le)?; }
                 Op::Gt => { self.op_compare(base, a, self.s.gt)?; }
                 Op::Ge => { self.op_compare(base, a, self.s.ge)?; }
-                Op::Array => { let v: Vec<Value> = self.stack[base + a..base + a + b].to_vec(); reg!(a) = self.ary_new(v); }
-                Op::Array2 => { let v: Vec<Value> = self.stack[base + b..base + b + c].to_vec(); reg!(a) = self.ary_new(v); }
+                Op::Array => { let v: Vec<Value> = values_of(&self.stack[base + a..base + a + b]); setreg!(a, self.ary_new(v)); }
+                Op::Array2 => { let v: Vec<Value> = values_of(&self.stack[base + b..base + b + c]); setreg!(a, self.ary_new(v)); }
                 Op::Arycat => {
                     // R[a] == nil means "start the argument accumulator": a fresh
                     // array (independent of R[a+1]) that later ARYPUSH/ARYCAT extend.
                     let (dst, src) = (reg!(a), reg!(a + 1));
                     let items = match src { Value::Nil => vec![], _ => self.to_array(src)? };
                     match dst {
-                        Value::Nil => { reg!(a) = self.ary_new(items); }
-                        Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Array(_)) => { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.extend(items); } }
+                        Value::Nil => { setreg!(a, self.ary_new(items)); }
+                        Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Array(_)) => { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.extend(slots_of(&items)); } }
                         _ => return Err(self.raise_type("not an array")),
                     }
                 }
                 Op::Arypush => {
                     let dst = reg!(a);
-                    let items: Vec<Value> = self.stack[base + a + 1..base + a + 1 + b].to_vec();
-                    match dst { Value::Obj(o) => { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.extend(items); } } _ => return Err(self.raise_type("not an array")) }
+                    let items: Vec<Value> = values_of(&self.stack[base + a + 1..base + a + 1 + b]);
+                    match dst { Value::Obj(o) => { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.extend(slots_of(&items)); } } _ => return Err(self.raise_type("not an array")) }
                 }
-                Op::Arysplat => { let v = reg!(a); let items = self.to_array(v)?; reg!(a) = self.ary_new(items); }
+                Op::Arysplat => { let v = reg!(a); let items = self.to_array(v)?; setreg!(a, self.ary_new(items)); }
                 Op::Aref => {
-                    let v = match reg!(b) { Value::Obj(o) => match self.heap.array(o) { Some(arr) => arr.get(c).copied().unwrap_or(Value::Nil), None => reg!(b) }, other => if c == 0 { other } else { Value::Nil } };
-                    reg!(a) = v;
+                    let v = match reg!(b) { Value::Obj(o) => match self.heap.array(o) { Some(arr) => arr.get(c).map(|s| s.get()).unwrap_or(Value::Nil), None => reg!(b) }, other => if c == 0 { other } else { Value::Nil } };
+                    setreg!(a, v);
                 }
                 Op::Aset => {
                     let v = reg!(a);
-                    match reg!(b) { Value::Obj(o) => { if let ObjKind::Array(arr) = &mut self.heap.get_mut(o).kind { if arr.len() <= c { arr.resize(c + 1, Value::Nil); } arr[c] = v; } } _ => return Err(self.raise_type("not an array")) }
+                    match reg!(b) { Value::Obj(o) => { if let ObjKind::Array(arr) = &mut self.heap.get_mut(o).kind { if arr.len() <= c { arr.resize(c + 1, Slot::NIL); } arr[c] = Slot::from(v); } } _ => return Err(self.raise_type("not an array")) }
                 }
                 Op::Apost => {
                     let src = reg!(a);
-                    let items = match self.ary(src) { Some(v) => v.clone(), None => vec![src] };
+                    let items = match self.ary_vals(src) { Some(v) => v, None => vec![src] };
                     let pre = b; let post = c;
                     let len = items.len();
                     if len > pre + post {
                         let rest = items[pre..len - post].to_vec();
-                        reg!(a) = self.ary_new(rest);
-                        for i in 0..post { reg!(a + 1 + i) = items[len - post + i]; }
+                        setreg!(a, self.ary_new(rest));
+                        for i in 0..post { setreg!(a + 1 + i, items[len - post + i]); }
                     } else {
-                        reg!(a) = self.ary_new(vec![]);
-                        for i in 0..post { reg!(a + 1 + i) = items.get(pre + i).copied().unwrap_or(Value::Nil); }
+                        setreg!(a, self.ary_new(vec![]));
+                        for i in 0..post { setreg!(a + 1 + i, items.get(pre + i).copied().unwrap_or(Value::Nil)); }
                     }
                 }
-                Op::Intern => { let v = reg!(a); let bytes = self.expect_str(v, "value")?; reg!(a) = Value::Sym(self.syms.intern(&bytes)); }
+                Op::Intern => { let v = reg!(a); let bytes = self.expect_str(v, "value")?; setreg!(a, Value::Sym(self.syms.intern(&bytes))); }
                 Op::Symbol => {
                     let bytes = match &self.ireps[ci.irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("SYMBOL pool".into())) };
-                    reg!(a) = Value::Sym(self.syms.intern(&bytes));
+                    setreg!(a, Value::Sym(self.syms.intern(&bytes)));
                 }
                 Op::String => {
                     let bytes = match &self.ireps[ci.irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("STRING pool".into())) };
-                    reg!(a) = self.str_new(&bytes);
+                    setreg!(a, self.str_new(&bytes));
                 }
                 Op::Strcat => {
                     let (dst, src) = (reg!(a), reg!(a + 1));
@@ -1533,19 +1538,19 @@ impl Vm {
                 }
                 Op::Hash => {
                     let h = self.hash_new();
-                    let pairs: Vec<(Value, Value)> = (0..b).map(|i| (self.stack[base + a + i * 2], self.stack[base + a + i * 2 + 1])).collect();
+                    let pairs: Vec<(Value, Value)> = (0..b).map(|i| (self.stack[base + a + i * 2].get(), self.stack[base + a + i * 2 + 1].get())).collect();
                     for (k, v) in pairs { self.hash_set(h, k, v)?; }
-                    reg!(a) = h;
+                    setreg!(a, h);
                 }
                 Op::Hashadd => {
                     let h = reg!(a);
-                    let pairs: Vec<(Value, Value)> = (0..b).map(|i| (self.stack[base + a + 1 + i * 2], self.stack[base + a + 2 + i * 2])).collect();
+                    let pairs: Vec<(Value, Value)> = (0..b).map(|i| (self.stack[base + a + 1 + i * 2].get(), self.stack[base + a + 2 + i * 2].get())).collect();
                     for (k, v) in pairs { self.hash_set(h, k, v)?; }
                 }
                 Op::Hashcat => {
                     let (h, other) = (reg!(a), reg!(a + 1));
                     let entries = match other.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.clone(), _ => return Err(self.raise_type("not a hash")) };
-                    for (k, v) in entries { self.hash_set(h, k, v)?; }
+                    for (k, v) in entries { self.hash_set(h, k.get(), v.get())?; }
                 }
                 Op::Lambda | Op::Block | Op::Method => {
                     let nirep = self.ireps[ci.irep].reps[b];
@@ -1555,19 +1560,19 @@ impl Vm {
                     let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData {
                         irep: nirep, upper: Some(ci.proc_), env, target_class: Some(ci.target_class), strict, scope: matches!(op, Op::Method), orphan: false,
                     }));
-                    reg!(a) = Value::Obj(p);
+                    setreg!(a, Value::Obj(p));
                 }
                 Op::RangeInc | Op::RangeExc => {
                     let (x, y) = (reg!(a), reg!(a + 1));
                     self.check_range_ends(x, y)?;
-                    reg!(a) = self.range_new(x, y, matches!(op, Op::RangeExc));
+                    setreg!(a, self.range_new(x, y, matches!(op, Op::RangeExc)));
                 }
-                Op::Oclass => { reg!(a) = Value::Obj(self.core.object); }
+                Op::Oclass => { setreg!(a, Value::Obj(self.core.object)); }
                 Op::Class | Op::Module => {
                     let s = self.ireps[ci.irep].syms[b];
                     let base_v = reg!(a);
                     let outer = match base_v { Value::Nil => self.heap.proc_data(ci.proc_).target_class.unwrap_or(self.core.object), Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
-                    let existing = self.heap.class(outer).consts.get(&s).copied();
+                    let existing = self.heap.class(outer).consts.get(&s).map(|s| s.get());
                     let is_module = matches!(op, Op::Module);
                     let given_sup = match if is_module { Value::Nil } else { reg!(a + 1) } {
                         Value::Nil => None,
@@ -1587,13 +1592,13 @@ impl Vm {
                             let sup = if is_module { None } else { Some(given_sup.unwrap_or(self.core.object)) };
                             let meta = if is_module { self.core.module } else { self.core.class };
                             let ncls = self.heap.alloc(meta, ObjKind::Class(ClassData { name: Some(s), superclass: sup, is_module, outer: Some(outer), ..Default::default() }));
-                            self.heap.class_mut(outer).consts.insert(s, Value::Obj(ncls));
+                            self.heap.class_mut(outer).consts.insert(s, Slot::from(Value::Obj(ncls)));
                             if !is_module { self.singleton_class(Value::Obj(ncls))?; }
                             if let Some(sup) = sup { self.call_inherited(sup, ncls)?; }
                             ncls
                         }
                     };
-                    reg!(a) = Value::Obj(cls);
+                    setreg!(a, Value::Obj(cls));
                 }
                 Op::Exec => {
                     let nirep = self.ireps[ci.irep].reps[b];
@@ -1601,8 +1606,8 @@ impl Vm {
                     let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false }));
                     let nbase = base + a;
                     let nregs = self.ireps[nirep].nregs.max(4);
-                    if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Value::Nil); }
-                    for i in 1..nregs { self.stack[nbase + i] = Value::Nil; }
+                    if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Slot::NIL); }
+                    for i in 1..nregs { self.stack[nbase + i] = Slot::NIL; }
                     self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: 0, kw: false, mid: None, target_class: cls, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
                 }
                 Op::Def => {
@@ -1616,7 +1621,7 @@ impl Vm {
                         let sc = self.singleton_class(Value::Obj(target))?;
                         self.def_method(sc, s, Method::Ruby(p), Vis::Public)?;
                     }
-                    reg!(a) = Value::Sym(s);
+                    setreg!(a, Value::Sym(s));
                 }
                 Op::Tdef | Op::Sdef => {
                     let s = self.ireps[ci.irep].syms[b];
@@ -1626,7 +1631,7 @@ impl Vm {
                     let (vis, modfunc) = if matches!(op, Op::Tdef) && !self.heap.class(target).is_singleton { self.current_def_vis(target) } else { (Vis::Public, false) };
                     self.def_method(target, s, Method::Ruby(p), if modfunc { Vis::Private } else { vis })?;
                     if modfunc { let sc = self.singleton_class(Value::Obj(target))?; self.def_method(sc, s, Method::Ruby(p), Vis::Public)?; }
-                    reg!(a) = Value::Sym(s);
+                    setreg!(a, Value::Sym(s));
                 }
                 Op::Alias => {
                     let (new, old) = (self.ireps[ci.irep].syms[a], self.ireps[ci.irep].syms[b]);
@@ -1634,8 +1639,8 @@ impl Vm {
                     self.alias_method(tc, new, old)?;
                 }
                 Op::Undef => { let s = self.ireps[ci.irep].syms[a]; self.undef_method(ci.target_class, s)?; }
-                Op::Sclass => { let v = reg!(a); reg!(a) = Value::Obj(self.singleton_class(v)?); }
-                Op::Tclass => { reg!(a) = Value::Obj(ci.target_class); }
+                Op::Sclass => { let v = reg!(a); setreg!(a, Value::Obj(self.singleton_class(v)?)); }
+                Op::Tclass => { setreg!(a, Value::Obj(ci.target_class)); }
                 Op::Debug => {}
                 Op::Err => {
                     let msg = match &self.ireps[ci.irep].pool[a] { Pool::Str(s) => String::from_utf8_lossy(s).into_owned(), _ => "error".into() };
@@ -1647,7 +1652,7 @@ impl Vm {
                 Op::Stop => {
                     // mruby returns regs[irep->nlocals] (the last expression's register).
                     let nlocals = self.ireps[ci.irep].nlocals;
-                    let v = self.stack.get(base + nlocals).copied().unwrap_or(Value::Nil);
+                    let v = self.stack.get(base + nlocals).map(|s| s.get()).unwrap_or(Value::Nil);
                     let _ = self.pop_frame();
                     return Ok(v);
                 }
@@ -1714,7 +1719,7 @@ impl Vm {
         while let Some(x) = c {
             let cd = self.heap.class(x);
             let owner = cd.iclass_of.unwrap_or(x);
-            if let Some(v) = self.heap.class(owner).cvars.get(&s) { found = Some(*v); }
+            if let Some(v) = self.heap.class(owner).cvars.get(&s) { found = Some(v.get()); }
             c = cd.superclass;
         }
         found
@@ -1726,26 +1731,26 @@ impl Vm {
             let owner = self.heap.class(x).iclass_of.unwrap_or(x);
             if self.heap.class(owner).cvars.contains_key(&s) {
                 if self.heap.get(owner).frozen { return Err(self.frozen_error(Value::Obj(owner))); }
-                self.heap.class_mut(owner).cvars.insert(s, v);
+                self.heap.class_mut(owner).cvars.insert(s, Slot::from(v));
                 return Ok(());
             }
             c = self.heap.class(x).superclass;
         }
         if self.heap.get(class).frozen { return Err(self.frozen_error(Value::Obj(class))); }
-        self.heap.class_mut(class).cvars.insert(s, v);
+        self.heap.class_mut(class).cvars.insert(s, Slot::from(v));
         Ok(())
     }
 
     /// `mrb_ary_splat`: Array as is; `to_a` if it answers (nil means "no conversion");
     /// a non-Array `to_a` result is a TypeError.
     pub fn to_array(&mut self, v: Value) -> VmResult<Vec<Value>> {
-        if let Some(a) = self.ary(v) { return Ok(a.clone()); }
+        if let Some(a) = self.ary_vals(v) { return Ok(a); }
         let to_a = self.intern("to_a");
         if !self.respond_to(v, to_a) { return Ok(vec![v]); }
         let r = self.funcall(v, to_a, &[], Value::Nil)?;
         if r.is_nil() { return Ok(vec![v]); }
         match self.ary(r) {
-            Some(a) => Ok(a.clone()),
+            Some(a) => Ok(values_of(a)),
             None => { let c = self.describe_for_error(v); let rc = self.describe_for_error(r); Err(self.raise_type(&format!("can't convert {c} to Array ({c}#to_a gives {rc})"))) }
         }
     }
@@ -1789,7 +1794,7 @@ impl Vm {
     }
     /// Makes the cached hashes match the entries (after wholesale edits of `entries`).
     fn hash_sync(&mut self, o: ObjId) -> VmResult<()> {
-        let (need, keys): (bool, Vec<Value>) = match &self.heap.get(o).kind { ObjKind::Hash(hd) => (hd.hashes.len() != hd.entries.len(), hd.entries.iter().map(|e| e.0).collect()), _ => (false, vec![]) };
+        let (need, keys): (bool, Vec<Value>) = match &self.heap.get(o).kind { ObjKind::Hash(hd) => (hd.hashes.len() != hd.entries.len(), hd.entries.iter().map(|e| e.0.get()).collect()), _ => (false, vec![]) };
         if !need { return Ok(()); }
         let mut hs = Vec::with_capacity(keys.len());
         for k in keys { hs.push(self.key_hash(k)?); }
@@ -1804,7 +1809,7 @@ impl Vm {
         let kh = self.key_hash(k)?;
         let mut i = 0;
         loop {
-            let cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => { if i >= hd.entries.len() { break; } if hd.hashes.get(i) == Some(&kh) { Some(hd.entries[i].0) } else { None } } _ => None };
+            let cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => { if i >= hd.entries.len() { break; } if hd.hashes.get(i) == Some(&kh) { Some(hd.entries[i].0.get()) } else { None } } _ => None };
             if let Some(ek) = cand { if self.key_eql(k, ek)? { return Ok(Some(i)); } }
             i += 1;
         }
@@ -1812,7 +1817,7 @@ impl Vm {
     }
     pub fn hash_get(&mut self, h: Value, k: Value) -> Option<Value> {
         match self.hash_index(h, k) {
-            Ok(Some(i)) => match &self.heap.get(h.obj().unwrap()).kind { ObjKind::Hash(hd) => hd.entries.get(i).map(|e| e.1), _ => None },
+            Ok(Some(i)) => match &self.heap.get(h.obj().unwrap()).kind { ObjKind::Hash(hd) => hd.entries.get(i).map(|e| e.1.get()), _ => None },
             _ => None,
         }
     }
@@ -1824,13 +1829,13 @@ impl Vm {
         let pos = self.hash_index(h, k)?;
         let kh = self.key_hash(k)?;
         if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind {
-            match pos { Some(i) => hd.entries[i].1 = v, None => { hd.entries.push((k, v)); hd.hashes.push(kh); } }
+            match pos { Some(i) => hd.entries[i].1 = Slot::from(v), None => { hd.entries.push((Slot::from(k), Slot::from(v))); hd.hashes.push(kh); } }
         }
         Ok(())
     }
 
     fn op_arith(&mut self, base: usize, a: usize, mid: Sym) -> VmResult<()> {
-        let (x, y) = (self.stack[base + a], self.stack[base + a + 1]);
+        let (x, y) = (self.stack[base + a].get(), self.stack[base + a + 1].get());
         let r = match (x, y) {
             (Value::Int(p), Value::Int(q)) => {
                 let s = self.s;
@@ -1845,7 +1850,7 @@ impl Vm {
             _ => None,
         };
         match r {
-            Some(v) => { self.stack[base + a] = v; Ok(()) }
+            Some(v) => { self.stack[base + a] = Slot::from(v); Ok(()) }
             None => {
                 if let (Value::Int(_), Value::Int(_)) = (x, y) { return Err(self.raise(self.core.range_error, "integer overflow")); }
                 self.op_send(base, a, mid, 1, false, false)
@@ -1854,7 +1859,7 @@ impl Vm {
     }
 
     fn op_compare(&mut self, base: usize, a: usize, mid: Sym) -> VmResult<()> {
-        let (x, y) = (self.stack[base + a], self.stack[base + a + 1]);
+        let (x, y) = (self.stack[base + a].get(), self.stack[base + a + 1].get());
         let s = self.s;
         let num = |p: f64, q: f64| -> Value {
             Value::bool(if mid == s.eq { p == q } else if mid == s.lt { p < q } else if mid == s.le { p <= q } else if mid == s.gt { p > q } else { p >= q })
@@ -1875,7 +1880,7 @@ impl Vm {
             _ => None,
         };
         match r {
-            Some(v) => { self.stack[base + a] = v; Ok(()) }
+            Some(v) => { self.stack[base + a] = Slot::from(v); Ok(()) }
             None => self.op_send(base, a, mid, 1, false, false),
         }
     }
@@ -1890,21 +1895,21 @@ impl Vm {
         let nk = (c >> 4) & 0xf;
         let npos = if n == 15 { 1 } else { n };
         let bidx = nbase + npos + (if nk == 15 { 1 } else { nk * 2 }) + 1;
-        if self.stack.len() <= bidx { self.stack.resize(bidx + 1, Value::Nil); }
-        let blk = if has_blk { let b = self.stack[bidx]; self.ensure_block(b)? } else { Value::Nil };
+        if self.stack.len() <= bidx { self.stack.resize(bidx + 1, Slot::NIL); }
+        let blk = if has_blk { let b = self.stack[bidx].get(); self.ensure_block(b)? } else { Value::Nil };
         let kw = nk > 0;
         if nk > 0 && nk != 15 {
             let kidx = nbase + npos + 1;
             let h = self.hash_new();
-            for i in 0..nk { let (k, v) = (self.stack[kidx + i * 2], self.stack[kidx + i * 2 + 1]); self.hash_set(h, k, v)?; }
-            self.stack[kidx] = h;
+            for i in 0..nk { let (k, v) = (self.stack[kidx + i * 2].get(), self.stack[kidx + i * 2 + 1].get()); self.hash_set(h, k, v)?; }
+            self.stack[kidx] = Slot::from(h);
         } else if nk == 15 {
-            let h = self.stack[nbase + npos + 1];
+            let h = self.stack[nbase + npos + 1].get();
             if !matches!(h.obj().map(|o| &self.heap.get(o).kind), Some(ObjKind::Hash(_))) { return Err(self.raise_type("keyword argument hash expected")); }
         }
         let new_bidx = nbase + npos + (if kw { 1 } else { 0 }) + 1;
-        if self.stack.len() <= new_bidx { self.stack.resize(new_bidx + 1, Value::Nil); }
-        self.stack[new_bidx] = blk;
+        if self.stack.len() <= new_bidx { self.stack.resize(new_bidx + 1, Slot::NIL); }
+        self.stack[new_bidx] = Slot::from(blk);
         Ok((n, kw, blk))
     }
 
@@ -1916,7 +1921,7 @@ impl Vm {
         let npos = if n == 15 { 1 } else { n };
         let mut kd = None;
         if kw {
-            let h = self.stack[nbase + npos + 1];
+            let h = self.stack[nbase + npos + 1].get();
             let empty = match h.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.is_empty(), _ => true };
             if !empty { args.push(h); kd = Some(h); }
         }
@@ -1928,7 +1933,7 @@ impl Vm {
     }
     /// `explicit`: the receiver was written (SEND/SEND0/SENDB), so private/protected are enforced.
     fn op_send_vis(&mut self, base: usize, a: usize, mid: Sym, c: usize, has_blk: bool, is_super: bool, explicit: bool) -> VmResult<()> {
-        let recv = self.stack[base + a];
+        let recv = self.stack[base + a].get();
         let (argc, kw, blk) = self.prepare_call(base + a, c, has_blk)?;
         let start_class = if is_super {
             let owner = self.ci.last().unwrap().target_class;
@@ -1942,7 +1947,7 @@ impl Vm {
                         Vis::Public => {}
                         Vis::Private => { let name = self.sym_name(mid); let desc = self.describe_for_error(recv); return Err(self.no_method_error(mid, recv, &format!("private method '{name}' called for {desc}"))); }
                         Vis::Protected => {
-                            let caller_self = self.stack[base];
+                            let caller_self = self.stack[base].get();
                             let home = self.heap.class(owner).iclass_of.unwrap_or(owner);
                             if !self.obj_is_kind_of(caller_self, home) { let name = self.sym_name(mid); let desc = self.describe_for_error(recv); return Err(self.no_method_error(mid, recv, &format!("protected method '{name}' called for {desc}"))); }
                         }
@@ -1966,7 +1971,7 @@ impl Vm {
                             Method::Ruby(p) => { let tc = if self.heap.proc_data(p).env.is_some() { None } else { Some(owner) }; self.call_proc_with(p, recv, &nargs, kd, blk, Some(mm), tc)? }
                             _ => Value::Nil,
                         };
-                        self.stack[base + a] = r;
+                        self.stack[base + a] = Slot::from(r);
                         return Ok(());
                     }
                 }
@@ -1985,28 +1990,28 @@ impl Vm {
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
                 let r = f(self, recv, &args, blk);
                 self.pending_kw = saved;
-                self.stack[base + a] = r?;
+                self.stack[base + a] = Slot::from(r?);
             }
             Method::AttrReader(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
                 if !args.is_empty() { return Err(self.argnum_error(args.len(), "0")); }
-                self.stack[base + a] = recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil);
+                self.stack[base + a] = Slot::from(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil));
             }
             Method::AttrWriter(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
                 if args.len() != 1 { return Err(self.argnum_error(args.len(), "1")); }
                 let v = args[0];
                 match recv { Value::Obj(o) => self.heap.ivar_set(o, iv, v), _ => return Err(self.raise_type("can't set instance variable")) }
-                self.stack[base + a] = v;
+                self.stack[base + a] = Slot::from(v);
             }
             Method::Ruby(p) => {
                 if self.ci.len() >= CALL_LEVEL_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 let nbase = base + a;
                 let nirep = self.heap.proc_data(p).irep;
                 let nregs = self.ireps[nirep].nregs.max(argc + 2).max(4);
-                if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Value::Nil); }
+                if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Slot::NIL); }
                 let used = (if argc == 15 { 1 } else { argc }) + (if kw { 1 } else { 0 }) + 2;
-                for i in used..nregs { self.stack[nbase + i] = Value::Nil; }
+                for i in used..nregs { self.stack[nbase + i] = Slot::NIL; }
                 self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(mid), target_class: owner, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
             }
             Method::Undef => unreachable!(),
@@ -2028,12 +2033,12 @@ impl Vm {
     pub fn hash_delete(&mut self, h: Value, k: Value) -> Option<Value> {
         let o = h.obj()?;
         let pos = self.hash_index(h, k).ok()??;
-        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => { if pos < hd.hashes.len() { hd.hashes.remove(pos); } Some(hd.entries.remove(pos).1) } _ => None }
+        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => { if pos < hd.hashes.len() { hd.hashes.remove(pos); } Some(hd.entries.remove(pos).1.get()) } _ => None }
     }
 
     /// Positional arguments of a SEND at `nbase` (`argc == 15` = packed array).
     fn send_args(&self, nbase: usize, argc: usize) -> Vec<Value> {
-        if argc == 15 { self.ary(self.stack[nbase + 1]).cloned().unwrap_or_default() } else { self.stack[nbase + 1..nbase + 1 + argc].to_vec() }
+        if argc == 15 { self.ary_vals(self.stack[nbase + 1].get()).unwrap_or_default() } else { values_of(&self.stack[nbase + 1..nbase + 1 + argc]) }
     }
 
     fn ensure_block(&mut self, b: Value) -> VmResult<Value> {
@@ -2057,15 +2062,15 @@ impl Vm {
         let pd = self.heap.proc_data(p);
         let (irep, env, ptc) = (pd.irep, pd.env, pd.target_class);
         let nregs = self.ireps[irep].nregs.max(4);
-        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Value::Nil); }
-        for i in nargs..nregs { self.stack[base + i] = Value::Nil; }
+        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Slot::NIL); }
+        for i in nargs..nregs { self.stack[base + i] = Slot::NIL; }
         let (mid, tc, self_) = match env {
             Some(e) => { let ed = self.heap.env(e); (ed.mid, ed.target_class.or(ptc).unwrap_or(self.core.object), self.env_get(e, 0)) }
-            None => (self.ci[top].mid, ptc.unwrap_or(self.core.object), self.stack[base]),
+            None => (self.ci[top].mid, ptc.unwrap_or(self.core.object), self.stack[base].get()),
         };
         let ci = &mut self.ci[top];
         ci.irep = irep; ci.proc_ = p; ci.pc = 0; ci.mid = mid; ci.target_class = tc; ci.env = None;
-        self.stack[base] = self_;
+        self.stack[base] = Slot::from(self_);
     }
 
     fn op_enter(&mut self, spec: u32) -> VmResult<()> {
@@ -2083,30 +2088,30 @@ impl Vm {
         let nlocals = self.ireps[irep].nlocals;
         let len = m1 + o + r + m2;
         let nregs = self.ireps[irep].nregs.max(len + kd + 3);
-        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Value::Nil); }
+        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Slot::NIL); }
         // fast path: only required parameters, no packed args
         if (spec & !0x7c0001) == 0 && n < 15 && strict {
             if n + (kw as usize) != m1 { return Err(self.argnum_error(n + kw as usize, &format!("{m1}"))); }
-            for i in m1 + 2..nlocals { self.stack[base + i] = Value::Nil; }
+            for i in m1 + 2..nlocals { self.stack[base + i] = Slot::NIL; }
             self.ci[top].kw = false;
             return Ok(());
         }
         let npos = if n == 15 { 1 } else { n };
-        let blk = self.stack[base + npos + (kw as usize) + 1];
+        let blk = self.stack[base + npos + (kw as usize) + 1].get();
         if noblock && !blk.is_nil() { return Err(self.raise_arg("no block accepted")); }
-        let mut kdict = if kw { self.stack[base + npos + 1] } else { Value::Nil };
+        let mut kdict = if kw { self.stack[base + npos + 1].get() } else { Value::Nil };
         if kd == 0 {
             let nonempty = match kdict.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => !hd.entries.is_empty(), _ => false };
             if nonempty {
                 // the keyword Hash becomes the last positional argument
                 if n < 14 { n += 1; }
-                else if n == 14 { let all: Vec<Value> = self.stack[base + 1..base + 16].to_vec(); self.stack[base + 1] = self.ary_new(all); n = 15; }
-                else if let Some(o) = self.stack[base + 1].obj() { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.push(kdict); } }
+                else if n == 14 { let all: Vec<Value> = values_of(&self.stack[base + 1..base + 16]); self.stack[base + 1] = Slot::from(self.ary_new(all)); n = 15; }
+                else if let Some(o) = self.stack[base + 1].get().obj() { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.push(Slot::from(kdict)); } }
             }
             kdict = Value::Nil;
             kw = false;
         }
-        let mut argv: Vec<Value> = if n == 15 { self.ary(self.stack[base + 1]).cloned().unwrap_or_default() } else { self.stack[base + 1..base + 1 + n].to_vec() };
+        let mut argv: Vec<Value> = if n == 15 { self.ary_vals(self.stack[base + 1].get()).unwrap_or_default() } else { values_of(&self.stack[base + 1..base + 1 + n]) };
         let mut argc = argv.len();
         if strict {
             if argc < m1 + m2 || (r == 0 && argc > len) {
@@ -2114,33 +2119,33 @@ impl Vm {
                 return Err(self.argnum_error(argc, &exp));
             }
         } else if len > 1 && argc == 1 {
-            if let Some(arr) = self.ary(argv[0]) { argv = arr.clone(); argc = argv.len(); }
+            if let Some(arr) = self.ary_vals(argv[0]) { argv = arr; argc = argv.len(); }
         }
         let mut pc = self.ci[top].pc;
         if argc < len {
             let mlen = if argc < m1 + m2 { if m1 < argc { argc - m1 } else { 0 } } else { m2 };
-            for i in 0..argc.saturating_sub(mlen).min(m1 + o) { self.stack[base + 1 + i] = argv[i]; }
-            for i in argc..m1 { self.stack[base + 1 + i] = Value::Nil; }
-            for i in 0..mlen { self.stack[base + len - m2 + 1 + i] = argv[argc - mlen + i]; }
-            for i in mlen..m2 { self.stack[base + len - m2 + 1 + i] = Value::Nil; }
-            if r == 1 { let rest = self.ary_new(vec![]); self.stack[base + m1 + o + 1] = rest; }
+            for i in 0..argc.saturating_sub(mlen).min(m1 + o) { self.stack[base + 1 + i] = Slot::from(argv[i]); }
+            for i in argc..m1 { self.stack[base + 1 + i] = Slot::NIL; }
+            for i in 0..mlen { self.stack[base + len - m2 + 1 + i] = Slot::from(argv[argc - mlen + i]); }
+            for i in mlen..m2 { self.stack[base + len - m2 + 1 + i] = Slot::NIL; }
+            if r == 1 { let rest = self.ary_new(vec![]); self.stack[base + m1 + o + 1] = Slot::from(rest); }
             if o > 0 && argc > m1 + m2 { pc += (argc - m1 - m2) * 3; }
         } else {
-            for i in 0..m1 + o { self.stack[base + 1 + i] = argv[i]; }
+            for i in 0..m1 + o { self.stack[base + 1 + i] = Slot::from(argv[i]); }
             let mut rnum = 0;
-            if r == 1 { rnum = argc - m1 - o - m2; let rest = self.ary_new(argv[m1 + o..m1 + o + rnum].to_vec()); self.stack[base + m1 + o + 1] = rest; }
-            if m2 > 0 { for i in 0..m2 { self.stack[base + m1 + o + r + 1 + i] = argv[m1 + o + rnum + i]; } }
+            if r == 1 { rnum = argc - m1 - o - m2; let rest = self.ary_new(argv[m1 + o..m1 + o + rnum].to_vec()); self.stack[base + m1 + o + 1] = Slot::from(rest); }
+            if m2 > 0 { for i in 0..m2 { self.stack[base + m1 + o + r + 1 + i] = Slot::from(argv[m1 + o + rnum + i]); } }
             pc += o * 3;
         }
         let kw_pos = len + kd;
         let blk_pos = kw_pos + 1;
-        self.stack[base + blk_pos] = blk;
+        self.stack[base + blk_pos] = Slot::from(blk);
         if kd == 1 {
             if kdict.is_nil() { kdict = self.hash_new(); }
-            self.stack[base + kw_pos] = kdict;
+            self.stack[base + kw_pos] = Slot::from(kdict);
             kw = true;
         }
-        for i in blk_pos + 1..nlocals { if base + i < self.stack.len() { self.stack[base + i] = Value::Nil; } }
+        for i in blk_pos + 1..nlocals { if base + i < self.stack.len() { self.stack[base + i] = Slot::NIL; } }
         self.ci[top].n = len as u8;
         self.ci[top].kw = kw;
         self.ci[top].pc = pc;
@@ -2154,7 +2159,7 @@ impl Vm {
         let kd = (b >> 4) & 1;
         let lv = b & 0xf;
         let offset = m1 + r + m2 + kd;
-        let v = if lv == 0 { self.stack[base + 1 + offset] } else {
+        let v = if lv == 0 { self.stack[base + 1 + offset].get() } else {
             match self.uvenv(lv - 1) { Some(e) if self.heap.env(e).len > offset + 1 => self.env_get(e, 1 + offset), _ => return Err(self.raise(self.core.local_jump_error, "unexpected yield")) }
         };
         if v.is_nil() { return Err(self.raise(self.core.local_jump_error, "unexpected yield")); }
@@ -2219,7 +2224,7 @@ impl Vm {
         let ci = self.ci.last().unwrap().clone();
         if ci.mid.is_none() { return Err(self.raise(self.core.no_method_error, "super called outside of method")); }
         let get = |vm: &Vm, i: usize| -> VmResult<Value> {
-            if lv == 0 { Ok(vm.stack.get(base + 1 + i).copied().unwrap_or(Value::Nil)) } else {
+            if lv == 0 { Ok(vm.stack.get(base + 1 + i).map(|s| s.get()).unwrap_or(Value::Nil)) } else {
                 match vm.uvenv(lv - 1) {
                     Some(e) if vm.heap.env(e).len > m1 + r + m2 + 1 => Ok(vm.env_get(e, 1 + i)),
                     _ => Err(VmError::Raise(Value::Nil)), // replaced below
@@ -2231,19 +2236,19 @@ impl Vm {
         for i in 0..m1 { args.push(get(self, i).map_err(|_| fail(self))?); }
         if r == 1 {
             let rest = get(self, m1).map_err(|_| fail(self))?;
-            if let Some(v) = self.ary(rest) { args.extend(v.iter().copied()); }
+            if let Some(v) = self.ary_vals(rest) { args.extend(v); }
         }
         for i in 0..m2 { args.push(get(self, m1 + r + i).map_err(|_| fail(self))?); }
         let blk_or_kd = get(self, m1 + r + m2).map_err(|_| fail(self))?;
         let need = base + a + 3;
-        if self.stack.len() < need { self.stack.resize(need, Value::Nil); }
-        self.stack[base + a] = self.ary_new(args);
+        if self.stack.len() < need { self.stack.resize(need, Slot::NIL); }
+        self.stack[base + a] = Slot::from(self.ary_new(args));
         if kd == 1 {
             let blk = get(self, m1 + r + m2 + 1).map_err(|_| fail(self))?;
-            self.stack[base + a + 1] = blk_or_kd;
-            self.stack[base + a + 2] = blk;
+            self.stack[base + a + 1] = Slot::from(blk_or_kd);
+            self.stack[base + a + 2] = Slot::from(blk);
         } else {
-            self.stack[base + a + 1] = blk_or_kd;
+            self.stack[base + a + 1] = Slot::from(blk_or_kd);
         }
         Ok(())
     }

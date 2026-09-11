@@ -4,7 +4,7 @@ use alloc::{format, string::String, string::ToString, vec};
 
 use crate::argc;
 use crate::error::VmResult;
-use crate::value::Value;
+use crate::value::{Slot, Value};
 use crate::vm::Vm;
 
 /// Ruby's floor division.
@@ -137,11 +137,11 @@ pub fn init(vm: &mut Vm) {
     let c = vm.core;
     for (name, v) in [("INFINITY", f64::INFINITY), ("NAN", f64::NAN), ("EPSILON", f64::EPSILON), ("MAX", f64::MAX), ("MIN", f64::MIN_POSITIVE)] {
         let n = vm.intern(name);
-        vm.heap.class_mut(c.float).consts.insert(n, Value::Float(v));
+        vm.heap.class_mut(c.float).consts.insert(n, Slot::from(Value::Float(v)));
     }
     for (name, v) in [("DIG", 15i64), ("MANT_DIG", 53), ("RADIX", 2), ("MAX_EXP", 1024), ("MIN_EXP", -1021), ("MAX_10_EXP", 308), ("MIN_10_EXP", -307)] {
         let n = vm.intern(name);
-        vm.heap.class_mut(c.float).consts.insert(n, Value::Int(v));
+        vm.heap.class_mut(c.float).consts.insert(n, Slot::from(Value::Int(v)));
     }
     let isc = vm.singleton_class(Value::Obj(c.integer)).unwrap();
     vm.define_method(isc, "__ensure", |vm, _s, a, _b| { argc!(vm, a, 1); match a[0] { Value::Int(_) => Ok(a[0]), Value::Float(f) if f.is_finite() => Ok(Value::Int(libm::trunc(f) as i64)), v => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&format!("can't convert {d} into Integer"))) } } });

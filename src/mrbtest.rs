@@ -9,7 +9,7 @@
 use alloc::{format, string::String, vec, vec::Vec};
 
 use crate::error::VmResult;
-use crate::value::Value;
+use crate::value::{Slot, Value};
 use crate::vm::{Step, Vm};
 
 /// Defines the native helpers the suite expects.
@@ -27,7 +27,7 @@ pub fn install(vm: &mut Vm) {
     });
     let m = vm.define_module("Mrbtest");
     let tol = vm.intern("FLOAT_TOLERANCE");
-    vm.heap.class_mut(m).consts.insert(tol, Value::Float(1e-10));
+    vm.heap.class_mut(m).consts.insert(tol, Slot::from(Value::Float(1e-10)));
     let sc = vm.singleton_class(Value::Obj(m)).expect("module singleton");
     vm.define_method(sc, "nofree_cstr?", |_vm, _s, _a, _b| Ok(Value::True));
     // notimplement.c: a method that raises through mrb_notimplement()
@@ -38,7 +38,7 @@ pub fn install(vm: &mut Vm) {
     let tsc = vm.singleton_class(Value::Obj(tni)).expect("singleton");
     vm.define_method(tsc, "gone", gone);
     let nameless = vm.exc_new(vm.core.not_implemented_error, "function is unimplemented on this machine");
-    for (k, v) in [("NAMELESS_RAISED", Value::True), ("NAMELESS_RESULT", nameless)] { let n = vm.intern(k); vm.heap.class_mut(tni).consts.insert(n, v); }
+    for (k, v) in [("NAMELESS_RAISED", Value::True), ("NAMELESS_RESULT", nameless)] { let n = vm.intern(k); vm.heap.class_mut(tni).consts.insert(n, Slot::from(v)); }
 }
 
 /// Port of `str_match_p` in `mrbgems/mruby-test/driver.c`: `*`, `?`, `[...]`,
@@ -173,7 +173,7 @@ pub fn run_file(assert_mrb: &[u8], test_mrb: &[u8], cap: u64) -> VmResult<Summar
 pub fn run_file_opt(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool) -> VmResult<Summary> {
     let mut vm = Vm::with_mrblib()?;
     install(&mut vm);
-    if verbose { let g = vm.intern("$mrbtest_verbose"); vm.globals.insert(g, Value::True); }
+    if verbose { let g = vm.intern("$mrbtest_verbose"); vm.globals.insert(g, Slot::from(Value::True)); }
     vm.load_and_run(assert_mrb)?;
     let mut sum = Summary::default();
     let irep = match vm.load(test_mrb) { Ok(i) => i, Err(e) => { sum.aborted = Some(format!("{e}")); return Ok(sum); } };

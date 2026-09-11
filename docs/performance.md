@@ -1,0 +1,53 @@
+# Performance notes
+
+Measured numbers live in [`bench.md`](bench.md) (`tools/bench.sh`). This file records the
+reasoning and predictions behind performance decisions, so they can be checked against
+measurements later. Dates are when the prediction was written; each prediction should get a
+"measured" line when the experiment is done.
+
+## Value representation and where the "window" sits (2026-09-11)
+
+Context: `Value` is a 16-byte Rust enum (`Nil | False | True | Int(i64) | Float(f64) | Sym | Obj(ObjId)`).
+mruby's Word Boxing packs a value into 8 bytes. The compatibility question is settled: the test suite
+passes without boxing except for the identity of NaN (see `../README.md`). The remaining question is speed and
+memory. Two ways to prepare for an 8-byte representation were considered:
+
+* **A** — every use goes through accessors (`v.as_int()`, `match v.kind()`), so the representation is hidden everywhere.
+* **B** — only *storage* is opaque: registers, array elements, hash entries, instance variables, environments, constants
+  and globals hold `Slot`; code that computes still works on `Value`. Conversions happen at `slot.get()` / `Slot::from(v)`.
+  **B was chosen** (one rule, storage vs computation; the storage slots are also exactly what a garbage collector scans).
+
+### Predictions
+
+1. **Introducing the window with the representation unchanged costs nothing.** `Slot` is `#[repr(transparent)]` over `Value`
+   and `get`/`from` are trivially inlined, so the generated code should be identical. Check: `bench.md` before/after the
+   refactor should agree within noise.
+2. **After switching `Slot` to 8 bytes, the gain comes from memory bandwidth** (registers, arrays and hashes halve in size),
+   and A and B would gain the same amount from that. The A-vs-B difference is an unpack at every use (A) versus one unpack at
+   the storage boundary (B); the unpacked `Value` lives in machine registers or the native stack, so this should be within noise.
+   B's only extra cost is converting arguments passed to native methods; A's only extra cost is re-tagging when values are
+   passed around. Neither should be visible in `bench.md`.
+3. **Boxing is second-order compared with the obvious waste.** `bm_so_lists` (15.8x slower than the reference) is dominated by
+   natives that copy whole arrays (`items()`) and by `Array#shift` being O(n) (mruby shares the buffer and shifts a pointer).
+   Expectation: fixing those brings `so_lists` to a few times the reference; boxing on top of that is worth 1.1x–1.3x on
+   array-heavy code and little on `bm_fib`-style integer code.
+4. **What would change the decision**: if `bench.md` after (3) still shows memory-bound behaviour (large arrays, WASM/MCU
+   memory limits), try an 8-byte `Slot` (tagged `u64`: 3 tag bits, 61-bit integers, ObjId index, floats either NaN-boxed or
+   heap-allocated) and measure. The refactor B makes that experiment a one-day change confined to `value.rs` and the
+   `Slot` conversions.
+
+### Measured
+
+* 2026-09-11, prediction 1 — `Slot` introduced at every storage site (registers, arrays, hashes, ivars, envs, constants,
+  globals, ranges), representation unchanged. `bench.md` before → after: `bm_fib` 3.45x → 3.40x, `bm_so_lists` 15.75x → 15.61x,
+  `bm_so_mandelbrot` 1.80x → 1.82x (best of 3 each). Within noise, as predicted. Test suite unchanged (805/833, 15 fixtures).
+
+## Known structural costs (2026-09-11)
+
+* `Value` 16 bytes (above).
+* Heap = `Vec<HeapObject>` indexed by `ObjId`, no garbage collector: allocation is a push, memory only grows.
+* Native methods copy arrays (`items()`) instead of borrowing; `Array#shift`/`unshift` are O(n).
+* Native → VM re-entry (`Vm::funcall`, `call_block`) uses the host stack; `sort` with a block and `Hash#each`-style
+  natives pay a frame setup per callback. The Future-native design (see the book's notes) removes this.
+* Method lookup walks the class chain with `HashMap` lookups at each node; no inline cache.
+* `Hash` is insertion-ordered linear search over cached hash codes (mruby's AR mode); no hash table for large hashes yet.

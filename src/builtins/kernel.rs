@@ -41,7 +41,7 @@ pub fn init(vm: &mut Vm) {
                 if r.is_nil() { return vm.funcall(s, eqq, &[a[0]], Value::Nil); }
                 r
             };
-            for it in vm.ary(list).cloned().unwrap_or_default() {
+            for it in vm.ary_vals(list).unwrap_or_default() {
                 if vm.funcall(it, eqq, &[a[0]], Value::Nil)?.truthy() { return Ok(Value::True); }
             }
             Ok(Value::False)
@@ -70,7 +70,7 @@ pub fn init(vm: &mut Vm) {
 }
 
 fn puts_value(vm: &mut Vm, v: Value, depth: usize) -> VmResult<()> {
-    if let Some(items) = vm.ary(v).cloned() {
+    if let Some(items) = vm.ary_vals(v) {
         if items.is_empty() && depth == 0 { vm.write_out(b"\n"); }
         for it in items { puts_value(vm, it, depth + 1)?; }
         return Ok(());
@@ -126,7 +126,7 @@ fn block_given(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Valu
     } else {
         // the frame running `p` itself (a top-level or class-body frame has no block)
         match vm.ci.iter().rev().find(|c| c.proc_ == p) {
-            Some(c) if c.mid.is_some() => { let b = Vm::frame_bidx(c); vm.stack.get(c.base + b).copied().unwrap_or(Value::Nil) }
+            Some(c) if c.mid.is_some() => { let b = Vm::frame_bidx(c); vm.stack.get(c.base + b).map(|s| s.get()).unwrap_or(Value::Nil) }
             _ => return Ok(Value::False),
         }
     };

@@ -9,7 +9,7 @@ use hashbrown::HashMap;
 
 use crate::error::VmResult;
 use crate::symbol::Sym;
-use crate::value::{ObjId, Value};
+use crate::value::{ObjId, Slot, Value};
 use crate::vm::Vm;
 
 /// Native (Rust) method: `fn(vm, self, args, block)`.
@@ -34,12 +34,12 @@ pub struct ClassData {
     pub name: Option<Sym>,
     pub superclass: Option<ObjId>,
     pub methods: HashMap<Sym, Method>,
-    pub consts: HashMap<Sym, Value>,
-    pub cvars: HashMap<Sym, Value>,
+    pub consts: HashMap<Sym, Slot>,
+    pub cvars: HashMap<Sym, Slot>,
     pub is_module: bool,
     pub is_singleton: bool,
     /// For a singleton class: the object it belongs to.
-    pub attached: Option<Value>,
+    pub attached: Option<Slot>,
     /// For an include class (mruby `MRB_TT_ICLASS`): the module whose
     /// method table and constants are shared.
     pub iclass_of: Option<ObjId>,
@@ -86,7 +86,7 @@ pub struct EnvData {
     /// Register (relative to `base`) holding the frame's block (`MRB_ENV_BIDX`).
     pub bidx: usize,
     pub attached: bool,
-    pub values: Vec<Value>,
+    pub values: Vec<Slot>,
     pub mid: Option<Sym>,
     pub target_class: Option<ObjId>,
     /// Default visibility / module_function state of the scope that owns this env
@@ -101,10 +101,10 @@ pub struct EnvData {
 pub struct HashData {
     /// Insertion-ordered entries; lookup is linear with `eql?` semantics
     /// (like mruby's AR mode, without the hash-table switch yet).
-    pub entries: Vec<(Value, Value)>,
+    pub entries: Vec<(Slot, Slot)>,
     /// `hash` of each key, parallel to `entries` (rebuilt lazily when lengths differ).
     pub hashes: Vec<i64>,
-    pub default: Value,
+    pub default: Slot,
 }
 
 impl Default for Value {
@@ -129,9 +129,9 @@ pub enum ObjKind {
     Break { tag: BreakTag, ci_index: usize, value: Value },
     Class(ClassData),
     String(Vec<u8>),
-    Array(Vec<Value>),
+    Array(Vec<Slot>),
     Hash(HashData),
-    Range { begin: Value, end: Value, excl: bool },
+    Range { begin: Slot, end: Slot, excl: bool },
     Proc(ProcData),
     Env(EnvData),
     Exception,
@@ -139,7 +139,7 @@ pub enum ObjKind {
 
 pub struct HeapObject {
     pub class: ObjId,
-    pub ivars: Vec<(Sym, Value)>,
+    pub ivars: Vec<(Sym, Slot)>,
     pub frozen: bool,
     pub kind: ObjKind,
 }
@@ -189,14 +189,14 @@ impl Heap {
         matches!(self.get(id).kind, ObjKind::Class(_))
     }
     pub fn ivar_get(&self, id: ObjId, name: Sym) -> Value {
-        self.get(id).ivars.iter().find(|(n, _)| *n == name).map(|(_, v)| *v).unwrap_or(Value::Nil)
+        self.get(id).ivars.iter().find(|(n, _)| *n == name).map(|(_, v)| v.get()).unwrap_or(Value::Nil)
     }
     pub fn ivar_set(&mut self, id: ObjId, name: Sym, v: Value) {
         let o = self.get_mut(id);
         if let Some(e) = o.ivars.iter_mut().find(|(n, _)| *n == name) {
-            e.1 = v;
+            e.1 = Slot::from(v);
         } else {
-            o.ivars.push((name, v));
+            o.ivars.push((name, Slot::from(v)));
         }
     }
     pub fn string(&self, id: ObjId) -> Option<&[u8]> {
@@ -205,7 +205,7 @@ impl Heap {
             _ => None,
         }
     }
-    pub fn array(&self, id: ObjId) -> Option<&Vec<Value>> {
+    pub fn array(&self, id: ObjId) -> Option<&Vec<Slot>> {
         match &self.get(id).kind {
             ObjKind::Array(a) => Some(a),
             _ => None,

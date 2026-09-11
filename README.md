@@ -84,7 +84,10 @@ and writes [`docs/bench.md`](docs/bench.md) (best of 3, plus instruction counts 
 ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
 first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
 The value representation (16-byte enum) and the heap (index into a `Vec`, no GC) are the
-known structural costs; measure before changing them.
+known structural costs; measure before changing them. Storage (registers, array elements,
+hash entries, ivars, envs, constants, globals) holds `Slot`; computation works on `Value`;
+`slot.get()` / `Slot::from(v)` are the only crossings, so an 8-byte representation can be
+tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](docs/performance.md).
 
 ## Usage
 
