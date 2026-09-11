@@ -108,6 +108,9 @@ GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (th
 
 ## Usage
 
+The library is on crates.io as [`sabiruby`](https://crates.io/crates/sabiruby)
+(`cargo add sabiruby`; the CLI below is the `sabiruby` binary of the same crate).
+
 ```
 cargo run -- run  tests/fixtures/klass.mrb   # execute
 cargo run -- dump tests/fixtures/klass.mrb   # instruction listing
