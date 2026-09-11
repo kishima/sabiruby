@@ -1,4 +1,4 @@
-//! The reference mruby 4.1.0 compiler as a Rust library: Ruby source in, RITE bytecode out.
+//! The reference mruby 4.1.0-rc compiler as a Rust library: Ruby source in, RITE bytecode out.
 //!
 //! This crate does not reimplement the compiler. It builds mruby 4.1.0-rc's own
 //! `mruby-compiler` (the Prism parser plus mruby's code generator) as C, standalone like

@@ -1,16 +1,17 @@
 # SabiRuby
 
 A Rust implementation of the [mruby](https://github.com/mruby/mruby) virtual machine.
-It executes RITE bytecode (`.mrb` files produced by mruby 4.1's `mrbc`) and aims at
-behavioural compatibility with mruby 4.1.0, verified against the reference
-implementation rather than against a spec.
+It executes RITE bytecode (`.mrb` files produced by `mrbc`) and aims at behavioural
+compatibility with mruby 4.1. mruby 4.1.0 itself is not released yet: the reference everything
+here is checked against is the release candidate **4.1.0-rc** (tag `4.1.0-rc`, commit
+`3cf73ee`), and verification is against that binary rather than against a spec.
 
 The VM runs bytecode only and is pure Rust (`no_std`). Three crates live in this repository:
 
 | crate | what | |
 |---|---|---|
 | [`sabiruby`](https://crates.io/crates/sabiruby) | the VM library | pure Rust, `no_std` + `alloc`, wasm |
-| [`sabiruby-compiler`](https://github.com/kishima/sabiruby/tree/main/compiler) | the reference compiler (mruby 4.1.0-rc's `mruby-compiler` with Prism) built as C; output byte-identical to `mrbc` | needs a C compiler |
+| [`sabiruby-compiler`](https://github.com/kishima/sabiruby/tree/main/compiler) | the reference compiler (mruby 4.1.0-rc's `mruby-compiler`: Prism as its parser, mruby's code generator) built as C; output byte-identical to `mrbc` | needs a C compiler |
 | [`sabiruby-cli`](https://github.com/kishima/sabiruby/tree/main/cli) | the `sabiruby` command: `sabiruby run foo.rb`, `-e`, `compile`, `dump` | depends on both |
 
 The Bevy integration lives in a separate crate, [`rubevy`](https://github.com/kishima/rubevy).
@@ -22,7 +23,7 @@ layout (`R0` of the callee is `R[a]` of the caller), `OP_ENTER`, environments,
 the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 `Proc#call`, and so on are ported from the book's description of `src/vm.c`.
 
-## Status (2026-09-11, v0)
+## Status (2026-09-12, 0.2.0)
 
 * RITE 04.00 reader (IREP / LVAR; DBG skipped), all 119 opcodes decoded, `EXT1..3` handled.
 * Interpreter with methods, blocks/closures (attached/detached environments), `super`
@@ -54,8 +55,9 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   Output is byte-identical to `mrbc` for every `.rb` in the repository. See
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
 
-Not yet: bigint, `$~`/`$_`, the remaining mrbgems
-(`io`, `time`, `math`, `struct`, …), encodings. Native code may re-enter the VM
+Not yet: bigint, the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
+`rescue => e`), `eval`/`require` (design notes below), the remaining mrbgems (`io`, `time`,
+`math`, `struct`, `compar-ext`, …), encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
@@ -67,7 +69,8 @@ matching is not detected.
 * **`no_std` + `alloc`.** The library must not use `std::` (only `core::`/`alloc::`,
   `hashbrown` for hash maps, `libm` for float math). `tools/check_no_std.sh` builds the
   library for `thumbv7em-none-eabi` and greps for `std::`; CI runs it. The `std` feature
-  (default) only enables the CLI and the tests.
+  (default) only adds `std::error::Error` for `VmError`. The C compiler and the command line
+  tool are the separate crates `sabiruby-compiler` and `sabiruby-cli`.
 * **Behaviour is checked against the reference, not against memory.** Every claim about
   mruby semantics is verified with the 4.1.0-rc binary (fixtures, test suite below).
 
@@ -84,13 +87,14 @@ reasons for the rest in [`docs/mrbtest-notes.md`](https://github.com/kishima/sab
 assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
 ones skip.
 The rest: 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
-`ary_shared.c`), 2 are the deviations above, and
-the remaining ones are skips the reference makes too (bigint, regexp, build-dependent).
+`ary_shared.c`), 2 are the deviations above, 1 is `(1..).last`, where the core test and
+mruby-range-ext disagree (the reference `mruby` crashes on it too), and the remaining ones are
+skips the reference makes too (bigint, regexp, build-dependent).
 `tools/mrbtest.sh` compiles the gem tests and gem mrblibs too (`GEMS` in the script).
 
-The reference image includes some mrbgems (array-ext, hash-ext, compar-ext, …); the
-fixtures stay on core behaviour, and the few gem methods that were convenient (`Array#to_h`,
-`zip`, `fetch`, `Hash#fetch`, `Comparable#clamp`) are implemented natively and noted as such.
+The reference image includes the default gembox (array-ext, hash-ext, compar-ext, …). The
+gems listed under Status are ported; of the others, only `Comparable#clamp` (mruby-compar-ext)
+is provided, natively.
 
 ### mruby's own test suite
 

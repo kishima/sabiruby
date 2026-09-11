@@ -4,7 +4,7 @@ version = "0.2.0"
 edition = "2024"
 # edition 2024 and core::ptr::fn_addr_eq need 1.85
 rust-version = "1.85"
-description = "SabiRuby: an mruby 4.1.0 bytecode-compatible VM written in Rust (\"rusted Ruby\")"
+description = "SabiRuby: a VM for mruby 4.1 bytecode written in Rust (\"rusted Ruby\"), checked against mruby 4.1.0-rc"
 license = "MIT"
 keywords = ["mruby", "ruby", "bytecode", "vm", "embedded"]
 categories = ["compilers", "embedded", "game-development", "no-std"]

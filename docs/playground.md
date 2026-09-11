@@ -108,6 +108,5 @@ compiler give the same results as wasm.
 ## Limits
 
 What the VM does not have yet (README "Not yet": bigint, `$~`/`$_`, the `io`/`time`/`math`
-gems, encodings) is missing in the playground too; so is `$!` in a `rescue` modifier (nil here,
-natively as well). The page also needs module workers (Firefox 114+). Output appears in chunks of one million
+gems, encodings, `$!`) is missing in the playground too. The page also needs module workers (Firefox 114+). Output appears in chunks of one million
 instructions, not line by line.

@@ -1,6 +1,6 @@
 # sabiruby-compiler
 
-The reference mruby 4.1.0 compiler as a Rust library: Ruby source in, RITE bytecode
+The reference mruby 4.1.0-rc compiler as a Rust library: Ruby source in, RITE bytecode
 (`.mrb`) out, **byte for byte what the reference `mrbc` writes**.
 
 It is not a port. The crate builds mruby's own `mruby-compiler` (the Prism parser plus

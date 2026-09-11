@@ -1,4 +1,5 @@
-//! SabiRuby — an mruby 4.1.0 bytecode-compatible virtual machine in Rust.
+//! SabiRuby — a virtual machine for mruby 4.1 bytecode, in Rust (checked against mruby
+//! 4.1.0-rc; 4.1.0 itself is not released yet).
 //!
 //! The VM executes RITE 0400 binaries (`.mrb` files) produced by mruby 4.1's `mrbc`. This
 //! crate is pure Rust and `no_std`; to compile Ruby source in the same program, add the
