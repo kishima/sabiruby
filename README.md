@@ -48,7 +48,8 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   keeping objects across calls uses `Vm::gc_register`). `GC.start`/`enable`/`disable`,
   `interval_ratio`, `malloc_threshold`, `GC.stat[:live]` are real. `SABIRUBY_GC_STRESS=1`
   collects after every allocation. See [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md).
-* Compiler: the reference mruby-compiler (Prism) linked as C, in the `sabiruby-compiler`
+* Compiler: the reference `mruby-compiler` (Prism as its parser, mruby's own code generator)
+  linked as C, in the `sabiruby-compiler`
   crate; the VM crate does not depend on it, the `sabiruby` command (`sabiruby-cli`) does.
   Output is byte-identical to `mrbc` for every `.rb` in the repository. See
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
