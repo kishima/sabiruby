@@ -25,11 +25,16 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   compiled by the reference `mrbc` and embedded (`src/mrblib.mrb`), so those run as bytecode.
 * Step execution with an instruction budget (`Vm::start` / `Vm::step`) for host loops.
 
-Not yet: keyword parameters (`OP_ENTER` kdict, `KEY_P`/`KEYEND`/`KARG`; keyword *arguments*
-at call sites are packed into a trailing Hash like mruby does for callees without keyword
-parameters), Fiber, garbage collection (the heap only grows), bigint, `$~`/`$_`,
-`Comparable`/`Enumerable` gems, `sprintf`, encodings. Native code may re-enter the VM
+* Keyword parameters, visibility (`private`/`protected`/`module_function`), `prepend`,
+  hooks (`inherited`, `included`, `method_added`, …), `defined?`, frozen objects.
+
+Not yet: Fiber (and therefore Enumerator), garbage collection (the heap only grows), bigint,
+`$~`/`$_`, mrbgems (`sprintf`, `*-ext`, …), encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
+
+Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
+NaNs made apart are `equal?`), and a hash pattern whose keys mutate the subject during
+matching is not detected.
 
 ## Rules
 
@@ -45,8 +50,14 @@ parameters), Fiber, garbage collection (the heap only grows), bigint, `$~`/`$_`,
 `tests/fixtures/*.rb` are compiled and run by the reference mruby 4.1.0-rc
 (Docker image `kishima/mruby:4.1.0-rc`, see `tools/fixtures.sh`); `.out` holds the
 reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every `.mrb`
-on SabiRuby and compares stdout byte for byte. 13 fixtures pass; `kwargs` is `#[ignore]`d
-until keyword parameters are implemented.
+on SabiRuby and compares stdout byte for byte. 15 fixtures pass; `enumerator` is `#[ignore]`d
+until Fiber/Enumerator exist.
+
+mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) passes 805 (see
+[`docs/mrbtest.md`](docs/mrbtest.md)). The rest: 16 need the C test fixtures of mruby-test
+(`env.c`, `vformat.c`, `sysfail.c`, `ary_shared.c`) or a real garbage collector (arena tests),
+2 are the deviations above, and the remaining ones are skips the reference makes too
+(bigint, regexp, build-dependent).
 
 The reference image includes some mrbgems (array-ext, hash-ext, compar-ext, …); the
 fixtures stay on core behaviour, and the few gem methods that were convenient (`Array#to_h`,

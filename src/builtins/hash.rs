@@ -116,7 +116,7 @@ pub fn init(vm: &mut Vm) {
             for (k, v) in old {
                 let kh = vm.key_hash(k)?;
                 let mut pos = None;
-                for (i, (ek, _)) in out.iter().enumerate() { if hs[i] == kh && vm.key_eql(*ek, k)? { pos = Some(i); break; } }
+                for (i, (ek, _)) in out.iter().enumerate() { if hs[i] == kh && vm.key_eql(k, *ek)? { pos = Some(i); break; } }
                 match pos { Some(i) => out[i].1 = v, None => { out.push((k, v)); hs.push(kh); } }
             }
             with_mut(vm, s, |h| { h.entries = out; h.hashes = hs; })?;

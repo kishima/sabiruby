@@ -13,7 +13,7 @@ exception 33
 false 6
 float 28
 gc 18
-hash 43
+hash 44
 indexerror 1
 integer 40
 iterations 4
@@ -22,7 +22,7 @@ lang 2
 literals 10
 localjumperror 1
 methods 7
-module 51
+module 53
 nameerror 3
 nil 9
 nomethoderror 2

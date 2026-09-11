@@ -628,9 +628,16 @@ impl Vm {
         // (a module already anywhere in the chain, prepended or included, is not added again)
         let mods = self.module_chain(module);
         for m in mods.iter().rev() {
+            // mruby include_module_at(search_super=0): scan stops at the first real class,
+            // so a module already prepended to a superclass is prepended again here
             let mut c = self.heap.class(class).superclass;
             let mut present = false;
-            while let Some(x) = c { if self.heap.class(x).iclass_of == Some(*m) { present = true; break; } c = self.heap.class(x).superclass; }
+            while let Some(x) = c {
+                let cd = self.heap.class(x);
+                if cd.iclass_of == Some(*m) { present = true; break; }
+                if cd.iclass_of.is_none() && cd.origin_of.is_none() { break; }
+                c = cd.superclass;
+            }
             if present { continue; }
             let sup = self.heap.class(class).superclass;
             let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(*m), ..Default::default() }));
@@ -1798,7 +1805,7 @@ impl Vm {
         let mut i = 0;
         loop {
             let cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => { if i >= hd.entries.len() { break; } if hd.hashes.get(i) == Some(&kh) { Some(hd.entries[i].0) } else { None } } _ => None };
-            if let Some(ek) = cand { if self.key_eql(ek, k)? { return Ok(Some(i)); } }
+            if let Some(ek) = cand { if self.key_eql(k, ek)? { return Ok(Some(i)); } }
             i += 1;
         }
         Ok(None)

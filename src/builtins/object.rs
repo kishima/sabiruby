@@ -401,6 +401,14 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
                 let data = match cd.origin { Some(org) => { let o = vm.heap.class(org); crate::object::ClassData { methods: o.methods.clone(), vis: o.vis.clone(), superclass: o.superclass, ..data } } None => data };
                 let n = vm.heap.alloc(hc, ObjKind::Class(data));
                 vm.heap.get_mut(n).ivars = ivars;
+                // prepended modules of the original are prepended to the copy too (farthest first)
+                if vm.heap.class(o).origin.is_some() {
+                    let origin = vm.heap.class(o).origin.unwrap();
+                    let mut mods = vec![];
+                    let mut cc = vm.heap.class(o).superclass;
+                    while let Some(x) = cc { if x == origin { break; } if let Some(m) = vm.heap.class(x).iclass_of { mods.push(m); } cc = vm.heap.class(x).superclass; }
+                    for m in mods.iter().rev() { vm.prepend_module(n, *m)?; }
+                }
                 // singleton methods (class methods) come along
                 let cur = vm.heap.get(o).class;
                 if vm.heap.class(cur).is_singleton {
@@ -448,10 +456,16 @@ fn method_list(vm: &Vm, class: crate::value::ObjId, want: Option<Vis>, inherited
     let mut seen: Vec<crate::symbol::Sym> = vec![];
     let mut c = Some(class);
     let mut first = true;
+    let has_origin = vm.heap.class(class).origin.is_some();
+    let mut passed_origin = false;
     while let Some(x) = c {
         let cd = vm.heap.class(x);
         if cd.origin.is_some() { c = cd.superclass; first = false; continue; }
-        if !inherited && !first && cd.origin_of != Some(class) && !(cd.is_singleton && false) { break; }
+        if !inherited && !first {
+            if has_origin && !passed_origin {
+                if cd.origin_of == Some(class) { passed_origin = true; } else { c = cd.superclass; continue; } // prepended modules are not "own"
+            } else { break; }
+        }
         let owner = vm.table_owner(x);
         let t = vm.heap.class(owner);
         for (k, m) in &t.methods {
