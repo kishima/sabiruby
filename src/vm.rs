@@ -145,6 +145,11 @@ pub struct Vm {
     native_depth: u32,
     /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
     pub inspect_guard: Vec<ObjId>,
+    /// Keyword hash of the native call in progress. `Vm::funcall` re-attaches it
+    /// as keywords when a native forwards its arguments unchanged (`send`, `new`).
+    pending_kw: Option<Value>,
+    /// Pairs whose `==`/`eql?` is in progress (recursive containers compare equal).
+    pub eq_guard: Vec<(ObjId, ObjId)>,
 }
 
 /// Result of [`Vm::step`].
@@ -254,7 +259,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), call_proc,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -616,7 +621,16 @@ impl Vm {
                 if let Some(o) = recv.obj() { self.heap.ivar_set(o, iv, v); }
                 Ok(v)
             }
-            Some((Method::Ruby(p), owner)) => self.call_proc(p, recv, args, blk, Some(mid), owner),
+            Some((Method::Ruby(p), owner)) => {
+                // A native forwarding its own arguments (`send`, `Class#new`) keeps
+                // the caller's keywords: the trailing Hash is the pending kdict.
+                let kw = match (self.pending_kw, args.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => Some(k), _ => None };
+                let tc = if self.heap.proc_data(p).env.is_some() { None } else { Some(owner) };
+                match kw {
+                    Some(k) => self.call_proc_with(p, recv, &args[..args.len() - 1], Some(k), blk, Some(mid), tc),
+                    None => self.call_proc_with(p, recv, args, None, blk, Some(mid), tc),
+                }
+            }
             Some((Method::Undef, _)) | None => {
                 let name = self.sym_name(mid);
                 let desc = self.describe_for_error(recv);
@@ -649,52 +663,56 @@ impl Vm {
             _ => return Err(self.raise_type("wrong type (expected Proc)")),
         };
         let tc = match self_ { Value::Obj(o) if self.heap.is_class(o) => o, _ => self.singleton_class(self_)? };
-        self.call_proc_with(p, self_, args, Value::Nil, None, Some(tc))
+        self.call_proc_with(p, self_, args, None, Value::Nil, None, Some(tc))
     }
 
     /// Pushes a frame for `proc_` and runs it to completion (re-entrant
     /// execution; native code waits for the result).
     pub fn call_proc(&mut self, proc_: ObjId, self_: Value, args: &[Value], blk: Value, mid: Option<Sym>, target_class: ObjId) -> VmResult<Value> {
-        self.call_proc_with(proc_, self_, args, blk, mid, if self.heap.proc_data(proc_).env.is_some() { None } else { Some(target_class) })
+        let tc = if self.heap.proc_data(proc_).env.is_some() { None } else { Some(target_class) };
+        self.call_proc_with(proc_, self_, args, None, blk, mid, tc)
     }
 
     /// `override_tc = Some(c)` forces the target class (instance_eval); `None` takes it from the env.
-    fn call_proc_with(&mut self, proc_: ObjId, self_: Value, args: &[Value], blk: Value, mid: Option<Sym>, override_tc: Option<ObjId>) -> VmResult<Value> {
+    fn call_proc_with(&mut self, proc_: ObjId, self_: Value, args: &[Value], kw: Option<Value>, blk: Value, mid: Option<Sym>, override_tc: Option<ObjId>) -> VmResult<Value> {
         // mruby: MRB_CALL_LEVEL_MAX (512) frames; here also a cap on host-stack re-entry.
         if self.ci.len() >= CALL_LEVEL_MAX || self.native_depth >= NATIVE_DEPTH_MAX {
             return Err(self.raise(self.core.system_stack_error, "stack level too deep"));
         }
         self.native_depth += 1;
-        let r = self.call_proc_inner(proc_, self_, args, blk, mid, override_tc);
+        let r = self.call_proc_inner(proc_, self_, args, kw, blk, mid, override_tc);
         self.native_depth -= 1;
         r
     }
 
-    fn call_proc_inner(&mut self, proc_: ObjId, self_: Value, args: &[Value], blk: Value, mid: Option<Sym>, override_tc: Option<ObjId>) -> VmResult<Value> {
+    fn call_proc_inner(&mut self, proc_: ObjId, self_: Value, args: &[Value], kw: Option<Value>, blk: Value, mid: Option<Sym>, override_tc: Option<ObjId>) -> VmResult<Value> {
         let pd = self.heap.proc_data(proc_);
         let irep = pd.irep;
         let env = pd.env;
         let base = self.stack.len();
-        let nregs = self.ireps[irep].nregs.max(args.len() + 2).max(4);
+        let nregs = self.ireps[irep].nregs.max(args.len() + 3).max(4);
         self.stack.resize(base + nregs, Value::Nil);
         self.stack[base] = self_;
         let mut n = args.len();
+        let mut next;
         if n >= 15 {
             let packed = self.ary_new(args.to_vec());
             self.stack[base + 1] = packed;
             n = 15;
-            self.stack[base + 2] = blk;
+            next = base + 2;
         } else {
             self.stack[base + 1..base + 1 + args.len()].copy_from_slice(args);
-            self.stack[base + 1 + args.len()] = blk;
+            next = base + 1 + args.len();
         }
+        if let Some(k) = kw { self.stack[next] = k; next += 1; }
+        self.stack[next] = blk;
         let depth = self.ci.len();
         let tc = match (override_tc, env) {
             (Some(tc), _) => tc,
             (None, Some(e)) => self.heap.env(e).target_class.unwrap_or(self.core.object),
             (None, None) => self.heap.proc_data(proc_).target_class.unwrap_or(self.core.object),
         };
-        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: n as u8, kw: false, mid, target_class: tc, env: None, cci: Cci::Skip });
+        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: n as u8, kw: kw.is_some(), mid, target_class: tc, env: None, cci: Cci::Skip });
         let r = self.run_loop(depth);
         self.stack.truncate(base);
         r
@@ -715,6 +733,21 @@ impl Vm {
             if idx < e.values.len() { e.values[idx] = v; }
         }
     }
+    /// Reads a slot of an environment whether it is still on the stack or detached.
+    pub fn env_value(&self, env: ObjId, idx: usize) -> Value { self.env_get(env, idx) }
+    pub fn cvar_class_of(&self, proc_: ObjId) -> ObjId { self.cvar_class(proc_) }
+    pub fn cvar_lookup(&self, class: ObjId, s: Sym) -> Option<Value> { self.cvar_get(class, s) }
+    /// Constant lookup in a frame's lexical scope without raising.
+    pub fn const_lookup_noraise(&self, ci: &CallInfo, s: Sym) -> Option<Value> {
+        if let Some(v) = self.const_get(ci.target_class, s) { return Some(v); }
+        let mut p = Some(ci.proc_);
+        while let Some(pid) = p {
+            let pd = self.heap.proc_data(pid);
+            if let Some(tc) = pd.target_class { if let Some(v) = self.const_get(tc, s) { return Some(v); } }
+            p = pd.upper;
+        }
+        self.const_get(self.core.object, s)
+    }
     /// `uvenv`: the environment `up` procs above the current one.
     fn uvenv(&self, up: usize) -> Option<ObjId> {
         let ci = self.ci.last()?;
@@ -732,8 +765,9 @@ impl Vm {
         }
         let ci = &self.ci[i];
         let len = self.ireps[ci.irep].nlocals;
+        let bidx = Self::frame_bidx(ci);
         let e = self.heap.alloc(self.core.object, ObjKind::Env(EnvData {
-            base: ci.base, len, attached: true, values: Vec::new(), mid: ci.mid, target_class: Some(ci.target_class),
+            base: ci.base, len, bidx, attached: true, values: Vec::new(), mid: ci.mid, target_class: Some(ci.target_class),
         }));
         self.ci[i].env = Some(e);
         e
@@ -993,7 +1027,7 @@ impl Vm {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = reg!(a);
                     match reg!(0) {
-                        Value::Obj(o) => self.heap.ivar_set(o, s, v),
+                        Value::Obj(o) => { if self.heap.get(o).frozen { let r = reg!(0); return Err(self.frozen_error(r)); } self.heap.ivar_set(o, s, v) }
                         _ => return Err(self.raise_type("can't set instance variable on an immediate")),
                     }
                 }
@@ -1108,21 +1142,39 @@ impl Vm {
                     // `Proc#call`: replace this frame (pushed by SEND) with the proc's body.
                     let p = match reg!(0) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("wrong type (expected Proc)")) };
                     let n = ci.n as usize;
-                    let nargs = (if n == 15 { 1 } else { n }) + 1 + 1;
+                    let nargs = (if n == 15 { 1 } else { n }) + (if ci.kw { 1 } else { 0 }) + 2;
                     self.vm_call_proc(p, nargs);
                 }
                 Op::Blkcall => {
                     // Direct block call: R[a] = R[a].call(R[a+1..a+b])
                     let p = match reg!(a) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("wrong type (expected Proc)")) };
                     let nbase = base + a;
-                    if self.stack.len() < nbase + b + 2 { self.stack.resize(nbase + b + 2, Value::Nil); }
-                    self.stack[nbase + b + 1] = Value::Nil;
-                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: b as u8, kw: false, mid: None, target_class: ci.target_class, env: None, cci: Cci::None });
-                    self.vm_call_proc(p, b + 1);
+                    let (n, kw, _) = self.prepare_call(nbase, b, false)?;
+                    let npos = if n == 15 { 1 } else { n };
+                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: ci.target_class, env: None, cci: Cci::None });
+                    self.vm_call_proc(p, npos + (if kw { 1 } else { 0 }) + 2);
                 }
                 Op::Argary => { self.op_argary(base, a, b)?; }
                 Op::Enter => { self.op_enter(a as u32)?; }
-                Op::KeyP | Op::Keyend | Op::Karg => { return Err(VmError::Unimplemented("keyword arguments".into())); }
+                Op::Karg => {
+                    let k = Value::Sym(self.ireps[ci.irep].syms[b]);
+                    let v = match self.kidx(&ci).and_then(|ki| self.hash_delete(self.stack[ki], k)) {
+                        Some(v) => v,
+                        None => { let n = self.sym_name(self.ireps[ci.irep].syms[b]); return Err(self.raise_arg(&format!("missing keyword: {n}"))); }
+                    };
+                    reg!(a) = v;
+                }
+                Op::KeyP => {
+                    let k = Value::Sym(self.ireps[ci.irep].syms[b]);
+                    let has = match self.kidx(&ci) { Some(ki) => self.hash_get(self.stack[ki], k).is_some(), None => false };
+                    reg!(a) = Value::bool(has);
+                }
+                Op::Keyend => {
+                    if let Some(ki) = self.kidx(&ci) {
+                        let first = match self.stack[ki].obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.first().map(|e| e.0), _ => None };
+                        if let Some(k) = first { let d = match k { Value::Sym(s) => self.sym_name(s), v => self.inspect_str(v)? }; return Err(self.raise_arg(&format!("unknown keyword: {d}"))); }
+                    }
+                }
                 Op::Return => { let v = reg!(a); if let Some(r) = self.op_return(v, stop_depth)? { return Ok(r); } }
                 Op::ReturnBlk => {
                     let v = reg!(a);
@@ -1239,18 +1291,28 @@ impl Vm {
                     let base_v = reg!(a);
                     let outer = match base_v { Value::Nil => self.heap.proc_data(ci.proc_).target_class.unwrap_or(self.core.object), Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let existing = self.heap.class(outer).consts.get(&s).copied();
+                    let is_module = matches!(op, Op::Module);
+                    let given_sup = match if is_module { Value::Nil } else { reg!(a + 1) } {
+                        Value::Nil => None,
+                        Value::Obj(o) if self.heap.is_class(o) && !self.heap.class(o).is_module && !self.heap.class(o).is_singleton => Some(o),
+                        other => { if is_module { None } else { let d = self.inspect_str(other)?; return Err(self.raise_type(&format!("superclass must be a Class ({d} given)"))); } }
+                    };
                     let cls = match existing {
-                        Some(Value::Obj(o)) if self.heap.is_class(o) => o,
+                        Some(Value::Obj(o)) if self.heap.is_class(o) && self.heap.class(o).is_module == is_module => {
+                            if let Some(sup) = given_sup {
+                                let real_sup = self.real_superclass(o);
+                                if real_sup != Some(sup) { let n = self.sym_name(s); return Err(self.raise_type(&format!("superclass mismatch for Class {n}"))); }
+                            }
+                            o
+                        }
+                        Some(v) if !v.is_nil() => { let d = self.inspect_str(v)?; return Err(self.raise_type(&format!("{d} is not a {}", if is_module { "module" } else { "class" }))); }
                         _ => {
-                            let is_module = matches!(op, Op::Module);
-                            let sup = if is_module { None } else {
-                                match reg!(a + 1) { Value::Nil => Some(self.core.object), Value::Obj(o) if self.heap.is_class(o) => Some(o), _ => return Err(self.raise_type("superclass must be a Class")) }
-                            };
+                            let sup = if is_module { None } else { Some(given_sup.unwrap_or(self.core.object)) };
                             let meta = if is_module { self.core.module } else { self.core.class };
                             let ncls = self.heap.alloc(meta, ObjKind::Class(ClassData { name: Some(s), superclass: sup, is_module, ..Default::default() }));
                             self.heap.class_mut(outer).consts.insert(s, Value::Obj(ncls));
                             if !is_module { self.singleton_class(Value::Obj(ncls))?; }
-                            if !is_module { if let Some(sup) = sup { let inh = self.intern("inherited"); if self.respond_to(Value::Obj(sup), inh) { /* hook not implemented */ } } }
+                            if let Some(sup) = sup { self.call_inherited(sup, ncls)?; }
                             ncls
                         }
                     };
@@ -1323,8 +1385,15 @@ impl Vm {
         }
         c = Some(self.core.object);
         if let Some(v) = c.and_then(|c| self.const_get(c, s)) { return Ok(v); }
-        let n = self.sym_name(s);
-        Err(self.raise(self.core.name_error, &format!("uninitialized constant {n}")))
+        // `const_missing` hook on the target class (default raises NameError)
+        let cm = self.intern("const_missing");
+        let tc = Value::Obj(ci.target_class);
+        self.funcall(tc, cm, &[Value::Sym(s)], Value::Nil)
+    }
+    pub fn frozen_error(&mut self, v: Value) -> VmError {
+        let c = self.describe_for_error(v);
+        let i = self.inspect_str(v).unwrap_or_default();
+        self.raise(self.core.frozen_error, &format!("can't modify frozen {c}: {i}"))
     }
 
     /// `mrb_vm_cv_get`: the lexically enclosing non-singleton class (walks `upper`).
@@ -1336,6 +1405,22 @@ impl Vm {
             p = pd.upper;
         }
         self.core.object
+    }
+    /// The superclass as Ruby sees it (skipping include classes and singletons).
+    pub fn real_superclass(&self, c: ObjId) -> Option<ObjId> {
+        let mut s = self.heap.class(c).superclass;
+        while let Some(x) = s {
+            let cd = self.heap.class(x);
+            if cd.iclass_of.is_none() && !cd.is_singleton { return Some(x); }
+            s = cd.superclass;
+        }
+        None
+    }
+    /// `Class#inherited` hook.
+    pub fn call_inherited(&mut self, sup: ObjId, sub: ObjId) -> VmResult<()> {
+        let inh = self.intern("inherited");
+        self.funcall(Value::Obj(sup), inh, &[Value::Obj(sub)], Value::Nil)?;
+        Ok(())
     }
     fn cvar_get(&self, class: ObjId, s: Sym) -> Option<Value> {
         let mut c = Some(class);
@@ -1355,14 +1440,18 @@ impl Vm {
         self.heap.class_mut(class).cvars.insert(s, v);
     }
 
+    /// `mrb_ary_splat`: Array as is; `to_a` if it answers (nil means "no conversion");
+    /// a non-Array `to_a` result is a TypeError.
     pub fn to_array(&mut self, v: Value) -> VmResult<Vec<Value>> {
         if let Some(a) = self.ary(v) { return Ok(a.clone()); }
         let to_a = self.intern("to_a");
-        if self.respond_to(v, to_a) {
-            let r = self.funcall(v, to_a, &[], Value::Nil)?;
-            if let Some(a) = self.ary(r) { return Ok(a.clone()); }
+        if !self.respond_to(v, to_a) { return Ok(vec![v]); }
+        let r = self.funcall(v, to_a, &[], Value::Nil)?;
+        if r.is_nil() { return Ok(vec![v]); }
+        match self.ary(r) {
+            Some(a) => Ok(a.clone()),
+            None => { let c = self.describe_for_error(v); let rc = self.describe_for_error(r); Err(self.raise_type(&format!("can't convert {c} to Array ({c}#to_a gives {rc})"))) }
         }
-        Ok(vec![v])
     }
 
     /// `mrb_obj_as_string`: String as is, otherwise `to_s`.
@@ -1452,47 +1541,50 @@ impl Vm {
 
     /// Shared body of SEND/SSEND/SUPER: receiver at `R[a]`, args at `R[a+1..]`,
     /// block at `R[a+argc+1]` when `has_blk`.
-    fn op_send(&mut self, base: usize, a: usize, mid: Sym, c: usize, has_blk: bool, is_super: bool) -> VmResult<()> {
-        let recv = self.stack[base + a];
+    /// Lays out a call site (`c` = SEND's third operand): packs `nk` keyword pairs
+    /// into one Hash right after the positional arguments, moves the block after
+    /// it, and returns `(n, kw, blk)` for the new frame (`n` = 15 when packed).
+    fn prepare_call(&mut self, nbase: usize, c: usize, has_blk: bool) -> VmResult<(usize, bool, Value)> {
         let n = c & 0xf;
         let nk = (c >> 4) & 0xf;
         let npos = if n == 15 { 1 } else { n };
-        let bidx = base + a + npos + (if nk == 15 { 1 } else { nk * 2 }) + 1;
+        let bidx = nbase + npos + (if nk == 15 { 1 } else { nk * 2 }) + 1;
         if self.stack.len() <= bidx { self.stack.resize(bidx + 1, Value::Nil); }
         let blk = if has_blk { let b = self.stack[bidx]; self.ensure_block(b)? } else { Value::Nil };
-        // Keyword arguments: pack `nk` pairs into a Hash (mruby `hash_new_from_regs`).
-        // Keyword *parameters* are not implemented yet, so the Hash is passed as a
-        // trailing positional argument, which is also what mruby does for callees
-        // without keyword parameters.
-        let mut argc = n;
-        if nk > 0 {
-            let kidx = base + a + npos + 1;
-            let kdict = if nk == 15 {
-                let h = self.stack[kidx];
-                if !matches!(h.obj().map(|o| &self.heap.get(o).kind), Some(ObjKind::Hash(_))) { return Err(self.raise_type("keyword argument hash expected")); }
-                h
-            } else {
-                let h = self.hash_new();
-                for i in 0..nk { let (k, v) = (self.stack[kidx + i * 2], self.stack[kidx + i * 2 + 1]); self.hash_set(h, k, v)?; }
-                h
-            };
-            if n == 15 {
-                let mut all = self.ary(self.stack[base + a + 1]).cloned().unwrap_or_default();
-                all.push(kdict);
-                self.stack[base + a + 1] = self.ary_new(all);
-            } else if n + 1 >= 15 {
-                let mut all: Vec<Value> = self.stack[base + a + 1..base + a + 1 + n].to_vec();
-                all.push(kdict);
-                self.stack[base + a + 1] = self.ary_new(all);
-                argc = 15;
-            } else {
-                self.stack[kidx] = kdict;
-                argc = n + 1;
-            }
+        let kw = nk > 0;
+        if nk > 0 && nk != 15 {
+            let kidx = nbase + npos + 1;
+            let h = self.hash_new();
+            for i in 0..nk { let (k, v) = (self.stack[kidx + i * 2], self.stack[kidx + i * 2 + 1]); self.hash_set(h, k, v)?; }
+            self.stack[kidx] = h;
+        } else if nk == 15 {
+            let h = self.stack[nbase + npos + 1];
+            if !matches!(h.obj().map(|o| &self.heap.get(o).kind), Some(ObjKind::Hash(_))) { return Err(self.raise_type("keyword argument hash expected")); }
         }
-        let bidx = base + a + (if argc == 15 { 1 } else { argc }) + 1;
-        if self.stack.len() <= bidx { self.stack.resize(bidx + 1, Value::Nil); }
-        self.stack[bidx] = blk;
+        let new_bidx = nbase + npos + (if kw { 1 } else { 0 }) + 1;
+        if self.stack.len() <= new_bidx { self.stack.resize(new_bidx + 1, Value::Nil); }
+        self.stack[new_bidx] = blk;
+        Ok((n, kw, blk))
+    }
+
+    /// Positional arguments of a frame laid out by `prepare_call`, with the
+    /// keyword Hash appended when present and non-empty (what a native method
+    /// sees; mruby's `mrb_get_args` does the same for functions without `:`).
+    fn native_args(&self, nbase: usize, n: usize, kw: bool) -> (Vec<Value>, Option<Value>) {
+        let mut args = self.send_args(nbase, n);
+        let npos = if n == 15 { 1 } else { n };
+        let mut kd = None;
+        if kw {
+            let h = self.stack[nbase + npos + 1];
+            let empty = match h.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.is_empty(), _ => true };
+            if !empty { args.push(h); kd = Some(h); }
+        }
+        (args, kd)
+    }
+
+    fn op_send(&mut self, base: usize, a: usize, mid: Sym, c: usize, has_blk: bool, is_super: bool) -> VmResult<()> {
+        let recv = self.stack[base + a];
+        let (argc, kw, blk) = self.prepare_call(base + a, c, has_blk)?;
         let start_class = if is_super {
             let owner = self.ci.last().unwrap().target_class;
             match self.heap.class(owner).superclass { Some(s) => s, None => return Err(self.raise(self.core.no_method_error, "super: no superclass method")) }
@@ -1501,12 +1593,17 @@ impl Vm {
         let (m, owner) = match found {
             Some(x) => x,
             None => {
+                if is_super {
+                    let name = self.sym_name(mid);
+                    let desc = self.describe_for_error(recv);
+                    return Err(self.raise(self.core.no_method_error, &format!("no superclass method '{name}' for {desc}")));
+                }
                 // method_missing?
                 let mm = self.s.method_missing;
                 if let Some((m, owner)) = self.find_method(start_class, mm) {
                     if !matches!(m, Method::Native(_)) || self.class_of(recv) != self.core.basic_object {
                         // insert the method name as the first argument
-                        let args = self.send_args(base + a, argc);
+                        let (args, _) = self.native_args(base + a, argc, kw);
                         let mut nargs = vec![Value::Sym(mid)];
                         nargs.extend(args);
                         let r = match m { Method::Native(f) => f(self, recv, &nargs, blk)?, Method::Ruby(p) => self.call_proc(p, recv, &nargs, blk, Some(mm), owner)?, _ => Value::Nil };
@@ -1521,17 +1618,19 @@ impl Vm {
         };
         match m {
             Method::Native(f) => {
-                let args = self.send_args(base + a, argc);
-                let r = f(self, recv, &args, blk)?;
-                self.stack[base + a] = r;
+                let (args, kd) = self.native_args(base + a, argc, kw);
+                let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
+                let r = f(self, recv, &args, blk);
+                self.pending_kw = saved;
+                self.stack[base + a] = r?;
             }
             Method::AttrReader(iv) => {
-                let args = self.send_args(base + a, argc);
+                let (args, _) = self.native_args(base + a, argc, kw);
                 if !args.is_empty() { return Err(self.argnum_error(args.len(), "0")); }
                 self.stack[base + a] = recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil);
             }
             Method::AttrWriter(iv) => {
-                let args = self.send_args(base + a, argc);
+                let (args, _) = self.native_args(base + a, argc, kw);
                 if args.len() != 1 { return Err(self.argnum_error(args.len(), "1")); }
                 let v = args[0];
                 match recv { Value::Obj(o) => self.heap.ivar_set(o, iv, v), _ => return Err(self.raise_type("can't set instance variable")) }
@@ -1543,13 +1642,30 @@ impl Vm {
                 let nirep = self.heap.proc_data(p).irep;
                 let nregs = self.ireps[nirep].nregs.max(argc + 2).max(4);
                 if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Value::Nil); }
-                let nargs = if argc == 15 { 1 } else { argc };
-                for i in nargs + 2..nregs { self.stack[nbase + i] = Value::Nil; }
-                self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw: false, mid: Some(mid), target_class: owner, env: None, cci: Cci::None });
+                let used = (if argc == 15 { 1 } else { argc }) + (if kw { 1 } else { 0 }) + 2;
+                for i in used..nregs { self.stack[nbase + i] = Value::Nil; }
+                self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(mid), target_class: owner, env: None, cci: Cci::None });
             }
             Method::Undef => unreachable!(),
         }
         Ok(())
+    }
+
+    /// `mrb_ci_bidx`: the register (relative to base) holding a frame's block.
+    pub fn frame_bidx(ci: &CallInfo) -> usize {
+        let n = ci.n as usize;
+        (if n == 15 { 1 } else { n }) + (if ci.kw { 1 } else { 0 }) + 1
+    }
+    /// `mrb_ci_kidx`: the register holding the keyword Hash of a frame, if any.
+    fn kidx(&self, ci: &CallInfo) -> Option<usize> {
+        if !ci.kw { return None; }
+        let n = ci.n as usize;
+        Some(ci.base + (if n == 15 { 1 } else { n }) + 1)
+    }
+    pub fn hash_delete(&mut self, h: Value, k: Value) -> Option<Value> {
+        let o = h.obj()?;
+        let pos = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.entries.iter().position(|(ek, _)| self.eql(*ek, k)), _ => None }?;
+        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => Some(hd.entries.remove(pos).1), _ => None }
     }
 
     /// Positional arguments of a SEND at `nbase` (`argc == 15` = packed array).
@@ -1594,15 +1710,39 @@ impl Vm {
         let o = ((spec >> 13) & 0x1f) as usize;
         let r = ((spec >> 12) & 1) as usize;
         let m2 = ((spec >> 7) & 0x1f) as usize;
-        let k = (spec >> 2) & 0x1f;
-        let kd = ((spec >> 1) & 1) as usize;
-        if k > 0 || kd > 0 { return Err(VmError::Unimplemented("keyword parameters".into())); }
+        let k = ((spec >> 2) & 0x1f) as usize;
+        let kdict_flag = (spec >> 1) & 1 == 1;
+        let noblock = (spec >> 23) & 1 == 1;
+        let kd = if k > 0 || kdict_flag { 1 } else { 0 };
         let top = self.ci.len() - 1;
-        let (base, n, proc_, irep) = { let ci = &self.ci[top]; (ci.base, ci.n as usize, ci.proc_, ci.irep) };
+        let (base, mut n, mut kw, proc_, irep) = { let ci = &self.ci[top]; (ci.base, ci.n as usize, ci.kw, ci.proc_, ci.irep) };
         let strict = self.heap.proc_data(proc_).strict;
+        let nlocals = self.ireps[irep].nlocals;
         let len = m1 + o + r + m2;
-        let bidx = if n == 15 { 2 } else { n + 1 };
-        let blk = self.stack[base + bidx];
+        let nregs = self.ireps[irep].nregs.max(len + kd + 3);
+        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Value::Nil); }
+        // fast path: only required parameters, no packed args
+        if (spec & !0x7c0001) == 0 && n < 15 && strict {
+            if n + (kw as usize) != m1 { return Err(self.argnum_error(n + kw as usize, &format!("{m1}"))); }
+            for i in m1 + 2..nlocals { self.stack[base + i] = Value::Nil; }
+            self.ci[top].kw = false;
+            return Ok(());
+        }
+        let npos = if n == 15 { 1 } else { n };
+        let blk = self.stack[base + npos + (kw as usize) + 1];
+        if noblock && !blk.is_nil() { return Err(self.raise_arg("no block accepted")); }
+        let mut kdict = if kw { self.stack[base + npos + 1] } else { Value::Nil };
+        if kd == 0 {
+            let nonempty = match kdict.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => !hd.entries.is_empty(), _ => false };
+            if nonempty {
+                // the keyword Hash becomes the last positional argument
+                if n < 14 { n += 1; }
+                else if n == 14 { let all: Vec<Value> = self.stack[base + 1..base + 16].to_vec(); self.stack[base + 1] = self.ary_new(all); n = 15; }
+                else if let Some(o) = self.stack[base + 1].obj() { if let ObjKind::Array(v) = &mut self.heap.get_mut(o).kind { v.push(kdict); } }
+            }
+            kdict = Value::Nil;
+            kw = false;
+        }
         let mut argv: Vec<Value> = if n == 15 { self.ary(self.stack[base + 1]).cloned().unwrap_or_default() } else { self.stack[base + 1..base + 1 + n].to_vec() };
         let mut argc = argv.len();
         if strict {
@@ -1613,8 +1753,6 @@ impl Vm {
         } else if len > 1 && argc == 1 {
             if let Some(arr) = self.ary(argv[0]) { argv = arr.clone(); argc = argv.len(); }
         }
-        let nregs = self.ireps[irep].nregs.max(len + 3);
-        if self.stack.len() < base + nregs { self.stack.resize(base + nregs, Value::Nil); }
         let mut pc = self.ci[top].pc;
         if argc < len {
             let mlen = if argc < m1 + m2 { if m1 < argc { argc - m1 } else { 0 } } else { m2 };
@@ -1631,10 +1769,17 @@ impl Vm {
             if m2 > 0 { for i in 0..m2 { self.stack[base + m1 + o + r + 1 + i] = argv[m1 + o + rnum + i]; } }
             pc += o * 3;
         }
-        self.stack[base + len + 1] = blk;
-        let nlocals = self.ireps[irep].nlocals;
-        for i in len + 2..nlocals { if base + i < self.stack.len() { self.stack[base + i] = Value::Nil; } }
+        let kw_pos = len + kd;
+        let blk_pos = kw_pos + 1;
+        self.stack[base + blk_pos] = blk;
+        if kd == 1 {
+            if kdict.is_nil() { kdict = self.hash_new(); }
+            self.stack[base + kw_pos] = kdict;
+            kw = true;
+        }
+        for i in blk_pos + 1..nlocals { if base + i < self.stack.len() { self.stack[base + i] = Value::Nil; } }
         self.ci[top].n = len as u8;
+        self.ci[top].kw = kw;
         self.ci[top].pc = pc;
         Ok(())
     }

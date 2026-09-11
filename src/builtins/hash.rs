@@ -61,8 +61,24 @@ fn hash_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
 
 pub fn init(vm: &mut Vm) {
     let c = vm.core;
+    // Hash[...]: pairs, a flat key/value list, or another Hash
+    let sc = vm.singleton_class(Value::Obj(c.hash)).unwrap();
+    vm.define_method(sc, "[]", |vm, s, a, _b| {
+        let h = vm.instance_alloc(s.obj().unwrap())?;
+        if a.len() == 1 {
+            if let Some(src) = a[0].obj().and_then(|o| match &vm.heap.get(o).kind { ObjKind::Hash(hd) => Some(hd.entries.clone()), _ => None }) { for (k, v) in src { vm.hash_set(h, k, v)?; } return Ok(h); }
+            if let Some(list) = vm.ary(a[0]).cloned() { for pair in list { match vm.ary(pair).cloned() { Some(p) if p.len() == 2 => vm.hash_set(h, p[0], p[1])?, Some(p) if p.len() == 1 => vm.hash_set(h, p[0], Value::Nil)?, _ => { let d = vm.inspect_str(pair)?; return Err(vm.raise_arg(&format!("wrong element type {d} (expected array)"))); } } } return Ok(h); }
+        }
+        if a.len() % 2 != 0 { return Err(vm.raise_arg("odd number of arguments for Hash")); }
+        for p in a.chunks(2) { vm.hash_set(h, p[0], p[1])?; }
+        Ok(h)
+    });
     vm.define_methods(c.hash, &[
-        ("initialize", |vm, s, a, b| { argc!(vm, a, 0, 1); if let Some(d) = a.first() { with_mut(vm, s, |h| h.default = *d)?; } if !b.is_nil() { let dp = default_proc_ivar(vm); vm.heap.ivar_set(s.obj().unwrap(), dp, b); } Ok(s) }),
+        ("initialize", |vm, s, a, b| { argc!(vm, a, 0, 1); if !b.is_nil() { if !a.is_empty() { return Err(vm.argnum_error(1, "0")); } let dp = default_proc_ivar(vm); vm.heap.ivar_set(s.obj().unwrap(), dp, b); return Ok(s); } if let Some(d) = a.first() { with_mut(vm, s, |h| h.default = *d)?; } Ok(s) }),
+        ("assoc", |vm, s, a, _b| { argc!(vm, a, 1); for (k, v) in entries(vm, s) { if vm.equal(k, a[0])? { return Ok(vm.ary_new(vec![k, v])); } } Ok(Value::Nil) }),
+        ("rassoc", |vm, s, a, _b| { argc!(vm, a, 1); for (k, v) in entries(vm, s) { if vm.equal(v, a[0])? { return Ok(vm.ary_new(vec![k, v])); } } Ok(Value::Nil) }),
+        ("__pat_values", |vm, s, a, _b| { argc!(vm, a, 1); let keys = vm.ary(a[0]).cloned().unwrap_or_default(); let mut out = vec![]; for k in keys { match vm.hash_get(s, k) { Some(v) => out.push(v), None => return Ok(Value::False) } } Ok(vm.ary_new(out)) }),
+        ("__except", |vm, s, a, _b| { argc!(vm, a, 1); let keys = vm.ary(a[0]).cloned().unwrap_or_default(); let h = vm.hash_new(); for (k, v) in entries(vm, s) { if !keys.iter().any(|x| vm.eql(*x, k)) { vm.hash_set(h, k, v)?; } } Ok(h) }),
         ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let e = entries(vm, a[0]); let d = default_of(vm, a[0]); with_mut(vm, s, |h| { h.entries = e; h.default = d; })?; Ok(s) }),
         ("replace", |vm, s, a, _b| { argc!(vm, a, 1); let e = entries(vm, a[0]); let d = default_of(vm, a[0]); with_mut(vm, s, |h| { h.entries = e; h.default = d; })?; Ok(s) }),
         ("[]", hash_aref),
@@ -114,6 +130,17 @@ pub fn init(vm: &mut Vm) {
 fn hash_eq(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1);
     if s == a[0] { return Ok(Value::True); }
+    if let (Value::Obj(x), Value::Obj(y)) = (s, a[0]) {
+        if vm.eq_guard.contains(&(x, y)) { return Ok(Value::True); }
+        vm.eq_guard.push((x, y));
+        let r = hash_eq_inner(vm, s, a);
+        vm.eq_guard.pop();
+        return r;
+    }
+    hash_eq_inner(vm, s, a)
+}
+
+fn hash_eq_inner(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Value> {
     let (x, y) = (entries(vm, s), match a[0].obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(h)) => h.entries.clone(), _ => return Ok(Value::False) });
     if x.len() != y.len() { return Ok(Value::False); }
     for (k, v) in x {

@@ -35,6 +35,17 @@ pub fn ary_inspect(vm: &mut Vm, v: Value) -> VmResult<Vec<u8>> {
 fn ary_eq(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1);
     if s == a[0] { return Ok(Value::True); }
+    if let (Value::Obj(x), Value::Obj(y)) = (s, a[0]) {
+        if vm.eq_guard.contains(&(x, y)) { return Ok(Value::True); }
+        vm.eq_guard.push((x, y));
+        let r = ary_eq_inner(vm, s, a);
+        vm.eq_guard.pop();
+        return r;
+    }
+    ary_eq_inner(vm, s, a)
+}
+
+fn ary_eq_inner(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Value> {
     let (x, y) = (items(vm, s), match vm.ary(a[0]) { Some(y) => y.clone(), None => return Ok(Value::False) });
     if x.len() != y.len() { return Ok(Value::False); }
     for (p, q) in x.iter().zip(y.iter()) { if !vm.equal(*p, *q)? { return Ok(Value::False); } }
@@ -102,6 +113,8 @@ fn flatten(vm: &mut Vm, v: Value, depth: i64, out: &mut Vec<Value>) {
 
 pub fn init(vm: &mut Vm) {
     let c = vm.core;
+    let sc = vm.singleton_class(Value::Obj(c.array)).unwrap();
+    vm.define_method(sc, "[]", |vm, s, a, _b| { let v = vm.instance_alloc(s.obj().unwrap())?; with_mut(vm, v, |arr| arr.extend_from_slice(a))?; Ok(v) });
     vm.define_methods(c.array, &[
         ("initialize", |vm, s, a, b| {
             argc!(vm, a, 0, 2);

@@ -66,6 +66,8 @@ pub struct ProcData {
 pub struct EnvData {
     pub base: usize,
     pub len: usize,
+    /// Register (relative to `base`) holding the frame's block (`MRB_ENV_BIDX`).
+    pub bidx: usize,
     pub attached: bool,
     pub values: Vec<Value>,
     pub mid: Option<Sym>,

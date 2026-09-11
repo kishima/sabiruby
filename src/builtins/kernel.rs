@@ -44,6 +44,15 @@ pub fn init(vm: &mut Vm) {
             }
             Ok(Value::False)
         }),
+        // `defined?` is compiled to these (kernel.c); they answer the description string or nil
+        ("__defined_ivar?", |vm, s, a, _b| { argc!(vm, a, 1); let n = super::object::sym_arg(vm, a[0])?; let ok = match s { Value::Obj(o) => vm.heap.get(o).ivars.iter().any(|(k, _)| *k == n), _ => false }; Ok(defined_str(vm, ok, "instance-variable")) }),
+        ("__defined_gvar?", |vm, _s, a, _b| { argc!(vm, a, 1); let n = super::object::sym_arg(vm, a[0])?; let ok = vm.globals.contains_key(&n); Ok(defined_str(vm, ok, "global-variable")) }),
+        ("__defined_cvar?", |vm, _s, a, _b| { argc!(vm, a, 1); let n = super::object::sym_arg(vm, a[0])?; let ci = *vm.ci.last().unwrap(); let cls = vm.cvar_class_of(ci.proc_); let ok = vm.cvar_lookup(cls, n).is_some(); Ok(defined_str(vm, ok, "class variable")) }),
+        ("__defined_const?", |vm, _s, a, _b| { argc!(vm, a, 1); let n = super::object::sym_arg(vm, a[0])?; let ci = *vm.ci.last().unwrap(); let ok = vm.const_lookup_noraise(&ci, n).is_some(); Ok(defined_str(vm, ok, "constant")) }),
+        ("__defined_const_path?", |vm, _s, a, _b| { argc!(vm, a, 2); let (p, c) = (super::object::sym_arg(vm, a[0])?, super::object::sym_arg(vm, a[1])?); let ci = *vm.ci.last().unwrap(); let ok = match vm.const_lookup_noraise(&ci, p) { Some(Value::Obj(o)) if vm.heap.is_class(o) => vm.const_get(o, c).is_some(), _ => false }; Ok(defined_str(vm, ok, "constant")) }),
+        ("__defined_method?", |vm, s, a, _b| { argc!(vm, a, 1); let n = super::object::sym_arg(vm, a[0])?; let ok = vm.respond_to(s, n); Ok(defined_str(vm, ok, "method")) }),
+        ("__defined_yield?", |vm, s, a, b| { let r = block_given(vm, s, a, b)?; Ok(defined_str(vm, r.truthy(), "yield")) }),
+        ("__defined_super?", |vm, _s, _a, _b| { let ci = *vm.ci.last().unwrap(); let ok = match ci.mid { Some(m) => match vm.heap.class(ci.target_class).superclass { Some(sup) => vm.find_method(sup, m).is_some(), None => false }, None => false }; Ok(defined_str(vm, ok, "super")) }),
         ("__printstr__", |vm, _s, a, _b| { for v in a { let b = vm.as_string(*v)?; vm.write_out(&b); } Ok(Value::Nil) }),
         ("!~", |vm, s, a, _b| { argc!(vm, a, 1); let m = vm.intern("=~"); let r = vm.funcall(s, m, &[a[0]], Value::Nil)?; Ok(Value::bool(!r.truthy())) }),
     ]);
@@ -85,17 +94,34 @@ fn p(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     }
 }
 
+/// `mrb_f_block_given_p_m`: the block of the enclosing *method* frame, found by
+/// walking the caller's proc chain up to the first scope proc.
 fn block_given(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
-    // The block of the *calling* Ruby frame: it sits after its arguments.
-    let ci = match vm.ci.last() { Some(c) => c.clone(), None => return Ok(Value::False) };
-    let n = ci.n as usize;
-    let bidx = if n == 15 { ci.base + 2 } else { ci.base + n + 1 };
-    let blk = match ci.env {
-        Some(e) if !vm.heap.env(e).attached => { let ed = vm.heap.env(e); ed.values.get(bidx - ci.base).copied().unwrap_or(Value::Nil) }
-        _ => vm.stack.get(bidx).copied().unwrap_or(Value::Nil),
+    let ci = match vm.ci.last() { Some(c) => *c, None => return Ok(Value::False) };
+    let mut p = Some(ci.proc_);
+    let mut e = None;
+    while let Some(pid) = p {
+        let pd = vm.heap.proc_data(pid);
+        if pd.scope { break; }
+        e = pd.env;
+        p = pd.upper;
+    }
+    let p = match p { Some(p) => p, None => return Ok(Value::False) };
+    let blk = if let Some(e) = e {
+        let bidx = vm.heap.env(e).bidx;
+        if bidx >= vm.heap.env(e).len && !vm.heap.env(e).attached { return Ok(Value::False); }
+        vm.env_value(e, bidx)
+    } else {
+        // the frame running `p` itself
+        match vm.ci.iter().rev().find(|c| c.proc_ == p) {
+            Some(c) => { let b = Vm::frame_bidx(c); vm.stack.get(c.base + b).copied().unwrap_or(Value::Nil) }
+            None => return Ok(Value::False),
+        }
     };
     Ok(Value::bool(!blk.is_nil()))
 }
+
+fn defined_str(vm: &mut Vm, ok: bool, s: &str) -> Value { if ok { vm.str_new(s.as_bytes()) } else { Value::Nil } }
 
 /// `raise`, `raise "msg"`, `raise Class`, `raise Class, "msg"`, `raise exc`.
 fn raise(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {

@@ -22,7 +22,10 @@ macro_rules! fixture { ($($n:ident),*) => { $( #[test] fn $n() { run_fixture(str
 
 fixture!(hello, arith, method, control, block, collections, klass, exception, closure, strings, objects, errors, errors2, args);
 
-/// Keyword arguments (OP_ENTER kdict, KEY_P/KEYEND/KARG) are not implemented yet.
 #[test]
-#[ignore = "keyword arguments not implemented"]
 fn kwargs() { run_fixture("kwargs"); }
+
+/// Needs mruby-enumerator (Fiber-based).
+#[test]
+#[ignore = "Enumerator (mruby-enumerator gem) not ported yet"]
+fn enumerator() { run_fixture("enumerator"); }

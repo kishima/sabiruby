@@ -117,6 +117,14 @@ fn to_radix(i: i64, base: u32) -> String {
 
 pub fn init(vm: &mut Vm) {
     let c = vm.core;
+    for (name, v) in [("INFINITY", f64::INFINITY), ("NAN", f64::NAN), ("EPSILON", f64::EPSILON), ("MAX", f64::MAX), ("MIN", f64::MIN_POSITIVE)] {
+        let n = vm.intern(name);
+        vm.heap.class_mut(c.float).consts.insert(n, Value::Float(v));
+    }
+    for (name, v) in [("DIG", 15i64), ("MANT_DIG", 53), ("RADIX", 2), ("MAX_EXP", 1024), ("MIN_EXP", -1021), ("MAX_10_EXP", 308), ("MIN_10_EXP", -307)] {
+        let n = vm.intern(name);
+        vm.heap.class_mut(c.float).consts.insert(n, Value::Int(v));
+    }
     vm.define_methods(c.numeric, &[
         ("+@", |_vm, s, _a, _b| Ok(s)),
         ("integer?", |_vm, _s, _a, _b| Ok(Value::False)),
@@ -171,10 +179,11 @@ pub fn init(vm: &mut Vm) {
         ("succ", |vm, s, _a, _b| int_binop(vm, s, &[Value::Int(1)], "+", i64::checked_add, |p, q| p + q)),
         ("pred", |vm, s, _a, _b| int_binop(vm, s, &[Value::Int(1)], "-", i64::checked_sub, |p, q| p - q)),
         ("chr", |vm, s, _a, _b| { let i = match s { Value::Int(i) => i, _ => 0 }; if !(0..=255).contains(&i) { return Err(vm.raise(vm.core.range_error, &format!("{i} out of char range"))); } Ok(vm.str_new(&[i as u8])) }),
-        ("floor", |_vm, s, _a, _b| Ok(s)),
-        ("ceil", |_vm, s, _a, _b| Ok(s)),
-        ("round", |_vm, s, _a, _b| Ok(s)),
-        ("truncate", |_vm, s, _a, _b| Ok(s)),
+        ("floor", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Floor)),
+        ("ceil", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Ceil)),
+        ("round", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Round)),
+        ("truncate", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Truncate)),
+        ("quo", |vm, s, a, _b| { argc!(vm, a, 1); let p = match s { Value::Int(i) => i as f64, _ => 0.0 }; match as_f64(a[0]) { Some(q) => Ok(Value::Float(p / q)), None => Err(coerce_fail(vm, a[0], "quo")) } }),
         ("size", |_vm, _s, _a, _b| Ok(Value::Int(8))),
         ("bit_length", |_vm, s, _a, _b| Ok(Value::Int(match s { Value::Int(i) => (64 - if i < 0 { (!i).leading_zeros() } else { i.leading_zeros() }) as i64, _ => 0 }))),
         ("fdiv", |vm, s, a, _b| { argc!(vm, a, 1); let p = match s { Value::Int(i) => i as f64, _ => 0.0 }; match as_f64(a[0]) { Some(q) => Ok(Value::Float(p / q)), None => Err(coerce_fail(vm, a[0], "fdiv")) } }),
@@ -206,6 +215,32 @@ pub fn init(vm: &mut Vm) {
         ("abs", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Float(f.abs()), v => v })),
         ("divmod", |vm, s, a, _b| { argc!(vm, a, 1); let p = match s { Value::Float(f) => f, _ => 0.0 }; let q = match as_f64(a[0]) { Some(q) => q, None => return Err(coerce_fail(vm, a[0], "divmod")) }; let d = libm::floor(p / q); Ok(vm.ary_new(vec![Value::Float(d), Value::Float(p - d * q)])) }),
     ]);
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Rounding { Floor, Ceil, Round, Truncate }
+
+/// `Integer#floor/ceil/round/truncate(ndigits)` for negative `ndigits` (numeric.c `prepare_int_rounding`).
+fn int_rounding(vm: &mut Vm, s: Value, a: &[Value], mode: Rounding) -> VmResult<Value> {
+    argc!(vm, a, 0, 1);
+    let x = match s { Value::Int(i) => i, _ => return Ok(s) };
+    let nd = if a.is_empty() { 0 } else { vm.expect_int(a[0], "ndigits")? };
+    if nd >= 0 { return Ok(s); }
+    if -0.415241 * nd as f64 > 8.0 - 0.125 { return Ok(Value::Int(0)); }
+    let f = 10i64.pow((-nd) as u32);
+    let c = x % f;
+    if c == 0 { return Ok(s); }
+    let base = x - c;
+    let r = match mode {
+        Rounding::Truncate => base,
+        Rounding::Floor => if x < 0 { base - f } else { base },
+        Rounding::Ceil => if x < 0 { base } else { base + f },
+        Rounding::Round => {
+            let half = f / 2;
+            if c < 0 { if -c < half { base } else { base - f } } else if c < half { base } else { base + f }
+        }
+    };
+    Ok(Value::Int(r))
 }
 
 fn float_to_i(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {

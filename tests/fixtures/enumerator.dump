@@ -1,0 +1,64 @@
+irep 0x649b004bb0c0 nregs=7 nlocals=2 pools=2 syms=10 reps=1 ilen=128
+local variable names:
+  R1:e
+catch type: rescue   begin: 0089 end: 0095 target: 0098
+file: /w/enumerator.rb
+    2 000 STRING	R3	L[0]	; a
+    2 003 STRING	R4	L[1]	; b
+    2 006 ARRAY		R3	2
+    2 009 SEND0		R3	:each_with_index
+    2 012 BLOCK		R4	I[0]
+    2 015 SENDB		R3	:map	n=0
+    2 019 SSEND		R2	:p	n=1
+    3 023 LOADI_1	R3	(1)
+    3 025 LOADI_2	R4	(2)
+    3 027 LOADI_3	R5	(3)
+    3 029 ARRAY		R3	3
+    3 032 LOADI_2	R4	(2)
+    3 034 SEND		R3	:each_slice	n=1
+    3 038 SEND0		R3	:to_a
+    3 041 LOADI_1	R4	(1)
+    3 043 LOADI_3	R5	(3)
+    3 045 RANGE_INC	R4
+    3 047 LOADI_2	R5	(2)
+    3 049 SEND		R4	:each_cons	n=1
+    3 053 SEND0		R4	:to_a
+    3 056 SSEND		R2	:p	n=2
+    4 060 LOADI_1	R2	(1)
+    4 062 LOADI_2	R3	(2)
+    4 064 ARRAY		R2	2
+    4 067 SEND0		R2	:each
+    4 070 MOVE		R1	R2	; R1:e
+    5 073 MOVE		R3	R1	; R1:e
+    5 076 SEND0		R3	:next
+    5 079 MOVE		R4	R1	; R1:e
+    5 082 SEND0		R4	:next
+    5 085 SSEND		R2	:p	n=2
+    6 089 MOVE		R2	R1	; R1:e
+    6 092 SEND0		R2	:next
+    6 095 JMP		125
+    6 098 EXCEPT	R2	
+    6 100 GETCONST	R3	StopIteration
+    6 103 RESCUE	R2	R3
+    6 106 JMPIF		R3	113
+    6 110 JMP		123
+    6 113 LOADSYM	R3	:done
+    6 116 SSEND		R2	:p	n=1
+    6 120 JMP		125
+    6 123 RAISEIF	R2	
+    6 125 RETURN	R2	
+    6 127 STOP
+
+irep 0x649b004bc830 nregs=6 nlocals=4 pools=1 syms=0 reps=0 ilen=19
+local variable names:
+  R1:s
+  R2:i
+file: /w/enumerator.rb
+    2 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+    2 004 STRING	R4	L[0]
+    2 007 MOVE		R5	R2	; R2:i
+    2 010 STRCAT	R4	(R5)
+    2 012 MOVE		R5	R1	; R1:s
+    2 015 STRCAT	R4	(R5)
+    2 017 RETURN	R4	
+

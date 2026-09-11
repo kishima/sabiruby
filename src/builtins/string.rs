@@ -48,7 +48,8 @@ fn set(vm: &mut Vm, v: Value, b: Vec<u8>) -> VmResult<()> {
 /// Resolves `(index, len)` / `index` / `range` against a length; returns `None` when out of range.
 pub fn index_args(vm: &mut Vm, len: usize, a: &[Value]) -> VmResult<Option<(usize, usize)>> {
     let norm = |i: i64| -> Option<usize> { let i = if i < 0 { i + len as i64 } else { i }; if i < 0 || i as usize > len { None } else { Some(i as usize) } };
-    match a {
+    let a: Vec<Value> = a.iter().map(|v| match v { Value::Float(f) => Value::Int(*f as i64), v => *v }).collect();
+    match &a[..] {
         [Value::Int(i)] => Ok(norm(*i).filter(|&i| i < len).map(|i| (i, 1))),
         [Value::Int(i), Value::Int(n)] => { if *n < 0 { return Ok(None); } Ok(norm(*i).map(|i| (i, (*n as usize).min(len - i)))) }
         [Value::Obj(o)] => {
@@ -130,7 +131,7 @@ pub fn init(vm: &mut Vm) {
         ("hash", |vm, s, _a, _b| Ok(Value::Int(vm.value_hash(s)))),
         ("<=>", |vm, s, a, _b| { argc!(vm, a, 1); match vm.str_bytes(a[0]).map(|b| b.to_vec()) { Some(o) => Ok(Value::Int(bytes(vm, s).cmp(&o) as i64)), None => Ok(Value::Nil) } }),
         ("+", |vm, s, a, _b| { argc!(vm, a, 1); let mut b = bytes(vm, s); match vm.str_bytes(a[0]) { Some(o) => { b.extend_from_slice(o); Ok(vm.str_new(&b)) } None => { let d = vm.describe_for_error(a[0]); Err(vm.raise_type(&format!("{d} cannot be converted to String"))) } } }),
-        ("*", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("negative argument")); } let b = bytes(vm, s).repeat(n as usize); Ok(vm.str_new(&b)) }),
+        ("*", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("negative argument")); } let b = bytes(vm, s); if (b.len() as i64).checked_mul(n).map(|t| t > i32::MAX as i64).unwrap_or(true) { return Err(vm.raise_arg("argument too big")); } let b = b.repeat(n as usize); Ok(vm.str_new(&b)) }),
         ("<<", str_concat),
         ("concat", str_concat),
         ("[]", str_aref),
@@ -141,13 +142,20 @@ pub fn init(vm: &mut Vm) {
         ("upcase!", |vm, s, _a, _b| { let b = bytes(vm, s); let u = b.to_ascii_uppercase(); if u == b { Ok(Value::Nil) } else { set(vm, s, u)?; Ok(s) } }),
         ("downcase!", |vm, s, _a, _b| { let b = bytes(vm, s); let u = b.to_ascii_lowercase(); if u == b { Ok(Value::Nil) } else { set(vm, s, u)?; Ok(s) } }),
         ("capitalize", |vm, s, _a, _b| { let mut b = bytes(vm, s).to_ascii_lowercase(); if let Some(f) = b.first_mut() { *f = f.to_ascii_uppercase(); } Ok(vm.str_new(&b)) }),
+        ("capitalize!", |vm, s, _a, _b| { let b = bytes(vm, s); let mut u = b.to_ascii_lowercase(); if let Some(f) = u.first_mut() { *f = f.to_ascii_uppercase(); } if u == b { Ok(Value::Nil) } else { set(vm, s, u)?; Ok(s) } }),
+        ("swapcase!", |vm, s, _a, _b| { let b = bytes(vm, s); let u: Vec<u8> = b.iter().map(|c| if c.is_ascii_uppercase() { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() }).collect(); if u == b { Ok(Value::Nil) } else { set(vm, s, u)?; Ok(s) } }),
+        ("chomp!", |vm, s, a, _b| { argc!(vm, a, 0, 1); let b = bytes(vm, s); let rs = match a.first() { Some(Value::Nil) => return Ok(Value::Nil), Some(v) => Some(vm.expect_str(*v, "separator")?), None => None }; let n = chomp_bytes(&b, rs.as_deref()); if n == b.len() { Ok(Value::Nil) } else { set(vm, s, b[..n].to_vec())?; Ok(s) } }),
+        ("chop!", |vm, s, _a, _b| { let mut b = bytes(vm, s); if b.is_empty() { return Ok(Value::Nil); } if b.ends_with(b"\r\n") { b.truncate(b.len() - 2); } else { b.pop(); } set(vm, s, b)?; Ok(s) }),
+        ("setbyte", |vm, s, a, _b| { argc!(vm, a, 2); let i = vm.expect_int(a[0], "index")?; let v = vm.expect_int(a[1], "byte")?; let mut b = bytes(vm, s); let idx = if i < 0 { i + b.len() as i64 } else { i }; if idx < 0 || idx as usize >= b.len() { return Err(vm.raise(vm.core.index_error, &format!("index {i} out of string"))); } b[idx as usize] = v as u8; set(vm, s, b)?; Ok(a[1]) }),
+        ("byterindex", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = vm.expect_str(a[0], "argument")?; let b = bytes(vm, s); let mut pos = if a.len() == 2 { vm.expect_int(a[1], "pos")? } else { b.len() as i64 }; if pos < 0 { pos += b.len() as i64; if pos < 0 { return Ok(Value::Nil); } } let pos = (pos as usize).min(b.len()); if n.len() > b.len() { return Ok(Value::Nil); } let start = pos.min(b.len() - n.len()); Ok((0..=start).rev().find(|&i| &b[i..i + n.len()] == &n[..]).map(|i| Value::Int(i as i64)).unwrap_or(Value::Nil)) }),
+        ("bytesplice", |vm, s, a, _b| { argc!(vm, a, 2, 5); let b = bytes(vm, s); let (range_args, rest) = match a.len() { 2 => (&a[..1], &a[1..]), 3 => (&a[..2], &a[2..]), n => (&a[..2], &a[2..n]) }; let (i, n) = match index_args(vm, b.len(), range_args)? { Some(x) => x, None => return Err(vm.raise(vm.core.index_error, "index out of string")) }; let rep = vm.expect_str(rest[0], "replacement")?; let rep = if rest.len() >= 2 { let (ri, rn) = match index_args(vm, rep.len(), &rest[1..])? { Some(x) => x, None => return Err(vm.raise(vm.core.index_error, "index out of string")) }; rep[ri..ri + rn].to_vec() } else { rep }; let mut nb = b.clone(); nb.splice(i..i + n, rep); set(vm, s, nb)?; Ok(s) }),
         ("swapcase", |vm, s, _a, _b| { let b: Vec<u8> = bytes(vm, s).iter().map(|c| if c.is_ascii_uppercase() { c.to_ascii_lowercase() } else { c.to_ascii_uppercase() }).collect(); Ok(vm.str_new(&b)) }),
         ("reverse", |vm, s, _a, _b| { let mut b = bytes(vm, s); b.reverse(); Ok(vm.str_new(&b)) }),
         ("reverse!", |vm, s, _a, _b| { let mut b = bytes(vm, s); b.reverse(); set(vm, s, b)?; Ok(s) }),
         ("strip", |vm, s, _a, _b| { let b = bytes(vm, s); let t = String::from_utf8_lossy(&b).trim_matches(|c: char| c.is_ascii_whitespace() || c == '\0').as_bytes().to_vec(); Ok(vm.str_new(&t)) }),
         ("lstrip", |vm, s, _a, _b| { let b = bytes(vm, s); let t = String::from_utf8_lossy(&b).trim_start().as_bytes().to_vec(); Ok(vm.str_new(&t)) }),
         ("rstrip", |vm, s, _a, _b| { let b = bytes(vm, s); let t = String::from_utf8_lossy(&b).trim_end_matches(|c: char| c.is_ascii_whitespace() || c == '\0').as_bytes().to_vec(); Ok(vm.str_new(&t)) }),
-        ("chomp", |vm, s, _a, _b| { let mut b = bytes(vm, s); if b.ends_with(b"\r\n") { b.truncate(b.len() - 2); } else if b.ends_with(b"\n") || b.ends_with(b"\r") { b.pop(); } Ok(vm.str_new(&b)) }),
+        ("chomp", |vm, s, a, _b| { argc!(vm, a, 0, 1); let b = bytes(vm, s); let rs = match a.first() { Some(Value::Nil) => return Ok(vm.str_new(&b)), Some(v) => Some(vm.expect_str(*v, "separator")?), None => None }; let n = chomp_bytes(&b, rs.as_deref()); Ok(vm.str_new(&b[..n])) }),
         ("chop", |vm, s, _a, _b| { let mut b = bytes(vm, s); if b.ends_with(b"\r\n") { b.truncate(b.len() - 2); } else { b.pop(); } Ok(vm.str_new(&b)) }),
         ("chars", |vm, s, _a, _b| { let items: Vec<Value> = bytes(vm, s).iter().map(|c| vm.str_new(&[*c])).collect(); Ok(vm.ary_new(items)) }),
         ("bytes", |vm, s, _a, _b| { let items: Vec<Value> = bytes(vm, s).iter().map(|c| Value::Int(*c as i64)).collect(); Ok(vm.ary_new(items)) }),
@@ -157,7 +165,7 @@ pub fn init(vm: &mut Vm) {
         ("ord", |vm, s, _a, _b| { let b = bytes(vm, s); match b.first() { Some(c) => Ok(Value::Int(*c as i64)), None => Err(vm.raise_arg("empty string")) } }),
         ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_str(a[0], "argument")?; Ok(Value::bool(find(&bytes(vm, s), &n, 0).is_some())) }),
         ("index", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = vm.expect_str(a[0], "argument")?; let b = bytes(vm, s); let from = if a.len() == 2 { let f = vm.expect_int(a[1], "offset")?; if f < 0 { (f + b.len() as i64).max(0) as usize } else { f as usize } } else { 0 }; Ok(find(&b, &n, from).map(|i| Value::Int(i as i64)).unwrap_or(Value::Nil)) }),
-        ("rindex", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = vm.expect_str(a[0], "argument")?; let b = bytes(vm, s); if n.len() > b.len() { return Ok(Value::Nil); } Ok((0..=b.len() - n.len()).rev().find(|&i| &b[i..i + n.len()] == &n[..]).map(|i| Value::Int(i as i64)).unwrap_or(Value::Nil)) }),
+        ("rindex", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = vm.expect_str(a[0], "argument")?; let b = bytes(vm, s); let mut pos = if a.len() == 2 { vm.expect_int(a[1], "pos")? } else { b.len() as i64 }; if pos < 0 { pos += b.len() as i64; if pos < 0 { return Ok(Value::Nil); } } let pos = (pos as usize).min(b.len()); if n.len() > b.len() { return Ok(Value::Nil); } let start = pos.min(b.len() - n.len()); Ok((0..=start).rev().find(|&i| &b[i..i + n.len()] == &n[..]).map(|i| Value::Int(i as i64)).unwrap_or(Value::Nil)) }),
         ("start_with?", |vm, s, a, _b| { let b = bytes(vm, s); for p in a { let p = vm.expect_str(*p, "argument")?; if b.starts_with(&p) { return Ok(Value::True); } } Ok(Value::False) }),
         ("end_with?", |vm, s, a, _b| { let b = bytes(vm, s); for p in a { let p = vm.expect_str(*p, "argument")?; if b.ends_with(&p) { return Ok(Value::True); } } Ok(Value::False) }),
         ("split", str_split),
@@ -205,6 +213,17 @@ pub fn init(vm: &mut Vm) {
         ("__upto_endless", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "endless string range"))),
         ("upto", |vm, s, a, b| { argc!(vm, a, 1, 2); let last = vm.expect_str(a[0], "argument")?; let excl = a.len() == 2 && a[1].truthy(); let mut cur = bytes(vm, s); let mut n = 0; loop { if cur.len() > last.len() { break; } if cur == last { if !excl { let v = vm.str_new(&cur); vm.call_block(b, &[v])?; } break; } let v = vm.str_new(&cur); vm.call_block(b, &[v])?; cur = str_succ(&cur); n += 1; if n > 1_000_000 { break; } } Ok(s) }),
     ]);
+}
+
+/// Length after `chomp(rs)`: no separator = one trailing newline (`\r\n`, `\n` or `\r`);
+/// empty separator = all trailing newlines; otherwise the separator once.
+fn chomp_bytes(b: &[u8], rs: Option<&[u8]>) -> usize {
+    match rs {
+        None => { if b.ends_with(b"\r\n") { b.len() - 2 } else if b.ends_with(b"\n") || b.ends_with(b"\r") { b.len() - 1 } else { b.len() } }
+        Some(rs) if rs.is_empty() => { let mut n = b.len(); while n > 0 && b[n - 1] == b'\n' { n -= 1; if n > 0 && b[n - 1] == b'\r' { n -= 1; } } n }
+        Some(rs) if rs == b"\n" => { if b.ends_with(b"\r\n") { b.len() - 2 } else if b.ends_with(b"\n") || b.ends_with(b"\r") { b.len() - 1 } else { b.len() } }
+        Some(rs) => { if b.ends_with(rs) { b.len() - rs.len() } else { b.len() } }
+    }
 }
 
 fn str_eq(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {

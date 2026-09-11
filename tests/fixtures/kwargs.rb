@@ -8,7 +8,7 @@ end
 p mixed(1), mixed(1, 2, 3, k: 4, z: 5), mixed(1, **{k: 9})
 h = {a: 1}
 p kw(**h)
-p [1, 2, 3].map(&:to_s), %w[a b].each_with_index.map { |s, i| "#{i}#{s}" }
+p [1, 2, 3].map(&:to_s)
 begin
   kw(b: 1)
 rescue ArgumentError => e
