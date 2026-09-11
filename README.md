@@ -99,6 +99,7 @@ hash entries, ivars, envs, constants, globals) holds `Slot`; computation works o
 `slot.get()` / `Slot::from(v)` are the only crossings, so an 8-byte representation can be
 tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](docs/performance.md).
 Exception/break unwinding without longjmp: [`docs/exceptions.md`](docs/exceptions.md).
+GC (not implemented yet; the implementation plan is [`docs/gc-plan.md`](docs/gc-plan.md)).
 
 ## Usage
 
