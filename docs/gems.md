@@ -95,3 +95,47 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
 tests from source so it has them too. Reading LVAR uncovered a bug of the loader: the symbol
 count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
+
+## Remaining gems (plan as of 2026-09-12)
+
+The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
+stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
+enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method
+(11). Sizes are lines of the reference C / mrblib Ruby / test.
+
+| order | gem | C / Ruby / test | depends on | notes |
+|---|---|---|---|---|
+| 1 | mruby-compar-ext | 0 / 79 / 47 | – | pure Ruby (`clamp`) |
+| 1 | mruby-toplevel-ext | 0 / 24 / 23 | – | pure Ruby (`include`/`private`/`public` at top level) |
+| 1 | mruby-enum-chain | 0 / 149 / 108 | enumerator | pure Ruby |
+| 1 | mruby-enum-lazy | 0 / 384 / 84 | enumerator, enum-ext | pure Ruby |
+| 2 | mruby-object-ext | 127 / 33 / 83 | – | `instance_exec`, `Object#tap`, `NilClass#to_a` |
+| 2 | mruby-symbol-ext | 111 / 72 / 101 | – | `Symbol#length`, `to_proc` is Ruby |
+| 2 | mruby-kernel-ext | 333 / 0 / 151 | – | `Integer()`, `Float()`, `String()`, `Array()`, `Hash()`, `__method__`, `fail` |
+| 2 | mruby-class-ext | 376 / 0 / 182 | – | `Class#subclasses`, `attached_object`, `Module#name` rules |
+| 2 | mruby-numeric-ext | 538 / 125 / 137 | – | `Integer#chr`, `digits`, `pow(mod)`, `Float#nan?`; bigint's tests need it |
+| 2 | mruby-catch | 148 / 29 / 86 | – | `catch`/`throw`: an `UncaughtThrowError` raised through the normal unwinding, no longjmp needed |
+| 2 | mruby-objectspace | 187 / 0 / 71 | – | `ObjectSpace.count_objects`, `each_object`: needs the heap walk (GC exists now) |
+| 3 | mruby-struct | 909 / 77 / 504 | – | `Struct` (used by mruby-process, mruby-data is its sibling) |
+| 3 | mruby-data | 639 / 9 / 143 | – | `Data.define` |
+| 3 | mruby-set | 1552 / 325 / 807 | enumerator, hash-ext | `Set` (Hash-backed) |
+| 3 | mruby-random | 646 / 0 / 201 | – | xoshiro128; must reproduce the reference sequence for a given seed to pass the tests |
+| 3 | mruby-math | 752 / 0 / 201 | – | `Math` via libm (already a dependency) |
+| 3 | mruby-time | 1738 / 0 / 313 | – | `Time`: needs a clock from the host (no_std: a `Host` hook, like the compiler); `localtime` is POSIX, use UTC only and record the deviation |
+| 4 | mruby-eval | 417 / 0 / 333 | binding, compiler | `docs/eval-require-plan.md`; `tests/custom` cases wait for it |
+| 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |
+| 4 | mruby-proc-binding | 75 / 0 / 22 | binding, proc-ext | `Proc#binding` |
+| 5 | mruby-pack | 2133 / 0 / 278 | – | `Array#pack`/`String#unpack`; large but self-contained |
+| 5 | mruby-bigint | 6409 / 0 / 529 | – (tests: numeric-ext) | `MRB_USE_BIGINT`: Integer overflow becomes bigint; changes core Integer semantics, decide together with the build configuration |
+| 5 | mruby-rational | 1512 / 72 / 742 | – (tests: complex) | `Rational`; the lexer literals (`1r`) already compile |
+| 5 | mruby-complex | 1087 / 295 / 325 | math | `Complex` |
+| 5 | mruby-cmath | 425 / 0 / 41 | complex | not in default.gembox |
+| 6 | mruby-regexp | 10940 / 42 / 10213 | enumerator, symbol-ext, string-ext | the NFA engine (4.0.0); the largest single piece, its own milestone |
+| – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
+| – | mruby-task | 2390 / 46 / 860 | – | not a gem of default.gembox; the scheduler is planned separately (after Fiber context reuse) |
+
+Order: 1 (pure Ruby, an afternoon) → 2 (small natives) → 3 (data structures and host
+clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → 6 (regexp).
+Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib_<gem>.mrb`,
+tests into `tools/mrbtest.sh` `GEMS`, reasons for what does not pass into
+`docs/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.
