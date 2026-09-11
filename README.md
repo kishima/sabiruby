@@ -14,6 +14,8 @@ The VM runs bytecode only and is pure Rust (`no_std`). Three crates live in this
 | [`sabiruby-cli`](https://github.com/kishima/sabiruby/tree/main/cli) | the `sabiruby` command: `sabiruby run foo.rb`, `-e`, `compile`, `dump` | depends on both |
 
 The Bevy integration lives in a separate crate, [`rubevy`](https://github.com/kishima/rubevy).
+Try it in the browser: **[SabiRuby Playground](https://kishima.github.io/sabiruby-playground/)**
+(the VM and the reference compiler as WebAssembly; [`docs/playground.md`](https://github.com/kishima/sabiruby/blob/main/docs/playground.md)).
 
 The design follows the book *Deep dive into mruby* (in Japanese): the register
 layout (`R0` of the callee is `R[a]` of the caller), `OP_ENTER`, environments,
