@@ -11,8 +11,8 @@ The VM runs bytecode only and is pure Rust (`no_std`). Three crates live in this
 | crate | what | |
 |---|---|---|
 | [`sabiruby`](https://crates.io/crates/sabiruby) | the VM library | pure Rust, `no_std` + `alloc`, wasm |
-| [`sabiruby-compiler`](https://github.com/kishima/sabiruby/tree/main/compiler) | the reference compiler (mruby 4.1.0-rc's `mruby-compiler`: Prism as its parser, mruby's code generator) built as C; output byte-identical to `mrbc` | needs a C compiler |
-| [`sabiruby-cli`](https://github.com/kishima/sabiruby/tree/main/cli) | the `sabiruby` command: `sabiruby run foo.rb`, `-e`, `compile`, `dump` | depends on both |
+| [`sabiruby-compiler`](https://crates.io/crates/sabiruby-compiler) | the reference compiler (mruby 4.1.0-rc's `mruby-compiler`: Prism as its parser, mruby's code generator) built as C; output byte-identical to `mrbc` | needs a C compiler |
+| [`sabiruby-cli`](https://crates.io/crates/sabiruby-cli) | the `sabiruby` command: `sabiruby foo.rb`, `-e`, `compile`, `dump`, with the switches of the reference `mruby` | depends on both |
 
 The Bevy integration lives in a separate crate, [`rubevy`](https://github.com/kishima/rubevy).
 Try it in the browser: **[SabiRuby Playground](https://kishima.github.io/sabiruby-playground/)**
