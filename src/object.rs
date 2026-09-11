@@ -3,7 +3,9 @@
 //! (a mark & sweep collector driven by a step budget is planned; see the
 //! design notes in the book repository).
 
-use std::collections::HashMap;
+use alloc::vec::Vec;
+
+use hashbrown::HashMap;
 
 use crate::error::VmResult;
 use crate::symbol::Sym;

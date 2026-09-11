@@ -1,5 +1,7 @@
 //! String (byte strings; no encoding support, like mruby without MRB_UTF8_STRING).
 
+use alloc::{format, string::String, vec, vec::Vec};
+
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;
@@ -247,7 +249,7 @@ fn str_split(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
             let mut i = 0;
             while i < b.len() {
                 if b[i].is_ascii_whitespace() {
-                    if !cur.is_empty() { parts.push(std::mem::take(&mut cur)); }
+                    if !cur.is_empty() { parts.push(core::mem::take(&mut cur)); }
                     if limit > 0 && parts.len() as i64 == limit - 1 { let rest: Vec<u8> = b[i..].iter().skip_while(|c| c.is_ascii_whitespace()).copied().collect(); if !rest.is_empty() { parts.push(rest); } cur.clear(); break; }
                 } else { cur.push(b[i]); }
                 i += 1;

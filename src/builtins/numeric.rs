@@ -1,5 +1,7 @@
 //! Integer and Float.
 
+use alloc::{format, string::String, string::ToString, vec};
+
 use crate::argc;
 use crate::error::VmResult;
 use crate::value::Value;
@@ -66,7 +68,7 @@ fn as_f64(v: Value) -> Option<f64> {
     match v { Value::Int(i) => Some(i as f64), Value::Float(f) => Some(f), _ => None }
 }
 
-fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Option<std::cmp::Ordering>> {
+fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Option<core::cmp::Ordering>> {
     argc!(vm, a, 1);
     match (s, a[0]) {
         (Value::Int(p), Value::Int(q)) => Ok(Some(p.cmp(&q))),
@@ -76,7 +78,7 @@ fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Option<std::cmp::Ordering
         },
     }
 }
-fn cmp_or_fail(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<std::cmp::Ordering> {
+fn cmp_or_fail(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<core::cmp::Ordering> {
     match cmp(vm, s, a)? {
         Some(o) => Ok(o),
         None => { let x = vm.describe_for_error(s); let y = vm.describe_for_error(a[0]); Err(vm.raise_arg(&format!("comparison of {x} with {y} failed"))) }
@@ -87,10 +89,10 @@ fn int_pow(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Value> {
     let (x, y) = num_args(vm, s, a)?;
     match (x, y) {
         (Value::Int(p), Value::Int(q)) => {
-            if q < 0 { return Ok(Value::Float((p as f64).powf(q as f64))); }
+            if q < 0 { return Ok(Value::Float(libm::pow(p as f64, q as f64))); }
             match p.checked_pow(q as u32) { Some(r) => Ok(Value::Int(r)), None => Err(vm.raise(vm.core.range_error, "integer overflow")) }
         }
-        (Value::Int(p), Value::Float(q)) => Ok(Value::Float((p as f64).powf(q))),
+        (Value::Int(p), Value::Float(q)) => Ok(Value::Float(libm::pow(p as f64, q))),
         _ => Err(coerce_fail(vm, y, "**")),
     }
 }
@@ -108,7 +110,7 @@ fn to_radix(i: i64, base: u32) -> String {
     let neg = i < 0;
     let mut n = (i as i128).unsigned_abs();
     let mut digits = vec![];
-    while n > 0 { digits.push(std::char::from_digit((n % base as u128) as u32, base).unwrap()); n /= base as u128; }
+    while n > 0 { digits.push(core::char::from_digit((n % base as u128) as u32, base).unwrap()); n /= base as u128; }
     if neg { digits.push('-'); }
     digits.iter().rev().collect()
 }
@@ -126,7 +128,7 @@ pub fn init(vm: &mut Vm) {
         ("<=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_le())) }),
         (">", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_gt())) }),
         (">=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_ge())) }),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(std::cmp::Ordering::Equal)))),
+        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(core::cmp::Ordering::Equal)))),
         ("between?", |vm, s, a, _b| { argc!(vm, a, 2); let lo = cmp_or_fail(vm, s, &a[..1])?; let hi = cmp_or_fail(vm, s, &a[1..])?; Ok(Value::bool(lo.is_ge() && hi.is_le())) }),
         ("clamp", |vm, s, a, _b| { argc!(vm, a, 2); if cmp_or_fail(vm, s, &a[..1])?.is_lt() { return Ok(a[0]); } if cmp_or_fail(vm, s, &a[1..])?.is_gt() { return Ok(a[1]); } Ok(s) }),
         ("abs", |_vm, s, _a, _b| Ok(match s { Value::Int(i) => Value::Int(i.wrapping_abs()), Value::Float(f) => Value::Float(f.abs()), v => v })),
@@ -141,12 +143,12 @@ pub fn init(vm: &mut Vm) {
         ("-", |vm, s, a, _b| int_binop(vm, s, a, "-", i64::checked_sub, |p, q| p - q)),
         ("*", |vm, s, a, _b| int_binop(vm, s, a, "*", i64::checked_mul, |p, q| p * q)),
         ("/", |vm, s, a, _b| { let (x, y) = num_args(vm, s, a)?; if let (Value::Int(p), Value::Int(q)) = (x, y) { if q == 0 { return Err(vm.raise(vm.core.zero_division_error, "divided by 0")); } return Ok(Value::Int(div_floor(p, q))); } int_binop(vm, s, a, "/", |_, _| None, |p, q| p / q) }),
-        ("div", |vm, s, a, _b| { let (x, y) = num_args(vm, s, a)?; match (x, y) { (Value::Int(p), Value::Int(q)) => { if q == 0 { return Err(vm.raise(vm.core.zero_division_error, "divided by 0")); } Ok(Value::Int(div_floor(p, q))) } (Value::Int(p), Value::Float(q)) => Ok(Value::Int((p as f64 / q).floor() as i64)), _ => Err(coerce_fail(vm, y, "div")) } }),
+        ("div", |vm, s, a, _b| { let (x, y) = num_args(vm, s, a)?; match (x, y) { (Value::Int(p), Value::Int(q)) => { if q == 0 { return Err(vm.raise(vm.core.zero_division_error, "divided by 0")); } Ok(Value::Int(div_floor(p, q))) } (Value::Int(p), Value::Float(q)) => Ok(Value::Int(libm::floor(p as f64 / q) as i64)), _ => Err(coerce_fail(vm, y, "div")) } }),
         ("%", int_mod),
         ("modulo", int_mod),
         ("**", |vm, s, a, _b| int_pow(vm, s, a)),
         ("pow", |vm, s, a, _b| int_pow(vm, s, a)),
-        ("divmod", |vm, s, a, _b| { let (x, y) = num_args(vm, s, a)?; match (x, y) { (Value::Int(p), Value::Int(q)) => { if q == 0 { return Err(vm.raise(vm.core.zero_division_error, "divided by 0")); } Ok(vm.ary_new(vec![Value::Int(div_floor(p, q)), Value::Int(mod_floor(p, q))])) } (Value::Int(p), Value::Float(q)) => { let d = (p as f64 / q).floor(); Ok(vm.ary_new(vec![Value::Float(d), Value::Float(p as f64 - d * q)])) } _ => Err(coerce_fail(vm, y, "divmod")) } }),
+        ("divmod", |vm, s, a, _b| { let (x, y) = num_args(vm, s, a)?; match (x, y) { (Value::Int(p), Value::Int(q)) => { if q == 0 { return Err(vm.raise(vm.core.zero_division_error, "divided by 0")); } Ok(vm.ary_new(vec![Value::Int(div_floor(p, q)), Value::Int(mod_floor(p, q))])) } (Value::Int(p), Value::Float(q)) => { let d = libm::floor(p as f64 / q); Ok(vm.ary_new(vec![Value::Float(d), Value::Float(p as f64 - d * q)])) } _ => Err(coerce_fail(vm, y, "divmod")) } }),
         ("-@", |vm, s, _a, _b| match s { Value::Int(i) => i.checked_neg().map(Value::Int).ok_or_else(|| vm.raise(vm.core.range_error, "integer overflow")), v => Ok(v) }),
         ("~", |_vm, s, _a, _b| Ok(match s { Value::Int(i) => Value::Int(!i), v => v })),
         ("&", |vm, s, a, _b| bit(vm, s, a, |p, q| p & q)),
@@ -154,7 +156,7 @@ pub fn init(vm: &mut Vm) {
         ("^", |vm, s, a, _b| bit(vm, s, a, |p, q| p ^ q)),
         ("<<", |vm, s, a, _b| shift(vm, s, a, true)),
         (">>", |vm, s, a, _b| shift(vm, s, a, false)),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(std::cmp::Ordering::Equal)))),
+        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(core::cmp::Ordering::Equal)))),
         ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("hash", |_vm, s, _a, _b| Ok(s)),
         ("to_s", int_to_s),
@@ -187,9 +189,9 @@ pub fn init(vm: &mut Vm) {
         ("quo", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p / q)),
         ("fdiv", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p / q)),
         ("%", |vm, s, a, _b| float_binop(vm, s, a, |p, q| { let m = p % q; if m != 0.0 && ((m < 0.0) != (q < 0.0)) { m + q } else { m } })),
-        ("**", |vm, s, a, _b| float_binop(vm, s, a, f64::powf)),
+        ("**", |vm, s, a, _b| float_binop(vm, s, a, libm::pow)),
         ("-@", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Float(-f), v => v })),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(std::cmp::Ordering::Equal)))),
+        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(core::cmp::Ordering::Equal)))),
         ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("hash", |_vm, s, _a, _b| Ok(Value::Int(match s { Value::Float(f) => (f.to_bits() >> 1) as i64, _ => 0 }))),
         ("to_s", |vm, s, _a, _b| { let f = match s { Value::Float(f) => f, _ => 0.0 }; Ok(vm.str_from(float_to_s(f))) }),
@@ -198,17 +200,17 @@ pub fn init(vm: &mut Vm) {
         ("to_i", float_to_i),
         ("to_int", float_to_i),
         ("truncate", float_to_i),
-        ("floor", |vm, s, _a, _b| float_round(vm, s, f64::floor)),
-        ("ceil", |vm, s, _a, _b| float_round(vm, s, f64::ceil)),
-        ("round", |vm, s, a, _b| { if a.is_empty() { float_round(vm, s, f64::round) } else { let d = vm.expect_int(a[0], "digits")?; let f = match s { Value::Float(f) => f, _ => 0.0 }; let m = 10f64.powi(d as i32); Ok(Value::Float((f * m).round() / m)) } }),
+        ("floor", |vm, s, _a, _b| float_round(vm, s, libm::floor)),
+        ("ceil", |vm, s, _a, _b| float_round(vm, s, libm::ceil)),
+        ("round", |vm, s, a, _b| { if a.is_empty() { float_round(vm, s, libm::round) } else { let d = vm.expect_int(a[0], "digits")?; let f = match s { Value::Float(f) => f, _ => 0.0 }; let m = libm::pow(10.0, d as f64); Ok(Value::Float(libm::round(f * m) / m)) } }),
         ("abs", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Float(f.abs()), v => v })),
-        ("divmod", |vm, s, a, _b| { argc!(vm, a, 1); let p = match s { Value::Float(f) => f, _ => 0.0 }; let q = match as_f64(a[0]) { Some(q) => q, None => return Err(coerce_fail(vm, a[0], "divmod")) }; let d = (p / q).floor(); Ok(vm.ary_new(vec![Value::Float(d), Value::Float(p - d * q)])) }),
+        ("divmod", |vm, s, a, _b| { argc!(vm, a, 1); let p = match s { Value::Float(f) => f, _ => 0.0 }; let q = match as_f64(a[0]) { Some(q) => q, None => return Err(coerce_fail(vm, a[0], "divmod")) }; let d = libm::floor(p / q); Ok(vm.ary_new(vec![Value::Float(d), Value::Float(p - d * q)])) }),
     ]);
 }
 
 fn float_to_i(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     match s {
-        Value::Float(f) if f.is_finite() => Ok(Value::Int(f.trunc() as i64)),
+        Value::Float(f) if f.is_finite() => Ok(Value::Int(libm::trunc(f) as i64)),
         Value::Float(f) => Err(vm.raise(vm.core.float_domain_error, &float_to_s(f))),
         v => Ok(v),
     }

@@ -31,6 +31,15 @@ parameters), Fiber, garbage collection (the heap only grows), bigint, `$~`/`$_`,
 `Comparable`/`Enumerable` gems, `sprintf`, encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
+## Rules
+
+* **`no_std` + `alloc`.** The library must not use `std::` (only `core::`/`alloc::`,
+  `hashbrown` for hash maps, `libm` for float math). `tools/check_no_std.sh` builds the
+  library for `thumbv7em-none-eabi` and greps for `std::`; CI runs it. The `std` feature
+  (default) only enables the CLI and the tests.
+* **Behaviour is checked against the reference, not against memory.** Every claim about
+  mruby semantics is verified with the 4.1.0-rc binary (fixtures, test suite below).
+
 ## Verification
 
 `tests/fixtures/*.rb` are compiled and run by the reference mruby 4.1.0-rc
@@ -43,11 +52,26 @@ The reference image includes some mrbgems (array-ext, hash-ext, compar-ext, …)
 fixtures stay on core behaviour, and the few gem methods that were convenient (`Array#to_h`,
 `zip`, `fetch`, `Hash#fetch`, `Comparable#clamp`) are implemented natively and noted as such.
 
+### mruby's own test suite
+
+`tools/mrbtest.sh` copies `test/assert.rb` and `test/t/*.rb` from the reference tree,
+compiles them with the reference `mrbc` (Docker) and runs each file on a fresh VM
+(`sabiruby mrbtest`). The result is written to [`docs/mrbtest.md`](docs/mrbtest.md):
+a per-file table of `report` counts (ok / ko / crash / warn / skip) and the list of
+opcodes the suite never executed. `tests/mrbtest/baseline.txt` records the `ok` count
+per file and `cargo test` fails if any file drops below it; refresh it with
+`tools/mrbtest.sh --update` after an improvement. `tools/mrbtest.sh -v hash` prints the
+individual assertion messages of one file.
+
+Errors the VM raises for missing features surface as `NotImplementedError`, so the
+suite keeps going and the table shows them as "crash".
+
 ## Usage
 
 ```
 cargo run -- run  tests/fixtures/klass.mrb   # execute
 cargo run -- dump tests/fixtures/klass.mrb   # instruction listing
+cargo run -- mrbtest tests/mrbtest/assert.mrb tests/mrbtest/hash.mrb   # test suite
 ```
 
 ```rust
@@ -78,6 +102,8 @@ loop {
 | `src/mrblib.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |
 | `tests/fixtures/` | reference programs, bytecode and expected output |
 | `tools/fixtures.sh` | regenerates the fixtures and `mrblib.mrb` with Docker |
+| `src/mrbtest.rs`, `tests/mrbtest/` | runner and compiled files of mruby's test suite |
+| `tools/mrbtest.sh`, `tools/check_no_std.sh` | test-suite report, no_std rule |
 
 ## License
 

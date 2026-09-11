@@ -6,6 +6,12 @@
 //! choices (boxing, tricolor GC, setjmp) with Rust-native ones.
 //!
 //! Status: early. See `README.md` for the supported subset.
+//!
+//! The crate is `no_std` + `alloc`. Rule: no `std::` paths in `src/` outside
+//! `src/bin/`; `tools/check_no_std.sh` builds for a bare-metal target to enforce it.
+#![cfg_attr(not(feature = "std"), no_std)]
+
+extern crate alloc;
 
 pub mod error;
 pub mod object;
@@ -15,6 +21,7 @@ pub mod symbol;
 pub mod value;
 pub mod vm;
 pub mod builtins;
+pub mod mrbtest;
 
 pub use error::VmError;
 pub use value::Value;

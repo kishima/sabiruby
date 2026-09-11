@@ -1,5 +1,7 @@
 //! Array.
 
+use alloc::{format, vec, vec::Vec};
+
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;
@@ -54,8 +56,8 @@ fn sort_values(vm: &mut Vm, list: &mut Vec<Value>, blk: Value) -> VmResult<()> {
     // insertion-free merge sort via a comparator that may raise: collect errors.
     let cmp = vm.intern("<=>");
     let mut err = None;
-    let mut compare = |vm: &mut Vm, a: Value, b: Value| -> std::cmp::Ordering {
-        if err.is_some() { return std::cmp::Ordering::Equal; }
+    let mut compare = |vm: &mut Vm, a: Value, b: Value| -> core::cmp::Ordering {
+        if err.is_some() { return core::cmp::Ordering::Equal; }
         let r = if blk.is_nil() {
             match (a, b) {
                 (Value::Int(p), Value::Int(q)) => return p.cmp(&q),
@@ -64,9 +66,9 @@ fn sort_values(vm: &mut Vm, list: &mut Vec<Value>, blk: Value) -> VmResult<()> {
         } else { vm.call_block(blk, &[a, b]) };
         match r {
             Ok(Value::Int(i)) => i.cmp(&0),
-            Ok(Value::Float(f)) => f.partial_cmp(&0.0).unwrap_or(std::cmp::Ordering::Equal),
-            Ok(_) => { let x = vm.describe_for_error(a); let y = vm.describe_for_error(b); err = Some(vm.raise_arg(&format!("comparison of {x} with {y} failed"))); std::cmp::Ordering::Equal }
-            Err(e) => { err = Some(e); std::cmp::Ordering::Equal }
+            Ok(Value::Float(f)) => f.partial_cmp(&0.0).unwrap_or(core::cmp::Ordering::Equal),
+            Ok(_) => { let x = vm.describe_for_error(a); let y = vm.describe_for_error(b); err = Some(vm.raise_arg(&format!("comparison of {x} with {y} failed"))); core::cmp::Ordering::Equal }
+            Err(e) => { err = Some(e); core::cmp::Ordering::Equal }
         }
     };
     // simple merge sort (stable) driving the comparator
@@ -79,14 +81,14 @@ fn sort_values(vm: &mut Vm, list: &mut Vec<Value>, blk: Value) -> VmResult<()> {
             let mid = (i + width).min(n); let hi = (i + 2 * width).min(n);
             let (mut l, mut r, mut k) = (i, mid, i);
             while l < mid && r < hi {
-                if compare(vm, list[r], list[l]) == std::cmp::Ordering::Less { buf[k] = list[r]; r += 1; } else { buf[k] = list[l]; l += 1; }
+                if compare(vm, list[r], list[l]) == core::cmp::Ordering::Less { buf[k] = list[r]; r += 1; } else { buf[k] = list[l]; l += 1; }
                 k += 1;
             }
             while l < mid { buf[k] = list[l]; l += 1; k += 1; }
             while r < hi { buf[k] = list[r]; r += 1; k += 1; }
             i += 2 * width;
         }
-        std::mem::swap(list, &mut buf);
+        core::mem::swap(list, &mut buf);
         width *= 2;
     }
     match err { Some(e) => Err(e), None => Ok(()) }
@@ -177,7 +179,7 @@ pub fn init(vm: &mut Vm) {
         ("uniq!", |vm, s, _a, _b| { let list = items(vm, s); let n = list.len(); let mut out: Vec<Value> = vec![]; for it in list { let mut dup = false; for x in &out { if vm.eql(it, *x) || vm.equal(it, *x)? { dup = true; break; } } if !dup { out.push(it); } } let changed = out.len() != n; with_mut(vm, s, |arr| *arr = out)?; Ok(if changed { s } else { Value::Nil }) }),
         ("sort", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; Ok(vm.ary_new(v)) }),
         ("sort!", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; with_mut(vm, s, |arr| *arr = v)?; Ok(s) }),
-        ("sort_by", |vm, s, _a, b| { let v = items(vm, s); let mut keyed: Vec<(Value, Value)> = vec![]; for it in v { keyed.push((vm.call_block(b, &[it])?, it)); } let mut keys: Vec<Value> = keyed.iter().map(|(k, _)| *k).collect(); let idx: Vec<usize> = (0..keys.len()).collect(); let mut order: Vec<Value> = idx.iter().map(|i| Value::Int(*i as i64)).collect(); let _ = &mut keys; let cmp = vm.intern("<=>"); let mut err = None; order.sort_by(|x, y| { if err.is_some() { return std::cmp::Ordering::Equal; } let (i, j) = (match x { Value::Int(i) => *i as usize, _ => 0 }, match y { Value::Int(j) => *j as usize, _ => 0 }); match vm.funcall(keyed[i].0, cmp, &[keyed[j].0], Value::Nil) { Ok(Value::Int(r)) => r.cmp(&0), Ok(_) => { err = Some(vm.raise_arg("comparison failed")); std::cmp::Ordering::Equal } Err(e) => { err = Some(e); std::cmp::Ordering::Equal } } }); if let Some(e) = err { return Err(e); } let out: Vec<Value> = order.iter().map(|x| match x { Value::Int(i) => keyed[*i as usize].1, _ => Value::Nil }).collect(); Ok(vm.ary_new(out)) }),
+        ("sort_by", |vm, s, _a, b| { let v = items(vm, s); let mut keyed: Vec<(Value, Value)> = vec![]; for it in v { keyed.push((vm.call_block(b, &[it])?, it)); } let mut keys: Vec<Value> = keyed.iter().map(|(k, _)| *k).collect(); let idx: Vec<usize> = (0..keys.len()).collect(); let mut order: Vec<Value> = idx.iter().map(|i| Value::Int(*i as i64)).collect(); let _ = &mut keys; let cmp = vm.intern("<=>"); let mut err = None; order.sort_by(|x, y| { if err.is_some() { return core::cmp::Ordering::Equal; } let (i, j) = (match x { Value::Int(i) => *i as usize, _ => 0 }, match y { Value::Int(j) => *j as usize, _ => 0 }); match vm.funcall(keyed[i].0, cmp, &[keyed[j].0], Value::Nil) { Ok(Value::Int(r)) => r.cmp(&0), Ok(_) => { err = Some(vm.raise_arg("comparison failed")); core::cmp::Ordering::Equal } Err(e) => { err = Some(e); core::cmp::Ordering::Equal } } }); if let Some(e) = err { return Err(e); } let out: Vec<Value> = order.iter().map(|x| match x { Value::Int(i) => keyed[*i as usize].1, _ => Value::Nil }).collect(); Ok(vm.ary_new(out)) }),
         ("min", |vm, s, _a, b| { let v = items(vm, s); let mut best: Option<Value> = None; let cmp = vm.intern("<=>"); for it in v { best = Some(match best { None => it, Some(cur) => { let r = if b.is_nil() { vm.funcall(it, cmp, &[cur], Value::Nil)? } else { vm.call_block(b, &[it, cur])? }; if matches!(r, Value::Int(i) if i < 0) { it } else { cur } } }); } Ok(best.unwrap_or(Value::Nil)) }),
         ("max", |vm, s, _a, b| { let v = items(vm, s); let mut best: Option<Value> = None; let cmp = vm.intern("<=>"); for it in v { best = Some(match best { None => it, Some(cur) => { let r = if b.is_nil() { vm.funcall(it, cmp, &[cur], Value::Nil)? } else { vm.call_block(b, &[it, cur])? }; if matches!(r, Value::Int(i) if i > 0) { it } else { cur } } }); } Ok(best.unwrap_or(Value::Nil)) }),
         ("sum", |vm, s, a, _b| { let v = items(vm, s); let mut acc = a.first().copied().unwrap_or(Value::Int(0)); let plus = vm.s.plus; for it in v { acc = vm.funcall(acc, plus, &[it], Value::Nil)?; } Ok(acc) }),

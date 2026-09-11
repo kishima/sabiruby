@@ -1,5 +1,7 @@
 //! BasicObject / Object / Module / Class / NilClass / TrueClass / FalseClass.
 
+use alloc::{format, string::String, vec, vec::Vec};
+
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::{Method, ObjKind};
@@ -117,6 +119,34 @@ pub fn init(vm: &mut Vm) {
         if !b.is_nil() { vm.call_block_with_self(b, Value::Obj(m), &[Value::Obj(m)])?; }
         Ok(Value::Obj(m))
     });
+
+    // Version constants (src/version.c). MRUBY_PLATFORM names this implementation.
+    for (name, v) in [("RUBY_VERSION", "4.1"), ("RUBY_ENGINE", "mruby"), ("RUBY_ENGINE_VERSION", "4.1.0"), ("MRUBY_VERSION", "4.1.0"),
+                      ("MRUBY_PLATFORM", "rust-sabiruby"), ("MRUBY_RELEASE_DATE", "2026-09-04"), ("MRUBY_REVISION", "HEAD"),
+                      ("MRUBY_DESCRIPTION", "mruby 4.1.0RC (2026-09-04)"), ("MRUBY_COPYRIGHT", "mruby - Copyright (c) 2010-2026 mruby developers")] {
+        let s = vm.str_new(v.as_bytes());
+        if let Some(o) = s.obj() { vm.heap.get_mut(o).frozen = true; }
+        let n = vm.intern(name);
+        vm.heap.class_mut(c.object).consts.insert(n, s);
+    }
+    // GC module: no collector yet, so these are the interface only (values as in the reference defaults).
+    let gc = vm.define_module("GC");
+    let gsc = vm.singleton_class(Value::Obj(gc)).unwrap();
+    vm.define_methods(gsc, &[
+        ("start", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("enable", |_vm, _s, _a, _b| Ok(Value::False)),
+        ("disable", |_vm, _s, _a, _b| Ok(Value::False)),
+        ("interval_ratio", |_vm, _s, _a, _b| Ok(Value::Int(200))),
+        ("interval_ratio=", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("step_ratio", |_vm, _s, _a, _b| Ok(Value::Int(200))),
+        ("step_ratio=", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("generational_mode", |_vm, _s, _a, _b| Ok(Value::False)),
+        ("generational_mode=", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("malloc_threshold", |_vm, _s, _a, _b| Ok(Value::Int(16777216))),
+        ("stat", |vm, _s, _a, _b| { let h = vm.hash_new(); let live = vm.heap.len() as i64; for (k, v) in [("live", live), ("debt", 0), ("state", 0), ("generational", 0), ("full", 0), ("step_limit", 0), ("malloc_increase", 0), ("malloc_threshold", 16777216), ("symbol_count", vm.syms.len() as i64), ("dynamic_symbol_count", 0)] { let ks = Value::Sym(vm.intern(k)); vm.hash_set(h, ks, Value::Int(v))?; } Ok(h) }),
+    ]);
+    let n = vm.intern("MRUBY_RELEASE_NO");
+    vm.heap.class_mut(c.object).consts.insert(n, Value::Int(40100));
 
     // nil / true / false
     vm.define_methods(c.nil_class, &[

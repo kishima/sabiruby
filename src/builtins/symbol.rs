@@ -1,5 +1,7 @@
 //! Symbol.
 
+use alloc::{string::String, vec, vec::Vec};
+
 use crate::argc;
 use crate::value::Value;
 use crate::vm::Vm;

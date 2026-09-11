@@ -1,3 +1,5 @@
+use alloc::{string::String};
+
 use crate::value::Value;
 
 /// Errors that stop or divert execution.
@@ -16,8 +18,8 @@ pub enum VmError {
     Internal(String),
 }
 
-impl std::fmt::Display for VmError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+impl core::fmt::Display for VmError {
+    fn fmt(&self, f: &mut core::fmt::Formatter<'_>) -> core::fmt::Result {
         match self {
             VmError::Raise(v) => write!(f, "uncaught exception {v:?}"),
             VmError::Break(_) => write!(f, "break/return unwinding escaped the VM"),
@@ -28,6 +30,6 @@ impl std::fmt::Display for VmError {
     }
 }
 
-impl std::error::Error for VmError {}
+impl core::error::Error for VmError {}
 
 pub type VmResult<T> = Result<T, VmError>;

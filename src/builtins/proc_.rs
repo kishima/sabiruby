@@ -1,5 +1,7 @@
 //! Proc.
 
+use alloc::{vec};
+
 use crate::error::VmResult;
 use crate::object::ObjKind;
 use crate::value::Value;

@@ -4,7 +4,9 @@
 //! (`base = caller.base + a`), so a method's return value lands in the
 //! caller's target register by writing `stack[callee.base]`.
 
-use std::collections::HashMap;
+use alloc::{format, string::String, string::ToString, vec, vec::Vec};
+
+use hashbrown::HashMap;
 
 use crate::error::{VmError, VmResult};
 use crate::object::{BreakTag, ClassData, EnvData, Heap, IrepId, Method, ObjKind, ProcData};
@@ -87,6 +89,7 @@ pub struct Core {
     pub frozen_error: ObjId,
     pub float_domain_error: ObjId,
     pub no_matching_pattern_error: ObjId,
+    pub system_stack_error: ObjId,
 }
 
 /// Frequently used symbols.
@@ -135,6 +138,13 @@ pub struct Vm {
     /// method body of `Proc#call`, so calling a block does not re-enter the VM.
     pub call_proc: ObjId,
     pub instructions: u64,
+    /// Executions per opcode (index = opcode number); the test runner reports
+    /// which opcodes a workload never reached.
+    pub op_counts: Vec<u64>,
+    /// Nesting of native -> VM re-entries (`call_proc_with`); bounded to protect the host stack.
+    native_depth: u32,
+    /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
+    pub inspect_guard: Vec<ObjId>,
 }
 
 /// Result of [`Vm::step`].
@@ -200,13 +210,14 @@ impl Vm {
         let frozen_error = c(&mut heap, &mut syms, "FrozenError", runtime_error);
         let float_domain_error = c(&mut heap, &mut syms, "FloatDomainError", range_error);
         let no_matching_pattern_error = c(&mut heap, &mut syms, "NoMatchingPatternError", standard_error);
+        let system_stack_error = c(&mut heap, &mut syms, "SystemStackError", exception);
         let core = Core {
             basic_object, object, module, class, kernel, comparable, enumerable, nil_class, true_class,
             false_class, numeric, integer, float, symbol, string, array, hash, range, proc_, exception,
             standard_error, runtime_error, argument_error, type_error, name_error, no_method_error,
             zero_division_error, local_jump_error, index_error, range_error, key_error,
             not_implemented_error, stop_iteration, frozen_error, float_domain_error,
-            no_matching_pattern_error,
+            no_matching_pattern_error, system_stack_error,
         };
         // Every object allocated so far is a class or module: set its class.
         for i in 0..heap.len() {
@@ -243,7 +254,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), call_proc,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -278,7 +289,7 @@ impl Vm {
 
     /// Bytes written by `puts`/`p`/`print` since the last [`Vm::take_output`].
     pub fn take_output(&mut self) -> Vec<u8> {
-        std::mem::take(&mut self.out)
+        core::mem::take(&mut self.out)
     }
     pub fn write_out(&mut self, bytes: &[u8]) {
         self.out.extend_from_slice(bytes);
@@ -591,7 +602,14 @@ impl Vm {
     pub fn funcall(&mut self, recv: Value, mid: Sym, args: &[Value], blk: Value) -> VmResult<Value> {
         let cls = self.class_of(recv);
         match self.find_method(cls, mid) {
-            Some((Method::Native(f), _)) => f(self, recv, args, blk),
+            Some((Method::Native(f), _)) => {
+                // native -> native recursion (e.g. inspect of nested containers) also uses the host stack
+                if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
+                self.native_depth += 1;
+                let r = f(self, recv, args, blk);
+                self.native_depth -= 1;
+                r
+            }
             Some((Method::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
             Some((Method::AttrWriter(iv), _)) => {
                 let v = args.first().copied().unwrap_or(Value::Nil);
@@ -642,6 +660,17 @@ impl Vm {
 
     /// `override_tc = Some(c)` forces the target class (instance_eval); `None` takes it from the env.
     fn call_proc_with(&mut self, proc_: ObjId, self_: Value, args: &[Value], blk: Value, mid: Option<Sym>, override_tc: Option<ObjId>) -> VmResult<Value> {
+        // mruby: MRB_CALL_LEVEL_MAX (512) frames; here also a cap on host-stack re-entry.
+        if self.ci.len() >= CALL_LEVEL_MAX || self.native_depth >= NATIVE_DEPTH_MAX {
+            return Err(self.raise(self.core.system_stack_error, "stack level too deep"));
+        }
+        self.native_depth += 1;
+        let r = self.call_proc_inner(proc_, self_, args, blk, mid, override_tc);
+        self.native_depth -= 1;
+        r
+    }
+
+    fn call_proc_inner(&mut self, proc_: ObjId, self_: Value, args: &[Value], blk: Value, mid: Option<Sym>, override_tc: Option<ObjId>) -> VmResult<Value> {
         let pd = self.heap.proc_data(proc_);
         let irep = pd.irep;
         let env = pd.env;
@@ -739,6 +768,13 @@ impl Vm {
                         continue;
                     }
                     return Err(VmError::Raise(exc));
+                }
+                Err(VmError::Unimplemented(what)) => {
+                    // Surface as a Ruby NotImplementedError so scripts (and the
+                    // mruby test suite) can rescue it and continue.
+                    let exc = self.exc_new(self.core.not_implemented_error, &format!("not implemented in SabiRuby: {what}"));
+                    pending = Some(Err(VmError::Raise(exc)));
+                    continue;
                 }
                 Err(VmError::Break(brk)) => {
                     // A return/break came back through native code: keep unwinding here.
@@ -892,6 +928,7 @@ impl Vm {
             let ci = self.ci.last().unwrap().clone();
             let mut pc = ci.pc;
             let byte = self.ireps[ci.irep].iseq[pc];
+            self.op_counts[byte as usize] += 1;
             let op = Op::from_u8(byte).ok_or_else(|| VmError::Internal(format!("bad opcode {byte}")))?;
             pc += 1;
             let (mut a, mut b, mut c) = (0u32, 0u32, 0u32);
@@ -1501,6 +1538,7 @@ impl Vm {
                 self.stack[base + a] = v;
             }
             Method::Ruby(p) => {
+                if self.ci.len() >= CALL_LEVEL_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 let nbase = base + a;
                 let nirep = self.heap.proc_data(p).irep;
                 let nregs = self.ireps[nirep].nregs.max(argc + 2).max(4);
@@ -1744,6 +1782,11 @@ impl Vm {
 impl Default for Vm {
     fn default() -> Self { Vm::new() }
 }
+
+/// `MRB_CALL_LEVEL_MAX`.
+pub const CALL_LEVEL_MAX: usize = 512;
+/// Nested native -> VM re-entries allowed (each one uses host stack).
+pub const NATIVE_DEPTH_MAX: u32 = 96;
 
 #[inline]
 fn jump(pc: usize, off: usize) -> usize {

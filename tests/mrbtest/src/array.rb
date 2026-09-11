@@ -1,0 +1,792 @@
+##
+# Array ISO Test
+
+assert('Array', '15.2.12') do
+  assert_equal(Class, Array.class)
+end
+
+assert('Array included modules', '15.2.12.3') do
+  assert_true(Array.include?(Enumerable))
+end
+
+assert('Array.[]', '15.2.12.4.1') do
+  assert_equal([1, 2, 3], Array.[](1,2,3))
+end
+
+class SubArray < Array
+end
+
+assert('SubArray.[]') do
+  a = SubArray[1, 2, 3]
+  assert_equal(SubArray, a.class)
+end
+
+assert('Array#+', '15.2.12.5.1') do
+  assert_equal([1, 1], [1].+([1]))
+end
+
+assert('Array#*', '15.2.12.5.2') do
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong argument
+    [1].*(-1)
+  end
+  assert_equal([1, 1, 1], [1].*(3))
+  assert_equal([], [1].*(0))
+  assert_equal('abc', ['a', 'b', 'c'].*(''))
+  assert_equal('0, 0, 1, {foo: 0}', [0, [0, 1], {foo: 0}].*(', '))
+end
+
+assert('Array#<<', '15.2.12.5.3') do
+  assert_equal([1, 1], [1].<<(1))
+end
+
+assert('Array#[]', '15.2.12.5.4') do
+  a = Array.new
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong arguments
+    a.[]()
+  end
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong arguments
+    a.[](1,2,3)
+  end
+
+  assert_equal(2, [1,2,3].[](1))
+  assert_equal(nil, [1,2,3].[](4))
+  assert_equal(3, [1,2,3].[](-1))
+  assert_equal(nil, [1,2,3].[](-4))
+
+  a = [ "a", "b", "c", "d", "e" ]
+  assert_equal(["b", "c"], a[1,2])
+  assert_equal(["b", "c", "d"], a[1..-2])
+  assert_equal(["b", "c", "d", "e"], a[1..])
+  assert_equal(["a", "b", "c"], a[..2])
+  skip unless Object.const_defined?(:Float)
+  assert_equal("b", a[1.1])
+end
+
+assert('Array#[] redefined on Array itself reaches the redefinition') do
+  # `OP_GETIDX` answers `a[1]` from C and `OP_GETIDX0` answers `a[0]` the same
+  # way whenever the receiver's class is exactly `Array`, which they may only
+  # do while `Array#[]` is still the builtin they reimplement. Both test the
+  # receiver against `mrb->idx_class[]`, which the method table drops the
+  # moment `Array#[]` is replaced, so a redefinition installed on `Array`
+  # itself is honored as in CRuby. The results are read before the operator is
+  # put back because the assertions themselves index arrays.
+  Array.class_eval do
+    alias_method :__aref_before_test, :[]
+    def [](*args)
+      :overridden
+    end
+  end
+  begin
+    a = [7, 8]
+    sub = Class.new(Array).new
+    got0 = a[0]
+    got1 = a[1]
+    got_sub = sub[0]
+  ensure
+    Array.class_eval do
+      alias_method :[], :__aref_before_test
+      # `remove_method` comes from mruby-metaprog, which the core test build
+      # does not have; the saved alias is harmless where it is missing.
+      remove_method :__aref_before_test if respond_to?(:remove_method, true)
+    end
+  end
+  assert_equal :overridden, got0
+  assert_equal :overridden, got1
+  assert_equal :overridden, got_sub
+  # Aliasing the original implementation back re-arms the opcodes.
+  assert_equal 7, [7, 8][0]
+  assert_equal 8, [7, 8][1]
+end
+
+assert('Array#[]= redefined on Array itself reaches the redefinition') do
+  # `OP_SETIDX` answers `a[0] = 9` from C on the same terms; see the `[]` test
+  # above. A redefinition that stores nothing makes the difference visible in
+  # the receiver as well as in the return value.
+  Array.class_eval do
+    alias_method :__aset_before_test, :[]=
+    def []=(*args)
+      $aset_redefinition_args = args
+    end
+  end
+  begin
+    a = [7, 8]
+    a[0] = 9
+    seen = $aset_redefinition_args
+    untouched = a
+  ensure
+    Array.class_eval do
+      alias_method :[]=, :__aset_before_test
+      remove_method :__aset_before_test if respond_to?(:remove_method, true)
+    end
+    $aset_redefinition_args = nil
+  end
+  assert_equal [0, 9], seen
+  assert_equal [7, 8], untouched
+  a = [7, 8]
+  a[0] = 9
+  assert_equal [9, 8], a
+end
+
+assert('Array#[]=', '15.2.12.5.5') do
+  a = Array.new
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong arguments
+    a.[]=()
+  end
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong arguments
+    a.[]=(1,2,3,4)
+  end
+  assert_raise(IndexError) do
+    # this will cause an exception due to the wrong arguments
+    a = [1,2,3,4,5]
+    a[1, -1] = 10
+  end
+
+  assert_equal(4, [1,2,3].[]=(1,4))
+  assert_equal(3, [1,2,3].[]=(1,2,3))
+
+  a = [1,2,3,4,5]
+  a[3..-1] = 6
+  assert_equal([1,2,3,6], a)
+
+  a = [1,2,3,4,5]
+  a[3..-1] = []
+  assert_equal([1,2,3], a)
+
+  a = [1,2,3,4,5]
+  a[2...4] = 6
+  assert_equal([1,2,6,5], a)
+
+  a = [1,2,3,4,5]
+  a[2...] = 6
+  assert_equal([1,2,6], a)
+
+  # passing self (#3274)
+  a = [1,2,3]
+  a[1,0] = a
+  assert_equal([1,1,2,3,2,3], a)
+  a = [1,2,3]
+  a[-1,0] = a
+  assert_equal([1,2,1,2,3,3], a)
+
+  # passing self with length above ARY_REPLACE_SHARED_MIN (=20).
+  # ary_dup -> ary_replace converts the source to shared as a
+  # copy-on-write optimization; without re-modifying `a` afterwards,
+  # ARY_CAPA(a) reads from aux.shared's pointer bits and the
+  # expand-capa check silently mis-sizes -> heap-buffer-overflow in
+  # value_move. Reported via clusterfuzz mruby_fuzzer.
+  a = (0..30).to_a
+  a[3, 2] = a
+  assert_equal(60, a.length)
+  assert_equal([0, 1, 2] + (0..30).to_a + (5..30).to_a, a)
+end
+
+assert('Array#clear', '15.2.12.5.6') do
+  a = [1]
+  a.clear
+  assert_equal([], a)
+end
+
+assert('Array#collect!', '15.2.12.5.7') do
+  a = [1,2,3]
+  a.collect! { |i| i + i }
+  assert_equal([2,4,6], a)
+end
+
+assert('Array#concat', '15.2.12.5.8') do
+  assert_equal([1,2,3,4], [1, 2].concat([3, 4]))
+
+  # passing self (#3302)
+  a = [1,2,3]
+  a.concat(a)
+  assert_equal([1,2,3,1,2,3], a)
+end
+
+assert('Array#delete_at', '15.2.12.5.9') do
+  a = [1,2,3]
+  assert_equal(2, a.delete_at(1))
+  assert_equal([1,3], a)
+  assert_equal(nil, a.delete_at(3))
+  assert_equal([1,3], a)
+  assert_equal(nil, a.delete_at(-3))
+  assert_equal([1,3], a)
+  assert_equal(3, a.delete_at(-1))
+  assert_equal([1], a)
+end
+
+assert('Array#each', '15.2.12.5.10') do
+  a = [1,2,3]
+  b = 0
+  a.each {|i| b += i}
+  assert_equal(6, b)
+end
+
+assert('Array#each_index', '15.2.12.5.11') do
+  a = [1]
+  b = nil
+  a.each_index {|i| b = i}
+  assert_equal(0, b)
+end
+
+assert('Array#empty?', '15.2.12.5.12') do
+  a = []
+  b = [b]
+  assert_true([].empty?)
+  assert_false([1].empty?)
+end
+
+assert('Array#first', '15.2.12.5.13') do
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong argument
+    [1,2,3].first(-1)
+  end
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong argument
+    [1,2,3].first(1,2)
+  end
+
+  assert_nil([].first)
+
+  b = [1,2,3]
+  assert_equal(1, b.first)
+  assert_equal([], b.first(0))
+  assert_equal([1], b.first(1))
+  assert_equal([1,2,3], b.first(4))
+end
+
+assert('Array#index', '15.2.12.5.14') do
+  a = [1,2,3]
+
+  assert_equal(1, a.index(2))
+  assert_equal(nil, a.index(0))
+end
+
+assert("Array#index (block)") do
+  assert_nil (1..10).to_a.index { |i| i % 5 == 0 and i % 7 == 0 }
+  assert_equal 34, (1..100).to_a.index { |i| i % 5 == 0 and i % 7 == 0 }
+end
+
+assert('Array#initialize', '15.2.12.5.15') do
+  a = [].__send__(:initialize,1)
+  b = [].__send__(:initialize,2)
+  c = [].__send__(:initialize,2, 1)
+  d = [].__send__(:initialize,2) {|i| i}
+
+  assert_equal([nil], a)
+  assert_equal([nil,nil], b)
+  assert_equal([1,1], c)
+  assert_equal([0,1], d)
+end
+
+assert('Array#initialize_copy', '15.2.12.5.16') do
+  a = [1,2,3]
+  b = [].__send__(:initialize_copy, a)
+
+  assert_equal([1,2,3], b)
+end
+
+assert('Array#join', '15.2.12.5.17') do
+  a = [1,2,3].join
+  b = [1,2,3].join(',')
+
+  assert_equal('123', a)
+  assert_equal('1,2,3', b)
+end
+
+assert('Array#join nested arrays') do
+  assert_equal('1-2-3-4', [1, [2, 3], 4].join('-'))
+  assert_equal('12345', [[1, 2], [3, [4, 5]]].join)
+end
+
+assert('Array#join detects recursion') do
+  a = []
+  a << a
+  assert_raise(ArgumentError) { a.join }
+
+  x = []
+  y = []
+  x << y
+  y << x
+  assert_raise(ArgumentError) { x.join }
+end
+
+assert('Array#join deeply nested array does not overflow the C stack') do
+  a = []
+  10000.times { a = [a] }
+  # join is iterative, so a deeply nested (non-cyclic) array must not overflow
+  # the native stack; every leaf here is empty, so the result is "".
+  assert_equal('', a.join)
+end
+
+assert('Array#last', '15.2.12.5.18') do
+  assert_raise(ArgumentError) do
+    # this will cause an exception due to the wrong argument
+    [1,2,3].last(-1)
+  end
+
+  a = [1,2,3]
+  assert_equal(3, a.last)
+  assert_equal([2,3], a.last(2))
+  assert_nil([].last)
+  assert_raise(TypeError) { a.last("2") }
+
+  skip unless Object.const_defined?(:Float)
+  assert_equal([2,3], a.last(2.0))
+end
+
+assert('Array#length', '15.2.12.5.19') do
+  a = [1,2,3]
+
+  assert_equal(3, a.length)
+end
+
+assert('Array#map!', '15.2.12.5.20') do
+  a = [1,2,3]
+  a.map! { |i| i + i }
+  assert_equal([2,4,6], a)
+end
+
+assert('Array#pop', '15.2.12.5.21') do
+  a = [1,2,3]
+  b = a.pop
+
+  assert_nil([].pop)
+  assert_equal([1,2], a)
+  assert_equal(3, b)
+
+  assert_raise(FrozenError) { [].freeze.pop }
+end
+
+assert('Array#push', '15.2.12.5.22') do
+  a = [1,2,3]
+  b = a.push(4)
+
+  assert_equal([1,2,3,4], a)
+  assert_equal([1,2,3,4], b)
+end
+
+assert('Array#replace', '15.2.12.5.23') do
+  a = [1,2,3]
+  b = [].replace(a)
+
+  assert_equal([1,2,3], b)
+end
+
+assert('Array#reverse', '15.2.12.5.24') do
+  a = [1,2,3]
+  b = a.reverse
+
+  assert_equal([1,2,3], a)
+  assert_equal([3,2,1], b)
+end
+
+assert('Array#reverse!', '15.2.12.5.25') do
+  a = [1,2,3]
+  b = a.reverse!
+
+  assert_equal([3,2,1], a)
+  assert_equal([3,2,1], b)
+end
+
+assert('Array#rindex', '15.2.12.5.26') do
+  a = [1,2,3]
+
+  assert_equal(1, a.rindex(2))
+  assert_equal(nil, a.rindex(0))
+end
+
+assert("Array#rindex (block)") do
+  assert_nil (1..10).to_a.rindex { |i| i % 5 == 0 and i % 7 == 0 }
+  assert_equal 69, (1..100).to_a.rindex { |i| i % 5 == 0 and i % 7 == 0 }
+end
+
+assert('Array#shift', '15.2.12.5.27') do
+  a = [1,2,3]
+  b = a.shift
+
+  assert_nil([].shift)
+  assert_equal([2,3], a)
+  assert_equal(1, b)
+
+  assert_raise(FrozenError) { [].freeze.shift }
+
+  # Array#shift with argument
+  assert_equal([], [].shift(1))
+
+  a = [1,2,3]
+  b = a.shift(1)
+  assert_equal([2,3], a)
+  assert_equal([1], b)
+
+  a = [1,2,3,4]
+  b = a.shift(3)
+  assert_equal([4], a)
+  assert_equal([1,2,3], b)
+
+  a = [1,2,3]
+  b = a.shift(4)
+  assert_equal([], a)
+  assert_equal([1,2,3], b)
+end
+
+assert('Array#size', '15.2.12.5.28') do
+  a = [1,2,3]
+
+  assert_equal(3, a.size)
+end
+
+assert('Array#slice', '15.2.12.5.29') do
+  a = [*(1..100)]
+  b = a.dup
+
+  assert_equal(1, a.slice(0))
+  assert_equal(100, a.slice(99))
+  assert_nil(a.slice(100))
+  assert_equal(100, a.slice(-1))
+  assert_equal(99,  a.slice(-2))
+  assert_equal(1,   a.slice(-100))
+  assert_nil(a.slice(-101))
+  assert_equal([1],   a.slice(0,1))
+  assert_equal([100], a.slice(99,1))
+  assert_equal([],    a.slice(100,1))
+  assert_equal([100], a.slice(99,100))
+  assert_equal([100], a.slice(-1,1))
+  assert_equal([99],  a.slice(-2,1))
+  assert_equal([10, 11, 12], a.slice(9, 3))
+  assert_equal([10, 11, 12], a.slice(-91, 3))
+  assert_nil(a.slice(-101, 2))
+  assert_equal([1],   a.slice(0..0))
+  assert_equal([100], a.slice(99..99))
+  assert_equal([],    a.slice(100..100))
+  assert_equal([100], a.slice(99..200))
+  assert_equal([100], a.slice(-1..-1))
+  assert_equal([99],  a.slice(-2..-2))
+  assert_equal([10, 11, 12], a.slice(9..11))
+  assert_equal([10, 11, 12], a.slice(-91..-89))
+  assert_equal([10, 11, 12], a.slice(-91..-89))
+  assert_nil(a.slice(-101..-1))
+  assert_nil(a.slice(10, -3))
+  assert_equal([], a.slice(10..7))
+  assert_equal(b, a)
+end
+
+assert('Array#unshift', '15.2.12.5.30') do
+  a = [2,3]
+  b = a.unshift(1)
+  c = [2,3]
+  d = c.unshift(0, 1)
+
+  assert_equal([1,2,3], a)
+  assert_equal([1,2,3], b)
+  assert_equal([0,1,2,3], c)
+  assert_equal([0,1,2,3], d)
+end
+
+assert("Array#unshift with shared arrays") do
+  a = Array.new(16) { _1 }
+  a0 = Array.new(16) { _1 }
+  s = a.shift(4)
+  a.unshift(*s)
+  assert_equal a0, a
+
+  a = Array.new(16) { _1 }
+  exp = [-1, *a]
+  s = a.shift(4)
+  a.unshift(-1, *s) # unshift not in-place because of the extra element
+  assert_equal exp, a
+end
+
+assert("Array#unshift taking shared self") do
+  #define ARY_REPLACE_SHARED_MIN 20
+  a = Array.new(32) { _1 }
+  a0 = Array.new(32) { _1 }
+  a1 = a.dup
+  a.unshift(*a1)
+  assert_equal(a0 * 2, a)
+  assert_equal(a0, a1)
+end
+
+
+assert('Array#to_s', '15.2.12.5.31 / 15.2.12.5.32') do
+  a = [2, 3,   4, 5]
+  a[4] = a
+  r1 = a.to_s
+  r2 = a.inspect
+
+  assert_equal(r2, r1)
+  assert_equal("[2, 3, 4, 5, [...]]", r1)
+end
+
+assert('Array#==', '15.2.12.5.33') do
+  assert_false(["a", "c"] == ["a", "c", 7])
+  assert_true(["a", "c", 7] == ["a", "c", 7])
+  assert_false(["a", "c", 7] == ["a", "d", "f"])
+end
+
+assert('Array#== takes an element for equal to itself') do
+  # `a == b` is answered by `OP_EQ`, which takes two values for equal where
+  # they are the same object and dispatches `==` only after. Comparing the
+  # elements here with `==` went around that, so an object whose `==` answers
+  # false to everything was not equal to itself inside an array while it was
+  # outside one. `#index` searches with the first of the two.
+  class ArrayEqNever
+    def ==(other)
+      false
+    end
+  end
+  never = ArrayEqNever.new
+
+  # `never == never` reads true whatever the definition says, `OP_EQ` having
+  # answered it from the object; the definition is reached by name.
+  assert_false(never.__send__(:==, never))
+  assert_true([never] == [never])
+  assert_equal(0, [never].index(never))
+end
+
+assert('Array#eql?', '15.2.12.5.34') do
+  a1 = [ 1, 2, 3 ]
+  a2 = [ 1, 2, 3 ]
+  a3 = [ 1.0, 2.0, 3.0 ]
+
+  assert_true(a1.eql? a2)
+  assert_false(a1.eql? a3)
+end
+
+assert('Array#hash', '15.2.12.5.35') do
+  a = [ 1, 2, 3 ]
+
+  assert_true(a.hash.is_a? Integer)
+  assert_equal([1,2].hash, [1,2].hash)
+end
+
+assert('Array#<=>', '15.2.12.5.36') do
+  r1 = [ "a", "a", "c" ]    <=> [ "a", "b", "c" ]   #=> -1
+  r2 = [ 1, 2, 3, 4, 5, 6 ] <=> [ 1, 2 ]            #=> +1
+  r3 = [ "a", "b", "c" ]    <=> [ "a", "b", "c" ]   #=> 0
+
+  assert_equal(-1, r1)
+  assert_equal(+1, r2)
+  assert_equal(0, r3)
+end
+
+# Not ISO specified
+
+assert("Array (Longish inline array)") do
+  ary = [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4], [5, 5], [6, 6], [7, 7], [8, 8], [9, 9], [10, 10], [11, 11], [12, 12], [13, 13], [14, 14], [15, 15], [16, 16], [17, 17], [18, 18], [19, 19], [20, 20], [21, 21], [22, 22], [23, 23], [24, 24], [25, 25], [26, 26], [27, 27], [28, 28], [29, 29], [30, 30], [31, 31], [32, 32], [33, 33], [34, 34], [35, 35], [36, 36], [37, 37], [38, 38], [39, 39], [40, 40], [41, 41], [42, 42], [43, 43], [44, 44], [45, 45], [46, 46], [47, 47], [48, 48], [49, 49], [50, 50], [51, 51], [52, 52], [53, 53], [54, 54], [55, 55], [56, 56], [57, 57], [58, 58], [59, 59], [60, 60], [61, 61], [62, 62], [63, 63], [64, 64], [65, 65], [66, 66], [67, 67], [68, 68], [69, 69], [70, 70], [71, 71], [72, 72], [73, 73], [74, 74], [75, 75], [76, 76], [77, 77], [78, 78], [79, 79], [80, 80], [81, 81], [82, 82], [83, 83], [84, 84], [85, 85], [86, 86], [87, 87], [88, 88], [89, 89], [90, 90], [91, 91], [92, 92], [93, 93], [94, 94], [95, 95], [96, 96], [97, 97], [98, 98], [99, 99], [100, 100], [101, 101], [102, 102], [103, 103], [104, 104], [105, 105], [106, 106], [107, 107], [108, 108], [109, 109], [110, 110], [111, 111], [112, 112], [113, 113], [114, 114], [115, 115], [116, 116], [117, 117], [118, 118], [119, 119], [120, 120], [121, 121], [122, 122], [123, 123], [124, 124], [125, 125], [126, 126], [127, 127], [128, 128], [129, 129], [130, 130], [131, 131], [132, 132], [133, 133], [134, 134], [135, 135], [136, 136], [137, 137], [138, 138], [139, 139], [140, 140], [141, 141], [142, 142], [143, 143], [144, 144], [145, 145], [146, 146], [147, 147], [148, 148], [149, 149], [150, 150], [151, 151], [152, 152], [153, 153], [154, 154], [155, 155], [156, 156], [157, 157], [158, 158], [159, 159], [160, 160], [161, 161], [162, 162], [163, 163], [164, 164], [165, 165], [166, 166], [167, 167], [168, 168], [169, 169], [170, 170], [171, 171], [172, 172], [173, 173], [174, 174], [175, 175], [176, 176], [177, 177], [178, 178], [179, 179], [180, 180], [181, 181], [182, 182], [183, 183], [184, 184], [185, 185], [186, 186], [187, 187], [188, 188], [189, 189], [190, 190], [191, 191], [192, 192], [193, 193], [194, 194], [195, 195], [196, 196], [197, 197], [198, 198], [199, 199]]
+  h = Hash.new(0)
+  ary.each {|p| h[p.class] += 1}
+  assert_equal({Array=>200}, h)
+end
+
+assert("Array#rindex") do
+  class Sneaky
+    def ==(*)
+      $a.clear
+      $a.replace([1])
+      false
+    end
+  end
+  $a = [2, 3, 4, 5, 6, 7, 8, 9, 10, Sneaky.new]
+  assert_equal 0, $a.rindex(1)
+end
+
+assert('Array#sort!') do
+  a = [3, 2, 1]
+  assert_equal a, a.sort!      # sort! returns self.
+  assert_equal [1, 2, 3], a    # it is sorted.
+end
+
+assert('Array#sort with a NaN in it') do
+  # A NaN stands in no order with anything, so there is no sorted order for an
+  # array holding one and the comparison is refused rather than answered. The
+  # all-Float array takes a comparison of its own inside the sort, so it is
+  # pinned alongside the mixed one, and a longer array is sorted as well
+  # because a short one takes a different route through the sort.
+  skip unless Object.const_defined?(:Float)
+  nan = Float::NAN
+
+  assert_raise(ArgumentError) { [1.0, nan].sort }
+  assert_raise(ArgumentError) { [1, nan].sort }
+  assert_raise(ArgumentError) { [nan, 1.0].sort }
+  assert_raise(ArgumentError) { ([1.0] * 40 + [nan]).sort }
+end
+
+assert('Array#sort with a block that answers with something other than an Integer') do
+  # The block's answer stands for an ordering, and an Integer is one of the
+  # forms it takes rather than the only one: anything else is asked `> 0` and
+  # then `< 0`, and is a tie when neither holds. `nil` is the one answer with
+  # no order in it. This is the map `Enumerable#max` and `#min` already read
+  # their own block through, so an object that orders one orders the other.
+  class SortSign
+    def initialize(n)
+      @n = n
+    end
+
+    def >(other)
+      @n > other
+    end
+
+    def <(other)
+      @n < other
+    end
+  end
+
+  # A short array and a long one take different routes through the sort, so
+  # both are ordered here.
+  descending = Array.new(40) { |i| 40 - i }
+  ascending = Array.new(40) { |i| i + 1 }
+
+  assert_equal [1, 2, 3], [3, 1, 2].sort { |a, b| SortSign.new(a - b) }
+  assert_equal ascending, descending.sort { |a, b| SortSign.new(a - b) }
+  assert_equal [1, 2, 3], [3, 1, 2].sort! { |a, b| SortSign.new(a - b) }
+  assert_equal 3, [3, 1, 2].max { |a, b| SortSign.new(a - b) }
+
+  # An Integer answer is read for its sign alone. -2 is the value the sort
+  # keeps for a pair it cannot order, and a block that answered with it used to
+  # be taken for one.
+  assert_equal [1, 2, 3], [3, 1, 2].sort { |a, b| (a <=> b) * 2 }
+
+  # The wording is the one the rest of the tree gives a pair with no order,
+  # `Comparable` and `Enumerable#max` included.
+  assert_raise_with_message(ArgumentError, "comparison of Integer with Integer failed") {
+    [3, 1, 2].sort { |a, b| nil }
+  }
+end
+
+assert('Array#sort with a block that answers with a Float') do
+  skip unless Object.const_defined?(:Float)
+
+  assert_equal [1, 2, 3], [3, 1, 2].sort { |a, b| (a - b).to_f }
+  assert_equal Array.new(40) { |i| i + 1 },
+               Array.new(40) { |i| 40 - i }.sort { |a, b| (a - b).to_f }
+
+  # A NaN is greater than and less than nothing at all, so every pair it
+  # answers for is a tie and the sort has nothing to order by. Which order it
+  # leaves is its own business; that it answers at all is what is asserted.
+  assert_equal [1, 2, 3], [3, 1, 2].sort { |a, b| Float::NAN }.sort
+end
+
+assert('Array#sort with a block that answers with a big integer') do
+  # A big integer is read for its sign, which is the one thing it can say about
+  # an ordering. The shift count is a variable because a constant shift out of
+  # mrb_int range makes the build fail rather than raise.
+  begin
+    k = 100
+    big = 1 << k
+  rescue RangeError
+    skip 'requires mruby-bigint'
+  end
+
+  assert_equal [1, 2, 3], [3, 1, 2].sort { |a, b| a > b ? big : -big }
+  assert_equal Array.new(40) { |i| i + 1 },
+               Array.new(40) { |i| 40 - i }.sort { |a, b| a > b ? big : -big }
+end
+
+assert('Array#sort of Integers too wide to store inline') do
+  # The sort has a route of its own for an array of Integers, which reads each
+  # element as a number and writes the sorted order back the same way. Word
+  # boxing keeps an Integer past the inline range in an object instead, so that
+  # route is not one it can be written back through, and an array holding one
+  # is sorted like any other. 2**30 is past what a 32-bit word carries inline
+  # and 2**62 past a 64-bit one, so one base or the other is outside it
+  # wherever this runs, and a build too narrow for the wider one raises at the
+  # shift. A short array and a long one take different routes through the
+  # sort, so both are pinned. The shift count is a variable for the reason the
+  # big integer test above gives.
+  bases = [1 << 30]
+  begin
+    k = 62
+    bases << (1 << k)
+  rescue RangeError
+  end
+
+  bases.each do |base|
+    assert_equal [base, base + 1, base + 2], [base + 2, base, base + 1].sort
+    assert_equal Array.new(40) { |i| base + i },
+                 Array.new(40) { |i| base + 39 - i }.sort
+  end
+end
+
+assert('Array#freeze') do
+  a = [].freeze
+  assert_raise(FrozenError) do
+    a[0] = 1
+  end
+end
+
+assert('Array - a frozen receiver of a call that writes nothing') do
+  # Each of these leaves the array as it was and used to return before the
+  # write that carries the frozen check.
+  assert_raise(FrozenError) { [].freeze.reverse! }
+  assert_raise(FrozenError) { [1].freeze.reverse! }
+  assert_raise(FrozenError) { [].freeze.sort! }
+  assert_raise(FrozenError) { [1].freeze.sort! }
+  assert_raise(FrozenError) { [].freeze.collect! { |e| e } }
+  assert_raise(FrozenError) { [].freeze.map! { |e| e } }
+  assert_raise(FrozenError) { [1, 2].freeze.__send__(:initialize) }
+  a = [1, 2].freeze
+  assert_raise(FrozenError) { a.replace(a) }
+end
+
+assert('Array#delete') do
+  a = ["a", "b", "c"]
+  assert_equal nil, a.delete("x")
+  assert_equal "x", a.delete("x") { _1 }
+  assert_equal ["a", "b", "c"], a
+  assert_equal "a", a.delete("a")
+  assert_equal ["b", "c"], a
+
+  a = [nil]
+  assert_equal nil, a.delete(nil) { "?" }
+  assert_equal [], a
+end
+
+assert('Array#hash with self-referencing arrays') do
+  a = []
+  a << a
+  b = []
+  b << b
+  assert_equal a.hash, b.hash
+end
+
+assert('Array shared from an emptied heap array keeps a buffer') do
+  # ary_make_shared() shrinks the buffer to the length being carried, and
+  # that length can be zero: `pop` leaves the capacity where `clear` gives it
+  # back.  Asking mrb_realloc() for no bytes at all would free the buffer and
+  # answer NULL, so the shrink asks for one element where there are none, and
+  # both arrays are left reading a pointer rather than nothing.
+  a = Array.new(200) { |i| i }
+  200.times { a.pop }
+  skip 'this build keeps an emptied array off the heap' unless AryShared.heap_empty?(a)
+
+  assert_false AryShared.copy_ptr_null?(a)
+  # and it is still an array afterwards
+  assert_equal 0, a.size
+  a.push 1
+  assert_equal [1], a
+end
+
+assert('Array#== and #eql? with recursive elements') do
+  # A pair already being compared is taken as equal and the other elements
+  # decide, as CRuby's recursive_equal() does: read the other way, two arrays
+  # that hold themselves would each be told apart by that very element.
+  a = [1]; a << a
+  b = [1]; b << b
+  c = [9]; c << c
+  d = [1, 2]; d << d
+  [:==, :eql?].each do |op|
+    assert_true a.__send__(op, a), op.to_s
+    assert_true a.__send__(op, b), op.to_s
+    assert_false a.__send__(op, c), op.to_s
+    # the assumption does not paper over a difference elsewhere
+    assert_false a.__send__(op, d), op.to_s
+  end
+  # a cycle through two arrays rather than one
+  e = [1]; f = [1]; e << f; f << e
+  g = [1]; h = [1]; g << h; h << g
+  assert_true e == g
+end

@@ -1,5 +1,7 @@
 //! Hash (insertion-ordered, linear lookup with `eql?` semantics).
 
+use alloc::{format, vec, vec::Vec};
+
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;

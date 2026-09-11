@@ -1,4 +1,6 @@
-use std::collections::HashMap;
+use alloc::{boxed::Box, string::String, vec::Vec};
+
+use hashbrown::HashMap;
 
 /// Symbol id. Unlike mruby's `mrb_sym` there is no inline/presym encoding:
 /// every symbol is an index into the interner (an implementation choice).

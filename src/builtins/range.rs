@@ -1,5 +1,7 @@
 //! Range (`each`, `to_a` etc. come from mrblib; the primitives are here).
 
+use alloc::{vec, vec::Vec};
+
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;

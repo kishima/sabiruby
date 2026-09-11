@@ -1,5 +1,7 @@
 //! Kernel: I/O, raise, block_given?, conversions.
 
+use alloc::{format, string::String, vec, vec::Vec};
+
 use crate::argc;
 use crate::error::{VmError, VmResult};
 use crate::object::ObjKind;
@@ -25,6 +27,23 @@ pub fn init(vm: &mut Vm) {
         ("global_variables", |vm, _s, _a, _b| { let l: Vec<Value> = vm.globals.keys().map(|k| Value::Sym(*k)).collect(); Ok(vm.ary_new(l)) }),
         ("local_variables", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),
         ("instance_variable_names", |vm, s, _a, _b| { let names: Vec<Value> = match s { Value::Obj(o) => vm.heap.get(o).ivars.iter().map(|(k, _)| Value::Sym(*k)).collect(), _ => vec![] }; Ok(vm.ary_new(names)) }),
+        ("__ENCODING__", |vm, _s, _a, _b| Ok(vm.str_new(b"ASCII-8BIT"))),
+        // `case`/`when` with a splat: `when *list` compiles to `__case_eqq`
+        ("__case_eqq", |vm, s, a, _b| {
+            argc!(vm, a, 1);
+            let eqq = vm.s.eqq;
+            if s.is_nil() { return Ok(Value::False); }
+            let to_a = vm.intern("to_a");
+            let list = if vm.ary(s).is_some() { s } else if !vm.respond_to(s, to_a) { return Ok(Value::bool(vm.funcall(s, eqq, &[a[0]], Value::Nil)?.truthy())); } else {
+                let r = vm.funcall(s, to_a, &[], Value::Nil)?;
+                if r.is_nil() { return vm.funcall(s, eqq, &[a[0]], Value::Nil); }
+                r
+            };
+            for it in vm.ary(list).cloned().unwrap_or_default() {
+                if vm.funcall(it, eqq, &[a[0]], Value::Nil)?.truthy() { return Ok(Value::True); }
+            }
+            Ok(Value::False)
+        }),
         ("__printstr__", |vm, _s, a, _b| { for v in a { let b = vm.as_string(*v)?; vm.write_out(&b); } Ok(Value::Nil) }),
         ("!~", |vm, s, a, _b| { argc!(vm, a, 1); let m = vm.intern("=~"); let r = vm.funcall(s, m, &[a[0]], Value::Nil)?; Ok(Value::bool(!r.truthy())) }),
     ]);
@@ -124,7 +143,7 @@ fn kernel_integer(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Va
         Value::Int(_) => Ok(a[0]),
         Value::Float(f) => {
             if !f.is_finite() { return Err(vm.raise(vm.core.float_domain_error, &numeric::float_to_s(f))); }
-            Ok(Value::Int(f.trunc() as i64))
+            Ok(Value::Int(libm::trunc(f) as i64))
         }
         v => {
             let base = if a.len() == 2 { vm.expect_int(a[1], "base")? as u32 } else { 0 };

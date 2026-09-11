@@ -3,6 +3,8 @@
 //! loaded by [`Vm::with_mrblib`], so `Array#each`, `Integer#times`,
 //! `Enumerable`, `Comparable` and friends run as ordinary Ruby methods.
 
+use alloc::{format, string::String, vec::Vec};
+
 pub mod array;
 pub mod exception;
 pub mod hash;
@@ -37,6 +39,16 @@ pub fn init(vm: &mut Vm) {
 impl Vm {
     /// `inspect` through method dispatch (so Ruby overrides are honoured).
     pub fn inspect(&mut self, v: Value) -> VmResult<Vec<u8>> {
+        if let Value::Obj(o) = v {
+            if self.inspect_guard.contains(&o) {
+                return Ok(match self.heap.get(o).kind { ObjKind::Array(_) => b"[...]".to_vec(), ObjKind::Hash(_) => b"{...}".to_vec(), _ => b"...".to_vec() });
+            }
+            self.inspect_guard.push(o);
+            let r = self.funcall(v, self.s.inspect, &[], Value::Nil);
+            self.inspect_guard.pop();
+            let r = r?;
+            return Ok(self.str_bytes(r).map(|b| b.to_vec()).unwrap_or_default());
+        }
         let r = self.funcall(v, self.s.inspect, &[], Value::Nil)?;
         Ok(self.str_bytes(r).map(|b| b.to_vec()).unwrap_or_default())
     }

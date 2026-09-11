@@ -1,6 +1,7 @@
 //! Opcode table generated from mruby 4.1.0-rc `include/mruby/ops.h`.
 //! Do not edit by hand: regenerate with `tools/gen_opcode.py` when ops.h changes.
 
+
 /// Operand layout of an instruction (see mruby `opcode.h`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Operands { Z, B, BB, BBB, BS, BSS, S, W }
@@ -254,7 +255,7 @@ pub const OP_COUNT: usize = 119;
 impl Op {
     /// Decode a byte into an opcode. Returns `None` for an undefined byte.
     pub fn from_u8(b: u8) -> Option<Op> {
-        if (b as usize) < OP_COUNT { Some(unsafe { std::mem::transmute::<u8, Op>(b) }) } else { None }
+        if (b as usize) < OP_COUNT { Some(unsafe { core::mem::transmute::<u8, Op>(b) }) } else { None }
     }
     /// mruby name of the opcode (as printed by `mrbc --verbose`).
     pub fn name(self) -> &'static str { OP_NAMES[self as usize] }

@@ -16,7 +16,16 @@ path = "src/lib.rs"
 [[bin]]
 name = "sabiruby"
 path = "src/bin/sabiruby.rs"
+required-features = ["std"]
+
+[features]
+default = ["std"]
+# The library itself is no_std + alloc. `std` only adds `std::error::Error` glue
+# and is required by the CLI (`src/bin/sabiruby.rs`) and the fixture tests.
+std = []
 
 [dependencies]
+hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
+libm = { version = "0.2", default-features = false }
 
 [dev-dependencies]

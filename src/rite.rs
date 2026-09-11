@@ -8,6 +8,8 @@
 //! - irep record: size:u32 nlocals:u16 nregs:u16 rlen:u16 clen:u16 ilen:u32
 //!   iseq[ilen] catch[clen*13] plen:u16 pool... slen:u16 syms... then rlen child records
 
+use alloc::{format, string::String, vec::Vec};
+
 use crate::error::{VmError, VmResult};
 
 #[derive(Clone, Debug, PartialEq)]
