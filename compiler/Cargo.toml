@@ -1,0 +1,17 @@
+[package]
+name = "sabiruby-compiler"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The reference mruby 4.1.0 compiler (mruby-compiler + Prism, built as C) as a Rust library: Ruby source to RITE bytecode, byte-identical to mrbc"
+license = "MIT"
+keywords = ["mruby", "ruby", "compiler", "bytecode", "prism"]
+categories = ["compilers"]
+repository = "https://github.com/kishima/sabiruby"
+readme = "README.md"
+links = "sabiruby_mrc"
+# The golden tests read the reference mrbc output of the parent repository; they stay in git.
+include = ["/src/**/*", "/csrc/**/*", "/vendor/**/*", "/build.rs", "/README.md"]
+
+[build-dependencies]
+cc = "1"

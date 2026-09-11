@@ -14,6 +14,9 @@ readme = "README.md"
 # suite (fixtures, mruby's test/t copies and their .mrb), benchmarks and tools stay in git.
 include = ["/src/**/*", "/docs/*.md", "/README.md", "/LICENSE", "/LICENSE-mruby"]
 
+[workspace]
+members = ["compiler"]
+
 [lib]
 name = "sabiruby"
 path = "src/lib.rs"
