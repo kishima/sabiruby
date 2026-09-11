@@ -54,7 +54,11 @@ allocating loop becomes bounded.
   `bm_fib` 6162 → 6233 (+1.1%), `bm_so_lists` 3778 → 3763 (−0.4%), `bm_so_mandelbrot` 1639 → 1694 (+3.3%).
   `bm_fib` and `bm_so_mandelbrot` never collect (`so_lists`: 5 collections, 0.7 ms), so the difference is the loop-head
   test: a build without it ran mandelbrot in 1656 ms in the same session (about 2.7% of the 3.3%). Within the 5% budget;
-  if it matters later, fold it into the step-budget test (one branch for both).
+  accepted in review (2026-09-11).
+* Candidate, not done: fold the loop-head GC test into the step-budget test (one branch for both). If tried, it is
+  separate work with its own before/after measurement: the merged branch ties the step semantics (pausing when the budget
+  runs out, which must happen only in the outermost loop) to the collection test, and that touches the paths where a
+  fiber stops. Not worth losing today's separation for ~2.7% on the tightest arithmetic loop.
 * `bench/src/gc_churn.rb` (1 000 000 iterations of `a = [i, "x" * 10, {k: i}]`, `sabiruby run --stats`):
 
   | | time | max RSS | live at the end |

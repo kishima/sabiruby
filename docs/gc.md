@@ -95,6 +95,20 @@ fiber and kept elsewhere) is detached: its window is copied into `values` (mruby
   `to_a`, `const_missing`, ...) must keep their values in registers, or count as a native
   (`native_active`) while the Ruby code runs, as `key_hash` does.
 
+## Decisions from review (2026-09-11)
+
+* **The two mark-time `assert!`s stay in release builds** (`Heap::mark_id`, `Heap::mark_drain`:
+  a live object refers to a freed slot). They run only during a collection, never on ordinary
+  execution, and they are what stopped the missing roots in release stress runs. Stopping at the
+  collection is easier to debug than a corrupted object failing somewhere else later. Access
+  checks (`Heap::get`/`get_mut`) stay `debug_assert!`.
+* **The loop-head test (~2.7% on `bm_so_mandelbrot`) is accepted.** Merging it with the
+  step-budget test is only a candidate (`performance.md`); if tried, it is separate, measured work.
+* **No collection in Ruby code running under a native is accepted**, as the plan decided.
+  Condition to revisit: a real case where Ruby code called back by a native runs long and its
+  allocations actually cause a memory problem. Then switch to an arena-style scheme for natives.
+  Today's candidates (`sort { }` blocks, `initialize` from `Class#new`) are short.
+
 ## `GC` module
 
 | method | behaviour |
@@ -159,7 +173,8 @@ fiber and kept elsewhere) is detached: its window is copied into `values` (mruby
 * Incremental marking needs a write barrier; `Slot::set` is the single storing window where it
   would go (`performance.md`).
 * Reuse context indices of collected fibers (today `contexts` only grows; the entries are empty).
-* Allow collection inside Ruby code running under a native (would need an arena or a
+* Allow collection inside Ruby code running under a native, when the condition in
+  [Decisions from review](#decisions-from-review-2026-09-11) is met (would need an arena or a
   root-registration discipline for natives).
 * Measure the collector on a larger live heap (Bevy scenes) and decide whether pauses need
   to be bounded (the book's scheduler-driven GC: "advance one unit, report the work done").
