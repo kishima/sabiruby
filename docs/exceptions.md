@@ -62,3 +62,23 @@ thread with a large stack.
 Every native call site returns a `Result` and checks it; that is a branch per call, not a
 jump table. Compared with setjmp per `mrb_protect`/`rescue` it is cheaper (no register save),
 and it is `no_std`-friendly, which longjmp is not portable for.
+
+## Prior art (from memory, not re-checked against sources)
+
+Two families exist among interpreters:
+
+* **longjmp family** — CRuby (`EC_JUMP_TAG`), mruby (`MRB_THROW`), Lua built as C
+  (`luaD_throw`; built as C++ it uses C++ exceptions instead). One jump from the raise site
+  to the innermost protected region; C frames in between are skipped.
+* **return-code family** — CPython (`NULL` return + error indicator; since 3.11 the frame's
+  exception table is consulted in `exception_unwind`, "zero-cost" until a raise happens),
+  the HotSpot interpreter (pending exception + per-method exception table lookup, frame by
+  frame), and essentially every VM written in Rust (RustPython `PyResult`, Boa
+  `JsResult`, wasmi traps), because Rust panics are not for control flow, cannot cross FFI,
+  and `Result` works in `no_std`.
+
+SabiRuby is in the second family; the per-frame catch table + explicit walk is the same shape
+as CPython 3.11 / HotSpot. The nested `run_loop` for native → Ruby calls is also the common
+choice (CPython, Lua's `luaD_call` → `luaV_execute`). The known consequence is shared with
+mruby: a Fiber cannot be switched across a native boundary (mruby raises FiberError
+"can't cross C function boundary"); this will apply when `mruby-fiber` is ported.
