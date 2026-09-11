@@ -42,10 +42,38 @@ memory. Two ways to prepare for an 8-byte representation were considered:
   globals, ranges), representation unchanged. `bench.md` before → after: `bm_fib` 3.45x → 3.40x, `bm_so_lists` 15.75x → 15.61x,
   `bm_so_mandelbrot` 1.80x → 1.82x (best of 3 each). Within noise, as predicted. Test suite unchanged (805/833, 15 fixtures).
 
+## Garbage collector (2026-09-11)
+
+Design in [`gc.md`](gc.md). Prediction (from `gc-plan.md`): the per-instruction cost is one `bool` test at the loop head,
+so the three benchmarks stay within noise (a slowdown over 5% means something heavy went into `alloc`); memory of an
+allocating loop becomes bounded.
+
+### Measured
+
+* Benchmarks, SabiRuby before (`d81acb2`) → after, best of 5 runs interleaved on the same host (ms):
+  `bm_fib` 6162 → 6233 (+1.1%), `bm_so_lists` 3778 → 3763 (−0.4%), `bm_so_mandelbrot` 1639 → 1694 (+3.3%).
+  `bm_fib` and `bm_so_mandelbrot` never collect (`so_lists`: 5 collections, 0.7 ms), so the difference is the loop-head
+  test: a build without it ran mandelbrot in 1656 ms in the same session (about 2.7% of the 3.3%). Within the 5% budget;
+  if it matters later, fold it into the step-budget test (one branch for both).
+* `bench/src/gc_churn.rb` (1 000 000 iterations of `a = [i, "x" * 10, {k: i}]`, `sabiruby run --stats`):
+
+  | | time | max RSS | live at the end |
+  |---|---:|---:|---:|
+  | before (no collector) | 631 ms | 1 346 712 KB | 4 000 347 |
+  | after | 349 ms | 4 452 KB | 2 994 |
+
+  976 collections, 52 ms in total, so about 53 µs per collection (a few thousand live objects plus the ~350 of mrblib).
+  `live` saw-tooths between about 350 right after a collection and 350 + 4096 (the minimum interval) before the next;
+  the heap table stays at 4 438 slots. The run is faster than before because the heap no longer grows (no reallocation
+  of a 4-million-entry `Vec`, better cache behaviour).
+* Stress mode (`SABIRUBY_GC_STRESS=1`, a collection at every boundary after an allocation): the whole test suite takes
+  1.5 s instead of 0.13 s (release), 30 s in a debug build; the results are identical.
+
 ## Known structural costs (2026-09-11)
 
 * `Value` 16 bytes (above).
-* Heap = `Vec<HeapObject>` indexed by `ObjId`, no garbage collector: allocation is a push, memory only grows.
+* Heap = `Vec<HeapObject>` indexed by `ObjId`; allocation pops a free slot or pushes. Mark & sweep, stop the world
+  (`gc.md`): a pause is proportional to the heap (about 50 µs for 4 000 slots).
 * Native methods copy arrays (`items()`) instead of borrowing; `Array#shift`/`unshift` are O(n).
 * Native → VM re-entry (`Vm::funcall`, `call_block`) uses the host stack; `sort` with a block and `Hash#each`-style
   natives pay a frame setup per callback. The Future-native design (see the book's notes) removes this.

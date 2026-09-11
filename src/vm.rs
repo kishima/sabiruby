@@ -9,7 +9,7 @@ use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use hashbrown::HashMap;
 
 use crate::error::{VmError, VmResult};
-use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, ObjKind, ProcData, Vis};
+use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, ObjKind, ProcData, Vis, GC_MIN_INTERVAL};
 use crate::opcode::{Op, Operands};
 use crate::rite::{self, CatchType, Pool};
 use crate::symbol::{Interner, Sym};
@@ -1377,7 +1377,7 @@ impl Vm {
     /// Stress mode (mruby `MRB_GC_STRESS`): every allocation makes a collection due.
     pub fn set_gc_stress(&mut self, on: bool) {
         self.gc_stress = on;
-        self.heap.alloc_threshold = if on { 1 } else { usize::MAX };
+        self.heap.alloc_threshold = if on { 1 } else { GC_MIN_INTERVAL.max(self.heap.allocated_since_gc + 1) };
     }
 
     /// The due collection, at an instruction boundary. Postponed (it stays due)
@@ -1402,22 +1402,47 @@ impl Vm {
         let t0 = self.gc_clock.map(|c| c());
         let mut work: Vec<ObjId> = Vec::new();
         let mut ctxs: Vec<usize> = Vec::new();
+        let mut windows: Vec<(usize, usize, usize)> = Vec::new();
         let mut ctx_marked = vec![false; self.contexts.len()];
         self.gc_mark_roots(&mut work, &mut ctxs);
         loop {
-            self.heap.mark_drain(&mut work, &mut ctxs);
-            let Some(c) = ctxs.pop() else { break };
-            if ctx_marked[c] { continue; }
-            ctx_marked[c] = true;
-            self.gc_mark_context(c, &mut work);
+            self.heap.mark_drain(&mut work, &mut ctxs, &mut windows);
+            if let Some(c) = ctxs.pop() {
+                if !ctx_marked[c] {
+                    ctx_marked[c] = true;
+                    self.gc_mark_context(c, &mut work);
+                }
+            } else if let Some((c, base, len)) = windows.pop() {
+                if !ctx_marked[c] {
+                    let st = if c == self.cur { &self.stack } else { &self.contexts[c].stack };
+                    let end = (base + len).min(st.len());
+                    if base < end { self.heap.mark_slots(&st[base..end], &mut work); }
+                }
+            } else {
+                break;
+            }
         }
         // A context nothing reached (its Fiber object is garbage) can never run
-        // again: drop its stack and frames. The index is not reused.
-        for (c, ctx) in self.contexts.iter_mut().enumerate() {
+        // again. The environments of its frames that are still reachable (a
+        // block captured there) take their values off the stack first (mruby
+        // `mrb_env_detach_all` in the sweep), then the stack and frames go.
+        // The index is not reused.
+        for c in 0..self.contexts.len() {
             if ctx_marked[c] { continue; }
-            if ctx.status != FiberState::Terminated || !ctx.stack.is_empty() || !ctx.ci.is_empty() || ctx.fib.is_some() || ctx.proc_.is_some() {
-                *ctx = Context::new(FiberState::Terminated);
+            let ctx = &self.contexts[c];
+            if ctx.status == FiberState::Terminated && ctx.stack.is_empty() && ctx.ci.is_empty() && ctx.fib.is_none() && ctx.proc_.is_none() { continue; }
+            for f in &ctx.ci {
+                let Some(e) = f.env else { continue };
+                if !self.heap.is_marked(e) { continue; }
+                let (attached, base, len) = { let ed = self.heap.env(e); (ed.attached, ed.base, ed.len) };
+                if !attached { continue; }
+                let end = (base + len).min(ctx.stack.len());
+                let vals = if base < end { ctx.stack[base..end].to_vec() } else { Vec::new() };
+                let ed = self.heap.env_mut(e);
+                ed.values = vals;
+                ed.attached = false;
             }
+            self.contexts[c] = Context::new(FiberState::Terminated);
         }
         self.heap.sweep();
         let live = self.heap.live_count();
@@ -1425,7 +1450,9 @@ impl Vm {
         self.heap.allocated_since_gc = 0;
         self.heap.malloc_increase = 0;
         self.heap.gc_pending = false;
-        self.heap.alloc_threshold = if self.gc_stress { 1 } else { usize::MAX };
+        // `interval_ratio` 200 (the default) lets the heap double: `live` more allocations
+        let ratio = self.gc_interval_ratio.max(100) as usize;
+        self.heap.alloc_threshold = if self.gc_stress { 1 } else { (live * (ratio - 100) / 100).max(GC_MIN_INTERVAL) };
         self.gc_count += 1;
         if let (Some(t0), Some(c)) = (t0, self.gc_clock) { self.gc_time_ns += c().saturating_sub(t0); }
     }

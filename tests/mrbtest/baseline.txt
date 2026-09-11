@@ -12,7 +12,7 @@ env 0
 exception 33
 false 6
 float 28
-gc 18
+gc 23
 gem_array 82
 gem_enum 38
 gem_enumerator 52

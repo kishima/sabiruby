@@ -2,7 +2,7 @@ array	crash: `AryShared` (mruby-test C fixture `ary_shared.c`); skip: needs mrub
 env	all 8 need the `__env_*` natives of mruby-test `env.c` (REnv internals)
 exception	2 skips: `backtrace_available?` is false (no DBG section, no backtrace)
 float	deliberate deviation: a NaN has no identity (Floats are immediates)
-gc	5 KO need a GC arena (`GC.arena_index`-style counting); skip: needs mruby-bigint
+gc	skip: needs mruby-bigint
 integer	skip: no Integer wider than mrb_int without mruby-bigint
 literals	2 skips: Float is defined (same as reference); no mruby-bigint
 superclass	skip: `RegexpError` needs mruby-regexp (not ported)

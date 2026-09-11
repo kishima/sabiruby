@@ -1,5 +1,7 @@
 # GC 実装指示書（SabiRuby）
 
+> 2026-09-11 実装済み。実装の説明と、この指示書から変えた点（理由付き）は [`gc.md`](gc.md)。
+
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に到達可能性 GC を入れられること。
 作業前に `README.md`（Rules、Verification）、`docs/performance.md`、`docs/fibers.md` を読むこと。
 設計判断はここに書いたとおりにし、変えたい場合は理由を `docs/gc.md` に残す。

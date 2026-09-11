@@ -12,7 +12,6 @@ Categories:
   binary (`mrbgems/mruby-test/` or a gem's `test/*.c`). Porting the helper is possible but
   it tests mruby internals (REnv slots, `mrb_vformat`, `mrb_sys_fail`), not Ruby semantics.
   The reference `mruby` command fails these too.
-* **GC** — SabiRuby has no collector yet; tests that count the GC arena cannot pass.
 * **gem** — needs a gem that is not ported yet (`mruby-bigint`, `mruby-regexp`).
 * **deviation** — a difference SabiRuby keeps on purpose (see README).
 * **build** — depends on how the reference binary was built.
@@ -24,7 +23,6 @@ Categories:
 | env | 8 crash | C fixture | Every test calls `__env_svar?`, `__env_len`, `__env_cfunc_proc`, ... from `mruby-test/env.c`, probing REnv slot internals. The reference `mruby` crashes on all 8 too. |
 | exception | 2 skip | build | `GC in rescue` and `Method call in rescue` skip when `backtrace_available?` is false. SabiRuby does not read the DBG section, so `Exception#backtrace` is empty. |
 | float | 1 KO (3 assertions) | deviation | `a NaN is the object it is and no other`: SabiRuby Floats are immediates, so two NaNs made separately are `equal?` and have the same `object_id`. mruby with Word Boxing allocates each NaN on the heap. |
-| gc | 5 KO | GC | `OP_GETIDX/GETIDX0/SETIDX does not retain ... in the GC arena`: they count arena entries after 20000 operations and expect `< 100`; SabiRuby has no arena (the count is the number of objects, 20001). |
 | gc | 1 skip | gem | `OP_ADD does not retain an overflowed Integer`: `requires mruby-bigint`. |
 | integer | 1 skip | gem | `Integer wider than an mrb_int compared with a NaN`: no bigint, so no such integer exists. |
 | literals | 2 skip | build / gem | `Literals Numerical without Float` skips because Float is defined (the reference skips it too, 11/12); `Literals Numerical wider than mrb_int` skips without mruby-bigint. |
@@ -45,11 +43,15 @@ Categories:
 | gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
 | gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |
 
-Summary (2026-09-11, after sprintf, metaprog, proc-ext and method): 1227 assertions, 1180 pass.
-Not passing: 14 crashes (13 C fixtures, 1 core-test-vs-gem conflict the reference shares), 9 KO
-(5 GC arena, 4 deliberate deviations: NaN identity and the pattern-matching guard), 24 skips
+Summary (2026-09-11, after the garbage collector): 1227 assertions, 1185 pass.
+Not passing: 14 crashes (13 C fixtures, 1 core-test-vs-gem conflict the reference shares), 4 KO
+(deliberate deviations: NaN identity and the pattern-matching guard), 24 skips
 (bigint 3, regexp 1, backtrace 2, Float defined 1, revision 1, UTF-8/encoding 12, DBG-dependent
 `source_location` 3, plus the empty `regexperror`), 0 warnings (one was a bug, see below).
+
+The five `... does not retain ... in the GC arena` assertions of `gc` (`OP_GETIDX`, `OP_GETIDX0` twice each,
+`OP_SETIDX`) failed until the collector (`docs/gc.md`): they compare `GC.stat[:live]` around 20000 operations after a
+`GC.start` and expect a rise under 100. SabiRuby has no arena; the objects are simply collected, so they pass.
 
 ## Warnings
 

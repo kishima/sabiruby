@@ -178,7 +178,7 @@ pub struct Heap {
 
 impl Default for Heap {
     fn default() -> Heap {
-        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: usize::MAX, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false }
+        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false }
     }
 }
 
@@ -197,7 +197,7 @@ impl Heap {
     pub fn alloc(&mut self, class: ObjId, kind: ObjKind) -> ObjId {
         self.allocated_since_gc += 1;
         self.malloc_increase += OBJ_BYTES + payload_bytes(&kind);
-        if self.allocated_since_gc >= self.alloc_threshold {
+        if self.allocated_since_gc >= self.alloc_threshold || (self.malloc_threshold != 0 && self.malloc_increase > self.malloc_threshold) {
             self.gc_pending = true;
         }
         let o = HeapObject { class, ivars: Vec::new(), frozen: false, kind };
@@ -264,10 +264,15 @@ impl Heap {
     pub fn mark_slots(&mut self, slots: &[Slot], work: &mut Vec<ObjId>) {
         for s in slots { self.mark_value(s.get(), work); }
     }
-    /// Blackens the grey objects in `work` until none is left. Contexts
-    /// reached through a Fiber or an on-stack environment are appended to
-    /// `ctxs` for the VM to scan (their stacks are not heap objects).
-    pub fn mark_drain(&mut self, work: &mut Vec<ObjId>, ctxs: &mut Vec<usize>) {
+    /// True when the current mark phase reached `id`.
+    pub fn is_marked(&self, id: ObjId) -> bool {
+        self.flags[id.0 as usize] & MARKED != 0
+    }
+    /// Blackens the grey objects in `work` until none is left. What lives on
+    /// context stacks (not heap objects) is handed back for the VM to scan:
+    /// contexts reached through a Fiber go to `ctxs`, and the stack window
+    /// `(ctx, base, len)` of an attached environment goes to `windows`.
+    pub fn mark_drain(&mut self, work: &mut Vec<ObjId>, ctxs: &mut Vec<usize>, windows: &mut Vec<(usize, usize, usize)>) {
         while let Some(id) = work.pop() {
             // `objs` is only read and `flags` only written here: split the borrow.
             let Heap { objs, flags, .. } = self;
@@ -299,8 +304,9 @@ impl Heap {
                 ObjKind::Env(e) => {
                     for v in &e.values { mark(v.get()); }
                     if let Some(t) = e.target_class { mark(Value::Obj(t)); }
-                    // the values of an attached env live on its context's stack
-                    if e.attached { ctxs.push(e.ctx); }
+                    // the values of an attached env live on its context's stack; only
+                    // that window is kept (mruby marks `e->stack[0..len]`), not the fiber
+                    if e.attached { windows.push((e.ctx, e.base, e.len)); }
                 }
                 ObjKind::Class(c) => {
                     for x in [c.superclass, c.iclass_of, c.origin, c.origin_of, c.outer].into_iter().flatten() { mark(Value::Obj(x)); }

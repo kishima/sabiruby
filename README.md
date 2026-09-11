@@ -34,8 +34,13 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   loaded in the reference gembox order; see [`docs/gems.md`](docs/gems.md)). `send`/`__send__`
   from bytecode dispatch in place, as in mruby, so a `Fiber.yield` behind them is not a native
   boundary.
+* Garbage collection: stop-the-world mark & sweep with a free list, run at instruction
+  boundaries and never while a native is on the host stack (natives need no arena; a host
+  keeping objects across calls uses `Vm::gc_register`). `GC.start`/`enable`/`disable`,
+  `interval_ratio`, `malloc_threshold`, `GC.stat[:live]` are real. `SABIRUBY_GC_STRESS=1`
+  collects after every allocation. See [`docs/gc.md`](docs/gc.md).
 
-Not yet: garbage collection (the heap only grows), bigint, `$~`/`$_`, the remaining mrbgems
+Not yet: bigint, `$~`/`$_`, the remaining mrbgems
 (`io`, `time`, `math`, `struct`, …), encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
@@ -57,15 +62,15 @@ matching is not detected.
 `tests/fixtures/*.rb` are compiled and run by the reference mruby 4.1.0-rc
 (Docker image `kishima/mruby:4.1.0-rc`, see `tools/fixtures.sh`); `.out` holds the
 reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every `.mrb`
-on SabiRuby and compares stdout byte for byte. All 16 fixtures pass.
+on SabiRuby and compares stdout byte for byte. All 17 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`).
 
 mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
-gems (`gem_*`, 394 assertions) passes 1180 of 1227 (see [`docs/mrbtest.md`](docs/mrbtest.md),
+gems (`gem_*`, 394 assertions) passes 1185 of 1227 (see [`docs/mrbtest.md`](docs/mrbtest.md),
 reasons for the rest in [`docs/mrbtest-notes.md`](docs/mrbtest-notes.md)); of the gem
 assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
 ones skip.
-The rest: 16 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
-`ary_shared.c`) or a real garbage collector (arena tests), 2 are the deviations above, and
+The rest: 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
+`ary_shared.c`), 2 are the deviations above, and
 the remaining ones are skips the reference makes too (bigint, regexp, build-dependent).
 `tools/mrbtest.sh` compiles the gem tests and gem mrblibs too (`GEMS` in the script).
 
@@ -93,13 +98,13 @@ suite keeps going and the table shows them as "crash".
 and writes [`docs/bench.md`](docs/bench.md) (best of 3, plus instruction counts and
 ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
 first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
-The value representation (16-byte enum) and the heap (index into a `Vec`, no GC) are the
+The value representation (16-byte enum) and the heap (index into a `Vec`) are the
 known structural costs; measure before changing them. Storage (registers, array elements,
 hash entries, ivars, envs, constants, globals) holds `Slot`; computation works on `Value`;
 `slot.get()` / `Slot::from(v)` are the only crossings, so an 8-byte representation can be
 tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](docs/performance.md).
 Exception/break unwinding without longjmp: [`docs/exceptions.md`](docs/exceptions.md).
-GC (not implemented yet; the implementation plan is [`docs/gc-plan.md`](docs/gc-plan.md)).
+GC: [`docs/gc.md`](docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](docs/gc-plan.md)).
 
 ## Usage
 
@@ -132,7 +137,7 @@ loop {
 | `src/rite.rs` | RITE binary reader |
 | `src/opcode.rs` | opcode table generated from mruby's `ops.h` |
 | `src/vm.rs` | interpreter loop, frames, environments, unwinding |
-| `src/object.rs` | heap objects (classes, procs, envs, strings, arrays, hashes) |
+| `src/object.rs` | heap objects (classes, procs, envs, strings, arrays, hashes), mark & sweep |
 | `src/builtins/` | native methods per class |
 | `src/mrblib.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |
 | `tests/fixtures/` | reference programs, bytecode and expected output |
