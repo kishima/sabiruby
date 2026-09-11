@@ -1,0 +1,4 @@
+trace (most recent call last):
+	[2] /w/eval_outer_scope.rb:15
+	[1] /w/eval_outer_scope.rb:12:in m
+/w/eval_outer_scope.rb:12:in eval: file (eval) line 0: generator error, Can't find local variables (SyntaxError)

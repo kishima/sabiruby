@@ -96,6 +96,20 @@ The reference image includes the default gembox (array-ext, hash-ext, compar-ext
 gems listed under Status are ported; of the others, only `Comparable#clamp` (mruby-compar-ext)
 is provided, natively.
 
+### SabiRuby's own tests
+
+`tests/custom/<case>.rb` are tests written for SabiRuby itself: behaviour the
+reference `mruby` gets wrong in 4.1.0-rc (with the upstream fix named), things
+the reference test suite does not cover, and features planned but not built
+yet. Each case has a hand-decided `.expected` (its header says from what:
+CRuby, an mruby master commit, or the reference), the reference output
+`.rc.out` to show where they differ on purpose, and a `.mrb` compiled by the
+reference `mrbc` (`tools/custom.sh`, Docker). A header line
+`# pending: <feature>` marks a case that must fail until that feature exists;
+the runner (`tests/custom.rs`, part of `cargo test`) fails when a pending case
+starts passing, so the marker is removed with the feature. The fixtures and
+mruby's suite above are the baseline and are not changed by this.
+
 ### mruby's own test suite
 
 `tools/mrbtest.sh` copies `test/assert.rb` and `test/t/*.rb` from the reference tree,

@@ -232,6 +232,8 @@ SabiRuby 向けの違い:
 
 ## 6. 検証
 
+* `tests/custom/`（SabiRuby 独自のテスト。2026-09-12 に枠を作った）に eval と binding の 4 件を `# pending: eval`／`# pending: binding` で先に置いてある。
+  eval が入ったら `pending` を外す。期待値は本家 rc ではなく修正後の挙動（`eval_class_eval_scope`: master `300cc9532`、`eval_outer_scope`: CRuby）。
 * `sabiruby compile` の黄金テスト 85 本が変わらないこと（コンパイラのパッチが既存経路に影響しない証拠）。
 * `mruby-eval/test/eval.rb`（18 件）を `tools/mrbtest.sh` の `GEMS` に足して全件通す。`mrbtest` の実行器は CLI 側にあり、ホストを登録できる。
   `Kernel#eval` のテストは `a = 10; eval "a"`、`lambda { a = 10; eval "c = a + c" }.call`（2 段外側への書き込み）、`eval 'lambda { c }.call'`（eval の中で作ったブロックからさらに外側）、
