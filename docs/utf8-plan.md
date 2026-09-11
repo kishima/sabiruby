@@ -21,7 +21,17 @@ are byte-based in both builds. 76 assertions in the reference tests are guarded 
 `UTF8STRING` (`__ENCODING__ == "UTF-8"`), currently skipped here (see
 `docs/mrbtest-notes.md`: gem_string 9, gem_sprintf 3, plus core string tests).
 
-## Decision to make
+## Decision
+
+Option B, decided by the author on 2026-09-12 (there may be uses without Japanese).
+One crate serves both: crates.io ships the source with both code paths, and the
+feature is chosen by whoever builds (`default = ["std", "utf8"]`; a byte-string build
+is `sabiruby = { version = "...", default-features = false, features = ["std"] }`).
+Features are additive: `utf8` adds character semantics, so opting out is done by
+dropping the default, never by a "bytes" feature. Cargo unifies features per build, so
+one program has one mode, as with mruby's compile-time flag.
+
+## The two options that were considered
 
 * **A: UTF-8 only.** Drop the byte build. Simplest code and one verification baseline,
   but the baseline moves: a second reference image `kishima/mruby:4.1.0-rc-utf8` (built
