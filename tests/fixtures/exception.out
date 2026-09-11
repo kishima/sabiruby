@@ -1,0 +1,7 @@
+2
+ArgumentError
+"bad -1"
+:ensure
+"divided by 0"
+NoMethodError
+:fallback

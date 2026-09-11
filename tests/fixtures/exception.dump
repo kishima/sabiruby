@@ -1,0 +1,100 @@
+irep 0x61ec6b6dfee0 nregs=8 nlocals=3 pools=1 syms=12 reps=1 ilen=206
+local variable names:
+  R1:e
+  R2:x
+catch type: ensure   begin: 0004 end: 0066 target: 0066
+catch type: rescue   begin: 0004 end: 0024 target: 0027
+catch type: rescue   begin: 0077 end: 0083 target: 0086
+catch type: rescue   begin: 0119 end: 0124 target: 0127
+catch type: rescue   begin: 0160 end: 0167 target: 0170
+file: /w/exception.rb
+    1 000 TDEF		R3	:risky	I[0]
+    6 004 LOADI_1	R5	(1)
+    6 006 SSEND		R4	:risky	n=1
+    6 010 SSEND		R3	:p	n=1
+    7 014 LOADI__1	R5	(-1)
+    7 016 SSEND		R4	:risky	n=1
+    7 020 SSEND		R3	:p	n=1
+    7 024 JMP		066
+    7 027 EXCEPT	R3	
+    8 029 GETCONST	R4	ArgumentError
+    8 032 RESCUE	R3	R4
+    8 035 JMPIF		R4	042
+    8 039 JMP		064
+    8 042 MOVE		R1	R3	; R1:e
+    9 045 MOVE		R4	R1	; R1:e
+    9 048 SEND0		R4	:class
+    9 051 MOVE		R5	R1	; R1:e
+    9 054 SEND0		R5	:message
+    9 057 SSEND		R3	:p	n=2
+    9 061 JMP		066
+    9 064 RAISEIF	R3	
+    9 066 EXCEPT	R4	
+   11 068 LOADSYM	R6	:ensure
+   11 071 SSEND		R5	:p	n=1
+   11 075 RAISEIF	R4	
+   14 077 LOADI_1	R3	(1)
+   14 079 LOADI_0	R4	(0)
+   14 081 DIV		R3	(R4)
+   14 083 JMP		119
+   14 086 EXCEPT	R3	
+   15 088 GETCONST	R4	ZeroDivisionError
+   15 091 RESCUE	R3	R4
+   15 094 JMPIF		R4	101
+   15 098 JMP		117
+   15 101 MOVE		R1	R3	; R1:e
+   16 104 MOVE		R4	R1	; R1:e
+   16 107 SEND0		R4	:message
+   16 110 SSEND		R3	:p	n=1
+   16 114 JMP		119
+   16 117 RAISEIF	R3	
+   19 119 LOADNIL	R3	(nil)
+   19 121 SEND0		R3	:foo
+   19 124 JMP		160
+   19 127 EXCEPT	R3	
+   20 129 GETCONST	R4	NoMethodError
+   20 132 RESCUE	R3	R4
+   20 135 JMPIF		R4	142
+   20 139 JMP		158
+   20 142 MOVE		R1	R3	; R1:e
+   21 145 MOVE		R4	R1	; R1:e
+   21 148 SEND0		R4	:class
+   21 151 SSEND		R3	:p	n=1
+   21 155 JMP		160
+   21 158 RAISEIF	R3	
+   24 160 STRING	R4	L[0]	; zz
+   24 163 SSEND		R3	:Integer	n=1
+   24 167 JMP		193
+   24 170 EXCEPT	R3	
+   24 172 GETCONST	R4	StandardError
+   24 175 RESCUE	R3	R4
+   24 178 JMPIF		R4	185
+   24 182 JMP		191
+   26 185 LOADSYM	R3	:fallback
+   26 188 JMP		193
+   26 191 RAISEIF	R3	
+   26 193 MOVE		R2	R3	; R2:x
+   28 196 MOVE		R4	R2	; R2:x
+   28 199 SSEND		R3	:p	n=1
+   28 203 RETURN	R3	
+   28 205 STOP
+
+irep 0x61ec6b6e1610 nregs=7 nlocals=3 pools=1 syms=2 reps=0 ilen=39
+local variable names:
+  R1:n
+file: /w/exception.rb
+    1 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    2 004 MOVE		R3	R1	; R1:n
+    2 007 LOADI_0	R4	(0)
+    2 009 LT		R3	(R4)
+    2 011 JMPNOT	R3	030
+    2 015 GETCONST	R4	ArgumentError
+    2 018 STRING	R5	L[0]	; bad 
+    2 021 MOVE		R6	R1	; R1:n
+    2 024 STRCAT	R5	(R6)
+    2 026 SSEND		R3	:raise	n=2
+    3 030 MOVE		R3	R1	; R1:n
+    3 033 LOADI_2	R4	(2)
+    3 035 MUL		R3	(R4)
+    3 037 RETURN	R3	
+

@@ -1,0 +1,41 @@
+irep 0x59d2b40091d0 nregs=12 nlocals=2 pools=2 syms=3 reps=0 ilen=89
+local variable names:
+  R1:x
+file: /w/arith.rb
+    1 000 LOADI_3	R3	(3)
+    1 002 LOADINEG	R4	-4
+    1 005 LOADI__1	R5	(-1)
+    1 007 LOADI_2	R6	(2)
+    1 009 LOADI8	R7	10
+    1 012 SEND		R6	:**	n=1
+    1 016 LOADL		R7	L[0]	; 1.500000
+    1 019 ADDI		R7	2
+    1 022 LOADI_4	R8	(4)
+    1 024 SSEND		R2	:p	n=6
+    2 028 LOADI_1	R3	(1)
+    2 030 LOADI_1	R4	(1)
+    2 032 EQ		R3	(R4)
+    2 034 LOADI_1	R4	(1)
+    2 036 LOADI_2	R5	(2)
+    2 038 LT		R4	(R5)
+    2 040 LOADI_2	R5	(2)
+    2 042 LOADI_2	R6	(2)
+    2 044 LE		R5	(R6)
+    2 046 LOADI_3	R6	(3)
+    2 048 LOADI_4	R7	(4)
+    2 050 GT		R6	(R7)
+    2 052 LOADI_3	R7	(3)
+    2 054 LOADI_3	R8	(3)
+    2 056 GE		R7	(R8)
+    2 058 LOADI_1	R8	(1)
+    2 060 LOADI_2	R9	(2)
+    2 062 SEND		R8	:!=	n=1
+    2 066 SSEND		R2	:p	n=6
+    3 070 LOADL		R3	L[1]	; 10000000000
+    3 073 SSEND		R2	:p	n=1
+    6 077 LOADI_4	R1	(4)	; R1:x
+    7 079 MOVE		R3	R1	; R1:x
+    7 082 SSEND		R2	:p	n=1
+    7 086 RETURN	R2	
+    7 088 STOP
+

@@ -1,0 +1,190 @@
+irep 0x61d9ee17ba20 nregs=13 nlocals=3 pools=39 syms=39 reps=0 ilen=542
+local variable names:
+  R1:s
+  R2:t
+catch type: rescue   begin: 0433 end: 0470 target: 0473
+file: /w/strings.rb
+    1 000 STRING	R1	L[0]	; Hello, World	; R1:s
+    2 003 MOVE		R4	R1	; R1:s
+    2 006 SEND0		R4	:length
+    2 009 MOVE		R5	R1	; R1:s
+    2 012 SEND0		R5	:upcase
+    2 015 MOVE		R6	R1	; R1:s
+    2 018 SEND0		R6	:downcase
+    2 021 MOVE		R7	R1	; R1:s
+    2 024 SEND0		R7	:reverse
+    2 027 MOVE		R8	R1	; R1:s
+    2 030 STRING	R9	L[1]	; o
+    2 033 SEND		R8	:index	n=1
+    2 037 MOVE		R9	R1	; R1:s
+    2 040 STRING	R10	L[2]	; World
+    2 043 SEND		R9	:include?	n=1
+    2 047 SSEND		R3	:p	n=6
+    3 051 GETIDX0	R4	R1[0]
+    3 054 MOVE		R5	R1	; R1:s
+    3 057 LOADI__1	R6	(-1)
+    3 059 GETIDX	R5	(R6)
+    3 061 MOVE		R6	R1	; R1:s
+    3 064 LOADI_0	R7	(0)
+    3 066 LOADI_5	R8	(5)
+    3 068 SEND		R6	:[]	n=2
+    3 072 MOVE		R7	R1	; R1:s
+    3 075 LOADI_7	R8	(7)
+    3 077 LOADNIL	R9	(nil)
+    3 079 RANGE_INC	R8
+    3 081 GETIDX	R7	(R8)
+    3 083 MOVE		R8	R1	; R1:s
+    3 086 LOADI_0	R9	(0)
+    3 088 LOADI_5	R10	(5)
+    3 090 RANGE_EXC	R9
+    3 092 GETIDX	R8	(R9)
+    3 094 MOVE		R9	R1	; R1:s
+    3 097 LOADI_2	R10	(2)
+    3 099 MUL		R9	(R10)
+    3 101 SSEND		R3	:p	n=6
+    4 105 STRING	R4	L[3]	; a-b-c
+    4 108 STRING	R5	L[4]	; -
+    4 111 SEND		R4	:split	n=1
+    4 115 STRING	R5	L[5]	;   x  
+    4 118 SEND0		R5	:strip
+    4 121 STRING	R6	L[6]	; abc
+
+    4 124 SEND0		R6	:chomp
+    4 127 STRING	R7	L[7]	; abc
+    4 130 SEND0		R7	:chars
+    4 133 STRING	R8	L[7]	; abc
+    4 136 SEND0		R8	:bytes
+    4 139 SSEND		R3	:p	n=5
+    5 143 STRING	R4	L[7]	; abc
+    5 146 STRING	R5	L[8]	; abd
+    5 149 SEND		R4	:<=>	n=1
+    5 153 STRING	R5	L[7]	; abc
+    5 156 STRING	R6	L[7]	; abc
+    5 159 EQ		R5	(R6)
+    5 161 STRING	R6	L[7]	; abc
+    5 164 STRING	R7	L[7]	; abc
+    5 167 SEND		R6	:eql?	n=1
+    5 171 STRING	R7	L[7]	; abc
+    5 174 STRING	R8	L[7]	; abc
+    5 177 SEND		R7	:equal?	n=1
+    5 181 SSEND		R3	:p	n=4
+    6 185 STRING	R4	L[9]	; x=
+    6 188 LOADI_2	R5	(2)
+    6 190 STRCAT	R4	(R5)
+    6 192 STRING	R5	L[10]	; single #{no}
+    6 195 STRING	R6	L[11]	; tab	nl
+
+    6 198 SEND0		R6	:inspect
+    6 201 SSEND		R3	:p	n=3
+    7 205 STRING	R4	L[7]	; abc
+    7 208 STRING	R5	L[12]	; ab
+    7 211 SEND		R4	:start_with?	n=1
+    7 215 STRING	R5	L[7]	; abc
+    7 218 STRING	R6	L[13]	; bc
+    7 221 SEND		R5	:end_with?	n=1
+    7 225 STRING	R6	L[7]	; abc
+    7 228 STRING	R7	L[14]	; b
+    7 231 STRING	R8	L[15]	; B
+    7 234 SEND		R6	:sub	n=2
+    7 238 STRING	R7	L[16]	; aaa
+    7 241 STRING	R8	L[17]	; a
+    7 244 STRING	R9	L[14]	; b
+    7 247 SEND		R7	:gsub	n=2
+    7 251 SSEND		R3	:p	n=4
+    8 255 STRING	R4	L[18]	; 12abc
+    8 258 SEND0		R4	:to_i
+    8 261 STRING	R5	L[19]	; 3.5x
+    8 264 SEND0		R5	:to_f
+    8 267 STRING	R6	L[20]	; 0x1f
+    8 270 LOADI8	R7	16
+    8 273 SEND		R6	:to_i	n=1
+    8 277 STRING	R7	L[21]	; ff
+    8 280 LOADI8	R8	16
+    8 283 SEND		R7	:to_i	n=1
+    8 287 LOADI8	R8	255
+    8 290 LOADI_2	R9	(2)
+    8 292 SEND		R8	:to_s	n=1
+    8 296 LOADI8	R9	255
+    8 299 LOADI8	R10	16
+    8 302 SEND		R9	:to_s	n=1
+    8 306 SSEND		R3	:p	n=6
+    9 310 STRING	R4	L[7]	; abc
+    9 313 SEND0		R4	:succ
+    9 316 STRING	R5	L[22]	; az
+    9 319 SEND0		R5	:succ
+    9 322 STRING	R6	L[23]	; zz
+    9 325 SEND0		R6	:succ
+    9 328 STRING	R7	L[24]	; a9
+    9 331 SEND0		R7	:succ
+    9 334 SSEND		R3	:p	n=4
+   10 338 STRING	R4	L[7]	; abc
+   10 341 SEND0		R4	:to_sym
+   10 344 STRING	R5	L[25]	; with space
+   10 347 SEND0		R5	:to_sym
+   10 350 LOADSYM	R6	:a-b
+   10 353 SSEND		R3	:p	n=3
+   11 357 STRING	R2	L[26]	; mutable	; R2:t
+   12 360 MOVE		R3	R2	; R2:t
+   12 363 STRING	R4	L[27]	;  string
+   12 366 SEND		R3	:<<	n=1
+   13 370 MOVE		R3	R2	; R2:t
+   13 373 LOADI_0	R4	(0)
+   13 375 STRING	R5	L[28]	; M
+   13 378 SETIDX	R3	(R4)	(R5)
+   14 380 MOVE		R4	R2	; R2:t
+   14 383 MOVE		R5	R2	; R2:t
+   14 386 SEND0		R5	:frozen?
+   14 389 STRING	R6	L[29]	; lit
+   14 392 SEND0		R6	:frozen?
+   14 395 SSEND		R3	:p	n=3
+   15 399 STRING	R4	L[30]	; multi
+   15 402 STRING	R5	L[17]	; a
+   15 405 STRING	R6	L[14]	; b
+   15 408 ARRAY		R6	1
+   15 411 ARRAY		R5	2
+   15 414 LOADNIL	R6	(nil)
+   15 416 LOADL		R7	L[31]	; 3.500000
+   15 419 SSEND		R3	:puts	n=4
+   16 423 STRING	R4	L[32]	; no newline
+   16 426 STRING	R5	L[33]	; 
+
+   16 429 SSEND		R3	:print	n=2
+   17 433 LOADL		R4	L[34]	; 1.000000
+   17 436 LOADL		R5	L[35]	; 150000000000000000000.000000
+   17 439 LOADL		R6	L[36]	; 0.000010
+   17 442 LOADL		R7	L[37]	; 100.000000
+   17 445 LOADI_3	R8	(3)
+   17 447 DIV		R7	(R8)
+   17 449 LOADI_2	R8	(2)
+   17 451 LOADI8	R9	62
+   17 454 SEND		R8	:**	n=1
+   17 458 LOADI_7	R9	(7)
+   17 460 LOADI_2	R10	(2)
+   17 462 SEND		R9	:fdiv	n=1
+   17 466 SSEND		R3	:p	n=6
+   17 470 JMP		494
+   17 473 EXCEPT	R3	
+   17 475 GETCONST	R4	StandardError
+   17 478 RESCUE	R3	R4
+   17 481 JMPIF		R4	487
+   17 485 RAISEIF	R3	
+   17 487 LOADSYM	R4	:no_fdiv
+   17 490 SSEND		R3	:p	n=1
+   18 494 LOADI8	R4	10
+   18 497 LOADI_3	R5	(3)
+   18 499 SEND		R4	:divmod	n=1
+   18 503 LOADINEG	R5	-7
+   18 506 LOADI_2	R6	(2)
+   18 508 SEND		R5	:divmod	n=1
+   18 512 LOADL		R6	L[38]	; 7.500000
+   18 515 SEND0		R6	:floor
+   18 518 LOADL		R7	L[38]	; 7.500000
+   18 521 SEND0		R7	:round
+   18 524 LOADL		R8	L[38]	; 7.500000
+   18 527 SEND0		R8	:ceil
+   18 530 LOADI_2	R9	(2)
+   18 532 LOADINEG	R10	-2
+   18 535 SSEND		R3	:p	n=7
+   18 539 RETURN	R3	
+   18 541 STOP
+

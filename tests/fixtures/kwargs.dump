@@ -1,0 +1,174 @@
+irep 0x59d0f088bc90 nregs=14 nlocals=3 pools=2 syms=14 reps=4 ilen=281
+local variable names:
+  R1:h
+  R2:e
+catch type: rescue   begin: 0151 end: 0160 target: 0163
+catch type: rescue   begin: 0196 end: 0210 target: 0213
+file: /w/kwargs.rb
+    1 000 TDEF		R3	:kw	I[0]
+    4 004 LOADSYM	R5	:a
+    4 007 LOADI_1	R6	(1)
+    4 009 SSEND		R4	:kw	n=0|nk=1
+    4 013 LOADSYM	R6	:b
+    4 016 LOADI_3	R7	(3)
+    4 018 LOADSYM	R8	:a
+    4 021 LOADI_2	R9	(2)
+    4 023 SSEND		R5	:kw	n=0|nk=2
+    4 027 SSEND		R3	:p	n=2
+    5 031 TDEF		R3	:mixed	I[1]
+    8 035 LOADI_1	R5	(1)
+    8 037 SSEND		R4	:mixed	n=1
+    8 041 LOADI_1	R6	(1)
+    8 043 LOADI_2	R7	(2)
+    8 045 LOADI_3	R8	(3)
+    8 047 LOADSYM	R9	:k
+    8 050 LOADI_4	R10	(4)
+    8 052 LOADSYM	R11	:z
+    8 055 LOADI_5	R12	(5)
+    8 057 SSEND		R5	:mixed	n=3|nk=2
+    8 061 LOADI_1	R7	(1)
+    8 063 HASH		R8	0
+    8 066 LOADSYM	R9	:k
+    8 069 LOADI8	R10	9
+    8 072 HASH		R9	1
+    8 075 HASHCAT	R8	(R9)
+    8 077 SSEND		R6	:mixed	n=1|nk=*
+    8 081 SSEND		R3	:p	n=3
+    9 085 LOADSYM	R3	:a
+    9 088 LOADI_1	R4	(1)
+    9 090 HASH		R3	1
+    9 093 MOVE		R1	R3	; R1:h
+   10 096 HASH		R5	0
+   10 099 MOVE		R6	R1	; R1:h
+   10 102 HASHCAT	R5	(R6)
+   10 104 SSEND		R4	:kw	n=0|nk=*
+   10 108 SSEND		R3	:p	n=1
+   11 112 LOADI_1	R4	(1)
+   11 114 LOADI_2	R5	(2)
+   11 116 LOADI_3	R6	(3)
+   11 118 ARRAY		R4	3
+   11 121 LOADSYM	R5	:to_s
+   11 124 SENDB		R4	:map	n=0
+   11 128 STRING	R5	L[0]	; a
+   11 131 STRING	R6	L[1]	; b
+   11 134 ARRAY		R5	2
+   11 137 SEND0		R5	:each_with_index
+   11 140 BLOCK		R6	I[2]
+   11 143 SENDB		R5	:map	n=0
+   11 147 SSEND		R3	:p	n=2
+   13 151 LOADSYM	R4	:b
+   13 154 LOADI_1	R5	(1)
+   13 156 SSEND		R3	:kw	n=0|nk=1
+   13 160 JMP		196
+   13 163 EXCEPT	R3	
+   14 165 GETCONST	R4	ArgumentError
+   14 168 RESCUE	R3	R4
+   14 171 JMPIF		R4	178
+   14 175 JMP		194
+   14 178 MOVE		R2	R3	; R2:e
+   15 181 MOVE		R4	R2	; R2:e
+   15 184 SEND0		R4	:message
+   15 187 SSEND		R3	:p	n=1
+   15 191 JMP		196
+   15 194 RAISEIF	R3	
+   18 196 LOADSYM	R4	:a
+   18 199 LOADI_1	R5	(1)
+   18 201 LOADSYM	R6	:c
+   18 204 LOADI_2	R7	(2)
+   18 206 SSEND		R3	:kw	n=0|nk=2
+   18 210 JMP		246
+   18 213 EXCEPT	R3	
+   19 215 GETCONST	R4	ArgumentError
+   19 218 RESCUE	R3	R4
+   19 221 JMPIF		R4	228
+   19 225 JMP		244
+   19 228 MOVE		R2	R3	; R2:e
+   20 231 MOVE		R4	R2	; R2:e
+   20 234 SEND0		R4	:message
+   20 237 SSEND		R3	:p	n=1
+   20 241 JMP		246
+   20 244 RAISEIF	R3	
+   22 246 TDEF		R3	:opt_hash	I[3]
+   25 250 LOADSYM	R5	:a
+   25 253 LOADI_1	R6	(1)
+   25 255 SSEND		R4	:opt_hash	n=0|nk=1
+   25 259 LOADSYM	R6	:b
+   25 262 LOADI_2	R7	(2)
+   25 264 HASH		R6	1
+   25 267 SSEND		R5	:opt_hash	n=1
+   25 271 SSEND0	R6	:opt_hash
+   25 274 SSEND		R3	:p	n=3
+   25 278 RETURN	R3	
+   25 280 STOP
+
+irep 0x59d0f0890810 nregs=7 nlocals=5 pools=0 syms=2 reps=0 ilen=34
+local variable names:
+  R1:**
+  R3:a
+  R4:b
+file: /w/kwargs.rb
+    1 000 ENTER		0:0:0:0:2:0:0:0 (0x8)
+    1 004 KARG		R3	:a	; R3:a
+    1 007 KEY_P		R4	:b	; R4:b
+    1 010 JMPIF		R4	019	; R4:b
+    1 014 LOADI_2	R4	(2)	; R4:b
+    1 016 JMP		022
+    1 019 KARG		R4	:b	; R4:b
+    1 022 KEYEND
+    2 023 MOVE		R5	R3	; R3:a
+    2 026 MOVE		R6	R4	; R4:b
+    2 029 ARRAY		R5	2
+    2 032 RETURN	R5	
+
+irep 0x59d0f0891300 nregs=15 nlocals=8 pools=0 syms=2 reps=0 ilen=56
+local variable names:
+  R1:x
+  R2:y
+  R3:r
+  R4:opts
+  R6:blk
+  R7:k
+file: /w/kwargs.rb
+    5 000 ENTER		1:1:1:0:1:1:1:0 (0x43007)
+    5 004 JMP		010
+    5 007 JMP		012
+    5 010 LOADI_1	R2	(1)	; R2:y
+    5 012 KEY_P		R7	:k	; R7:k
+    5 015 JMPIF		R7	024	; R7:k
+    5 019 LOADI_0	R7	(0)	; R7:k
+    5 021 JMP		027
+    5 024 KARG		R7	:k	; R7:k
+    5 027 MOVE		R6	R5	; R6:blk
+    6 030 MOVE		R8	R1	; R1:x
+    6 033 MOVE		R9	R2	; R2:y
+    6 036 MOVE		R10	R3	; R3:r
+    6 039 MOVE		R11	R7	; R7:k
+    6 042 MOVE		R12	R4	; R4:opts
+    6 045 MOVE		R13	R6	; R6:blk
+    6 048 SEND0		R13	:nil?
+    6 051 ARRAY		R8	6
+    6 054 RETURN	R8	
+
+irep 0x59d0f0891a70 nregs=6 nlocals=4 pools=1 syms=0 reps=0 ilen=19
+local variable names:
+  R1:s
+  R2:i
+file: /w/kwargs.rb
+   11 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   11 004 STRING	R4	L[0]
+   11 007 MOVE		R5	R2	; R2:i
+   11 010 STRCAT	R4	(R5)
+   11 012 MOVE		R5	R1	; R1:s
+   11 015 STRCAT	R4	(R5)
+   11 017 RETURN	R4	
+
+irep 0x59d0f0892e20 nregs=4 nlocals=3 pools=0 syms=0 reps=0 ilen=15
+local variable names:
+  R1:h
+file: /w/kwargs.rb
+   22 000 ENTER		0:1:0:0:0:0:0:0 (0x2000)
+   22 004 JMP		010
+   22 007 JMP		013
+   22 010 HASH		R1	0	; R1:h
+   23 013 RETURN	R1		; R1:h
+

@@ -1,0 +1,456 @@
+irep 0x5b4cece37990 nregs=25 nlocals=15 pools=1 syms=21 reps=18 ilen=504
+local variable names:
+  R1:a
+  R2:b
+  R3:c
+  R4:d
+  R5:first
+  R6:middle
+  R7:last
+  R8:x
+  R9:y
+  R10:up
+  R11:down
+  R12:cur
+  R13:h
+  R14:h2
+file: /w/args.rb
+    1 000 TDEF		R15	:m	I[0]
+    4 004 LOADI_1	R17	(1)
+    4 006 LOADI8	R18	9
+    4 009 SSEND		R16	:m	n=2
+    4 013 LOADI_1	R18	(1)
+    4 015 LOADI_2	R19	(2)
+    4 017 LOADI_3	R20	(3)
+    4 019 SSEND		R17	:m	n=3
+    4 023 LOADI_1	R19	(1)
+    4 025 LOADI_2	R20	(2)
+    4 027 LOADI_3	R21	(3)
+    4 029 LOADI_4	R22	(4)
+    4 031 LOADI_5	R23	(5)
+    4 033 SSEND		R18	:m	n=5
+    4 037 SSEND		R15	:p	n=3
+    5 041 TDEF		R15	:splat	I[1]
+    6 045 SSEND0	R16	:splat
+    6 048 LOADI_1	R18	(1)
+    6 050 SSEND		R17	:splat	n=1
+    6 054 LOADNIL	R19	(nil)
+    6 056 LOADI_1	R20	(1)
+    6 058 LOADI_2	R21	(2)
+    6 060 ARRAY		R20	2
+    6 063 ARYCAT	R19	(R20)
+    6 065 SSEND		R18	:splat	n=*
+    6 069 LOADI_1	R20	(1)
+    6 071 ARRAY		R20	1
+    6 074 LOADI_2	R21	(2)
+    6 076 LOADI_3	R22	(3)
+    6 078 ARRAY		R21	2
+    6 081 ARYCAT	R20	(R21)
+    6 083 LOADI_4	R21	(4)
+    6 085 ARYPUSH	R20	1
+    6 088 SSEND		R19	:splat	n=*
+    6 092 SSEND		R15	:p	n=4
+    7 096 TDEF		R15	:blk	I[2]
+    8 100 SSEND0	R16	:blk
+    8 103 SEND0		R16	:nil?
+    8 106 BLOCK		R18	I[3]
+    8 109 SSENDB	R17	:blk	n=0
+    8 113 SEND0		R17	:class
+    8 116 SSEND		R15	:p	n=2
+    9 120 TDEF		R15	:pass_through	I[4]
+   10 124 LOADI_1	R17	(1)
+   10 126 LOADI_2	R18	(2)
+   10 128 BLOCK		R19	I[5]
+   10 131 SSENDB	R16	:pass_through	n=2
+   10 135 SSEND		R15	:p	n=1
+   11 139 LOADI_1	R16	(1)
+   11 141 LOADI_2	R17	(2)
+   11 143 ARRAY		R16	2
+   11 146 LOADI_3	R17	(3)
+   11 148 LOADI_4	R18	(4)
+   11 150 ARRAY		R17	2
+   11 153 ARRAY		R16	2
+   11 156 BLOCK		R17	I[6]
+   11 159 SENDB		R16	:map	n=0
+   11 163 SSEND		R15	:p	n=1
+   12 167 LOADI_1	R16	(1)
+   12 169 LOADI_2	R17	(2)
+   12 171 LOADI_3	R18	(3)
+   12 173 ARRAY		R17	2
+   12 176 ARRAY		R16	2
+   12 179 ARRAY		R16	1
+   12 182 BLOCK		R17	I[7]
+   12 185 SENDB		R16	:map	n=0
+   12 189 SSEND		R15	:p	n=1
+   13 193 LOADI_1	R15	(1)
+   13 195 LOADI_2	R16	(2)
+   13 197 LOADI_3	R17	(3)
+   13 199 ARRAY		R16	2
+   13 202 LOADI_4	R17	(4)
+   13 204 LOADI_5	R18	(5)
+   13 206 MOVE		R1	R15	; R1:a
+   13 209 AREF		R2	R16	0	; R2:b
+   13 213 AREF		R3	R16	1	; R3:c
+   13 217 ARRAY		R4	R17	2	; R4:d
+   14 221 MOVE		R16	R1	; R1:a
+   14 224 MOVE		R17	R2	; R2:b
+   14 227 MOVE		R18	R3	; R3:c
+   14 230 MOVE		R19	R4	; R4:d
+   14 233 SSEND		R15	:p	n=4
+   15 237 LOADI_1	R15	(1)
+   15 239 LOADI_2	R16	(2)
+   15 241 LOADI_3	R17	(3)
+   15 243 LOADI_4	R18	(4)
+   15 245 MOVE		R5	R15	; R5:first
+   15 248 ARRAY		R6	R16	2	; R6:middle
+   15 252 MOVE		R7	R18	; R7:last
+   16 255 MOVE		R16	R5	; R5:first
+   16 258 MOVE		R17	R6	; R6:middle
+   16 261 MOVE		R18	R7	; R7:last
+   16 264 SSEND		R15	:p	n=3
+   17 268 LOADI_1	R15	(1)
+   17 270 AREF		R8	R15	0	; R8:x
+   17 274 AREF		R9	R15	1	; R9:y
+   18 278 MOVE		R16	R8	; R8:x
+   18 281 MOVE		R17	R9	; R9:y
+   18 284 SSEND		R15	:p	n=2
+   19 288 TDEF		R15	:opt_block	I[8]
+   23 292 LOADI_1	R17	(1)
+   23 294 SSEND		R16	:opt_block	n=1
+   23 298 LOADI_1	R18	(1)
+   23 300 BLOCK		R19	I[9]
+   23 303 SSENDB	R17	:opt_block	n=1
+   23 307 SSEND		R15	:p	n=2
+   24 311 TDEF		R15	:nested	I[10]
+   27 315 SSEND0	R16	:nested
+   27 318 SSEND		R15	:p	n=1
+   28 322 TDEF		R15	:counter_gen	I[11]
+   32 326 SSEND0	R15	:counter_gen
+   32 329 AREF		R10	R15	0	; R10:up
+   32 333 AREF		R11	R15	1	; R11:down
+   32 337 AREF		R12	R15	2	; R12:cur
+   33 341 MOVE		R15	R10	; R10:up
+   33 344 SEND0		R15	:call
+   33 347 MOVE		R15	R10	; R10:up
+   33 350 SEND0		R15	:call
+   33 353 MOVE		R15	R11	; R11:down
+   33 356 SEND0		R15	:call
+   34 359 MOVE		R16	R12	; R12:cur
+   34 362 SEND0		R16	:call
+   34 365 SSEND		R15	:p	n=1
+   35 369 TDEF		R15	:deep	I[12]
+   39 373 LOADI8	R17	200
+   39 376 SSEND		R16	:deep	n=1
+   39 380 SSEND		R15	:p	n=1
+   40 384 LOADI_1	R16	(1)
+   40 386 BLOCK		R17	I[13]
+   40 389 SENDB		R16	:then	n=0
+   40 393 LOADI_5	R17	(5)
+   40 395 BLOCK		R18	I[14]
+   40 398 SENDB		R17	:tap	n=0
+   40 402 SSEND		R15	:p	n=2
+   41 406 LOADI_1	R16	(1)
+   41 408 LOADI_2	R17	(2)
+   41 410 LOADI_3	R18	(3)
+   41 412 ARRAY		R16	3
+   41 415 LOADI8	R17	10
+   41 418 BLOCK		R18	I[15]
+   41 421 SENDB		R16	:inject	n=1
+   41 425 LOADI_1	R17	(1)
+   41 427 LOADI_2	R18	(2)
+   41 429 LOADI_3	R19	(3)
+   41 431 ARRAY		R17	3
+   41 434 LOADSYM	R18	:*
+   41 437 SEND		R17	:reduce	n=1
+   41 441 SSEND		R15	:p	n=2
+   42 445 GETCONST	R15	Hash
+   42 448 LOADI_0	R16	(0)
+   42 450 SEND		R15	:new	n=1
+   42 454 MOVE		R13	R15	; R13:h
+   43 457 STRING	R15	L[0]	; hello
+   43 460 BLOCK		R16	I[16]
+   43 463 SENDB		R15	:each_char	n=0
+   44 467 MOVE		R16	R13	; R13:h
+   44 470 SSEND		R15	:p	n=1
+   45 474 GETCONST	R15	Hash
+   45 477 BLOCK		R16	I[17]
+   45 480 SENDB		R15	:new	n=0
+   45 484 MOVE		R14	R15	; R14:h2
+   46 487 MOVE		R16	R14	; R14:h2
+   46 490 LOADI_3	R17	(3)
+   46 492 GETIDX	R16	(R17)
+   46 494 MOVE		R17	R14	; R14:h2
+   46 497 SSEND		R15	:p	n=2
+   46 501 RETURN	R15	
+   46 503 STOP
+
+irep 0x5b4cece40720 nregs=10 nlocals=6 pools=0 syms=0 reps=0 ilen=29
+local variable names:
+  R1:a
+  R2:b
+  R3:rest
+  R4:c
+file: /w/args.rb
+    1 000 ENTER		1:1:1:1:0:0:0:0 (0x43080)
+    1 004 JMP		010
+    1 007 JMP		012
+    1 010 LOADI_2	R2	(2)	; R2:b
+    2 012 MOVE		R6	R1	; R1:a
+    2 015 MOVE		R7	R2	; R2:b
+    2 018 MOVE		R8	R3	; R3:rest
+    2 021 MOVE		R9	R4	; R4:c
+    2 024 ARRAY		R6	4
+    2 027 RETURN	R6	
+
+irep 0x5b4cece44cb0 nregs=4 nlocals=3 pools=0 syms=0 reps=0 ilen=6
+local variable names:
+  R1:a
+file: /w/args.rb
+    5 000 ENTER		0:0:1:0:0:0:0:0 (0x1000)
+    5 004 RETURN	R1		; R1:a
+
+irep 0x5b4cece453f0 nregs=4 nlocals=3 pools=0 syms=0 reps=0 ilen=9
+local variable names:
+  R2:b
+file: /w/args.rb
+    7 000 ENTER		0:0:0:0:0:0:1:0 (0x1)
+    7 004 MOVE		R2	R1	; R2:b
+    7 007 RETURN	R2		; R2:b
+
+irep 0x5b4cece46320 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=5
+file: /w/args.rb
+    8 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    8 004 RETNIL
+
+irep 0x5b4cece46a80 nregs=7 nlocals=4 pools=0 syms=1 reps=0 ilen=24
+local variable names:
+  R1:a
+  R3:b
+file: /w/args.rb
+    9 000 ENTER		0:0:1:0:0:0:1:0 (0x1001)
+    9 004 MOVE		R3	R2	; R3:b
+    9 007 LOADNIL	R5	(nil)
+    9 009 MOVE		R6	R1	; R1:a
+    9 012 ARYCAT	R5	(R6)
+    9 014 BLKPUSH	R4	0:1:0:0 (0)
+    9 018 SEND		R4	:call	n=*
+    9 022 RETURN	R4	
+
+irep 0x5b4cece479d0 nregs=7 nlocals=4 pools=0 syms=0 reps=0 ilen=14
+local variable names:
+  R1:x
+  R2:y
+file: /w/args.rb
+   10 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   10 004 MOVE		R4	R1	; R1:x
+   10 007 MOVE		R5	R2	; R2:y
+   10 010 ADD		R4	(R5)
+   10 012 RETURN	R4	
+
+irep 0x5b4cece48110 nregs=7 nlocals=4 pools=0 syms=0 reps=0 ilen=14
+local variable names:
+  R1:a
+  R2:b
+file: /w/args.rb
+   11 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   11 004 MOVE		R4	R1	; R1:a
+   11 007 MOVE		R5	R2	; R2:b
+   11 010 MUL		R4	(R5)
+   11 012 RETURN	R4	
+
+irep 0x5b4cece490a0 nregs=9 nlocals=6 pools=0 syms=0 reps=0 ilen=34
+local variable names:
+  R1:a
+  R4:b
+  R5:c
+file: /w/args.rb
+   12 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   12 004 AREF		R4	R2	0	; R4:b
+   12 008 AREF		R5	R2	1	; R5:c
+   12 012 MOVE		R6	R2
+   12 015 APOST		R6	2	0
+   12 019 MOVE		R6	R1	; R1:a
+   12 022 MOVE		R7	R4	; R4:b
+   12 025 ADD		R6	(R7)
+   12 027 MOVE		R7	R5	; R5:c
+   12 030 ADD		R6	(R7)
+   12 032 RETURN	R6	
+
+irep 0x5b4cece497e0 nregs=8 nlocals=4 pools=0 syms=1 reps=0 ilen=51
+local variable names:
+  R1:a
+  R2:b
+file: /w/args.rb
+   19 000 ENTER		1:1:0:0:0:0:0:0 (0x42000)
+   19 004 JMP		010
+   19 007 JMP		020
+   19 010 MOVE		R4	R1	; R1:a
+   19 013 LOADI_2	R5	(2)
+   19 015 MUL		R4	(R5)
+   19 017 MOVE		R2	R4	; R2:b
+   20 020 SSEND0	R4	:block_given?
+   20 023 JMPNOT	R4	040
+   20 027 MOVE		R5	R1	; R1:a
+   20 030 MOVE		R6	R2	; R2:b
+   20 033 BLKPUSH	R4	2:0:0:0 (0)
+   20 037 BLKCALL		R4	2
+   21 040 MOVE		R4	R1	; R1:a
+   21 043 MOVE		R5	R2	; R2:b
+   21 046 ARRAY		R4	2
+   21 049 RETURN	R4	
+
+irep 0x5b4cece4a3f0 nregs=7 nlocals=4 pools=0 syms=1 reps=0 ilen=19
+local variable names:
+  R1:q
+  R2:r
+file: /w/args.rb
+   23 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   23 004 MOVE		R5	R1	; R1:q
+   23 007 MOVE		R6	R2	; R2:r
+   23 010 ARRAY		R5	2
+   23 013 SSEND		R4	:p	n=1
+   23 017 RETURN	R4	
+
+irep 0x5b4cece4a510 nregs=4 nlocals=2 pools=0 syms=1 reps=1 ilen=20
+file: /w/args.rb
+   24 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   25 004 LOADI_1	R2	(1)
+   25 006 LOADI_2	R3	(2)
+   25 008 ARRAY		R2	2
+   25 011 BLOCK		R3	I[0]
+   25 014 SENDB		R2	:map	n=0
+   25 018 RETURN	R2	
+
+irep 0x5b4cece4a800 nregs=5 nlocals=3 pools=0 syms=1 reps=1 ilen=22
+local variable names:
+  R1:i
+file: /w/args.rb
+   25 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   25 004 LOADI8	R3	10
+   25 007 LOADI8	R4	20
+   25 010 ARRAY		R3	2
+   25 013 BLOCK		R4	I[0]
+   25 016 SENDB		R3	:map	n=0
+   25 020 RETURN	R3	
+
+irep 0x5b4cece4b540 nregs=6 nlocals=3 pools=0 syms=0 reps=0 ilen=15
+local variable names:
+  R1:j
+file: /w/args.rb
+   25 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   25 004 GETUPVAR	R3	1	0
+   25 008 MOVE		R4	R1	; R1:j
+   25 011 MUL		R3	(R4)
+   25 013 RETURN	R3	
+
+irep 0x5b4cece4d7f0 nregs=6 nlocals=3 pools=0 syms=0 reps=3 ilen=20
+local variable names:
+  R2:c
+file: /w/args.rb
+   28 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   29 004 LOADI_0	R2	(0)	; R2:c
+   30 006 LAMBDA	R3	I[0]
+   30 009 LAMBDA	R4	I[1]
+   30 012 LAMBDA	R5	I[2]
+   30 015 ARRAY		R3	3
+   30 018 RETURN	R3	
+
+irep 0x5b4cece4dae0 nregs=5 nlocals=2 pools=0 syms=0 reps=0 ilen=17
+file: /w/args.rb
+   30 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   30 004 GETUPVAR	R2	2	0
+   30 008 ADDI		R2	1
+   30 011 SETUPVAR	R2	2	0
+   30 015 RETURN	R2	
+
+irep 0x5b4cece4c5e0 nregs=5 nlocals=2 pools=0 syms=0 reps=0 ilen=17
+file: /w/args.rb
+   30 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   30 004 GETUPVAR	R2	2	0
+   30 008 SUBI		R2	1
+   30 011 SETUPVAR	R2	2	0
+   30 015 RETURN	R2	
+
+irep 0x5b4cece4ad00 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=10
+file: /w/args.rb
+   30 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   30 004 GETUPVAR	R2	2	0
+   30 008 RETURN	R2	
+
+irep 0x5b4cece4ae60 nregs=8 nlocals=3 pools=0 syms=1 reps=0 ilen=35
+local variable names:
+  R1:n
+file: /w/args.rb
+   35 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   36 004 MOVE		R3	R1	; R1:n
+   36 007 LOADI_0	R4	(0)
+   36 009 EQ		R3	(R4)
+   36 011 JMPNOT	R3	019
+   36 015 LOADI_0	R3	(0)
+   36 017 RETURN	R3	
+   37 019 LOADI_1	R3	(1)
+   37 021 MOVE		R5	R1	; R1:n
+   37 024 SUBI		R5	1
+   37 027 SSEND		R4	:deep	n=1
+   37 031 ADD		R3	(R4)
+   37 033 RETURN	R3	
+
+irep 0x5b4cece4b1c0 nregs=6 nlocals=3 pools=0 syms=0 reps=0 ilen=12
+local variable names:
+  R1:v
+file: /w/args.rb
+   40 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   40 004 MOVE		R3	R1	; R1:v
+   40 007 ADDI		R3	1
+   40 010 RETURN	R3	
+
+irep 0x5b4cece4e800 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=13
+local variable names:
+  R1:v
+file: /w/args.rb
+   40 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   40 004 MOVE		R4	R1	; R1:v
+   40 007 SSEND		R3	:p	n=1
+   40 011 RETURN	R3	
+
+irep 0x5b4cece4e920 nregs=7 nlocals=4 pools=0 syms=0 reps=0 ilen=14
+local variable names:
+  R1:s
+  R2:x
+file: /w/args.rb
+   41 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   41 004 MOVE		R4	R1	; R1:s
+   41 007 MOVE		R5	R2	; R2:x
+   41 010 ADD		R4	(R5)
+   41 012 RETURN	R4	
+
+irep 0x5b4cece4d620 nregs=9 nlocals=3 pools=0 syms=2 reps=0 ilen=33
+local variable names:
+  R1:ch
+file: /w/args.rb
+   43 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   43 004 GETUPVAR	R4	13	0
+   43 008 MOVE		R5	R1	; R1:ch
+   43 011 MOVE		R6	R4
+   43 014 MOVE		R7	R5
+   43 017 SEND		R6	:[]	n=1
+   43 021 ADDI		R6	1
+   43 024 MOVE		R3	R6
+   43 027 SEND		R4	:[]=	n=2
+   43 031 RETURN	R3	
+
+irep 0x5b4cece4f080 nregs=10 nlocals=4 pools=0 syms=0 reps=0 ilen=24
+local variable names:
+  R1:hash
+  R2:k
+file: /w/args.rb
+   45 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   45 004 MOVE		R5	R1	; R1:hash
+   45 007 MOVE		R6	R2	; R2:k
+   45 010 MOVE		R7	R2	; R2:k
+   45 013 LOADI_2	R8	(2)
+   45 015 MUL		R7	(R8)
+   45 017 MOVE		R4	R7
+   45 020 SETIDX	R5	(R6)	(R7)
+   45 022 RETURN	R4	
+

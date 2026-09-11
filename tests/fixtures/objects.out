@@ -1,0 +1,61 @@
+#<Animal(cat)>
+#<Dog(rex)>
+2
+true
+#<Animal(cat)>
+true
+#<Animal(cat)>
+[:sit, :roll]
+"rex says hello"
+"undefined method 'unknown' for Dog"
+10
+10
+Animal
+[Dog, Animal, Comparable]
+true
+true
+true
+true
+"singleton"
+[:hello]
+true
+true
+[]
+""
+"nil"
+8
+6.28
+"helper from Dog"
+true
+[:@name, :@age, :@tricks]
+"rex"
+"max"
+false
+"max"
+:mid
+:string
+[:a, 1]
+[:b, 2]
+{a: 2, b: 4}
+{b: 2}
+[:a, :b]
+[1, 2]
+[[:a, 1], [:b, 2]]
+{a: 1, b: 2, c: 3}
+true
+0
+true
+2
+[:a, 1]
+6
+3
+{1 => :a, 2 => :b}
+[[1, 4], [2, 5], [3, 6]]
+[1, 2, [3, [4]]]
+[3, 2, 1]
+[[2, 4], [1, 3]]
+2
+true
+true
+[1, 2]
+[1, 2]

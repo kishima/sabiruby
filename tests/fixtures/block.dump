@@ -1,0 +1,107 @@
+irep 0x5bdb50d49c60 nregs=7 nlocals=3 pools=0 syms=7 reps=6 ilen=94
+local variable names:
+  R1:sum
+  R2:l
+file: /w/block.rb
+    1 000 TDEF		R3	:twice	I[0]
+    5 004 BLOCK		R4	I[1]
+    5 007 SSENDB	R3	:twice	n=0
+    6 011 LOADI_0	R1	(0)	; R1:sum
+    7 013 LOADI_3	R3	(3)
+    7 015 BLOCK		R4	I[2]
+    7 018 SENDB		R3	:times	n=0
+    8 022 MOVE		R4	R1	; R1:sum
+    8 025 SSEND		R3	:p	n=1
+    9 029 LOADI_1	R3	(1)
+    9 031 LOADI_2	R4	(2)
+    9 033 LOADI_3	R5	(3)
+    9 035 ARRAY		R3	3
+    9 038 BLOCK		R4	I[3]
+    9 041 SENDB		R3	:each	n=0
+   10 045 LOADI_1	R4	(1)
+   10 047 LOADI_2	R5	(2)
+   10 049 LOADI_3	R6	(3)
+   10 051 ARRAY		R4	3
+   10 054 BLOCK		R5	I[4]
+   10 057 SENDB		R4	:map	n=0
+   10 061 SSEND		R3	:p	n=1
+   11 065 TDEF		R3	:mk	I[5]
+   15 069 SSEND0	R3	:mk
+   15 072 MOVE		R2	R3	; R2:l
+   16 075 MOVE		R4	R2	; R2:l
+   16 078 SEND0		R4	:call
+   16 081 MOVE		R5	R2	; R2:l
+   16 084 SEND0		R5	:call
+   16 087 SSEND		R3	:p	n=2
+   16 091 RETURN	R3	
+   16 093 STOP
+
+irep 0x5bdb50d4d550 nregs=5 nlocals=2 pools=0 syms=0 reps=0 ilen=24
+file: /w/block.rb
+    1 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    2 004 LOADI_1	R3	(1)
+    2 006 BLKPUSH	R2	0:0:0:0 (0)
+    2 010 BLKCALL		R2	1
+    3 013 LOADI_2	R3	(2)
+    3 015 BLKPUSH	R2	0:0:0:0 (0)
+    3 019 BLKCALL		R2	1
+    3 022 RETURN	R2	
+
+irep 0x5bdb50d4e040 nregs=7 nlocals=3 pools=0 syms=1 reps=0 ilen=18
+local variable names:
+  R1:x
+file: /w/block.rb
+    5 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    5 004 MOVE		R4	R1	; R1:x
+    5 007 LOADI8	R5	10
+    5 010 MUL		R4	(R5)
+    5 012 SSEND		R3	:p	n=1
+    5 016 RETURN	R3	
+
+irep 0x5bdb50d4e780 nregs=6 nlocals=3 pools=0 syms=0 reps=0 ilen=19
+local variable names:
+  R1:i
+file: /w/block.rb
+    7 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    7 004 GETUPVAR	R3	1	0
+    7 008 MOVE		R4	R1	; R1:i
+    7 011 ADD		R3	(R4)
+    7 013 SETUPVAR	R3	1	0
+    7 017 RETURN	R3	
+
+irep 0x5bdb50d4f710 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=13
+local variable names:
+  R1:e
+file: /w/block.rb
+    9 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    9 004 MOVE		R4	R1	; R1:e
+    9 007 SSEND		R3	:p	n=1
+    9 011 RETURN	R3	
+
+irep 0x5bdb50d4fe50 nregs=6 nlocals=3 pools=0 syms=0 reps=0 ilen=13
+local variable names:
+  R1:e
+file: /w/block.rb
+   10 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   10 004 MOVE		R3	R1	; R1:e
+   10 007 LOADI_2	R4	(2)
+   10 009 MUL		R3	(R4)
+   10 011 RETURN	R3	
+
+irep 0x5bdb50d50dc0 nregs=4 nlocals=3 pools=0 syms=0 reps=1 ilen=11
+local variable names:
+  R2:x
+file: /w/block.rb
+   11 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   12 004 LOADI_1	R2	(1)	; R2:x
+   13 006 LAMBDA	R3	I[0]
+   13 009 RETURN	R3	
+
+irep 0x5bdb50d514c0 nregs=5 nlocals=2 pools=0 syms=0 reps=0 ilen=17
+file: /w/block.rb
+   13 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   13 004 GETUPVAR	R2	2	0
+   13 008 ADDI		R2	1
+   13 011 SETUPVAR	R2	2	0
+   13 015 RETURN	R2	
+

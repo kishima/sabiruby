@@ -1,0 +1,448 @@
+irep 0x5ff1b29b6ff0 nregs=9 nlocals=3 pools=9 syms=31 reps=11 ilen=784
+local variable names:
+  R1:e
+  R2:x
+catch type: rescue   begin: 0052 end: 0059 target: 0062
+catch type: rescue   begin: 0112 end: 0119 target: 0122
+catch type: rescue   begin: 0171 end: 0181 target: 0184
+catch type: rescue   begin: 0267 end: 0288 target: 0291
+catch type: ensure   begin: 0267 end: 0277 target: 0277
+catch type: rescue   begin: 0267 end: 0274 target: 0277
+catch type: rescue   begin: 0324 end: 0331 target: 0334
+catch type: rescue   begin: 0367 end: 0376 target: 0379
+catch type: rescue   begin: 0418 end: 0433 target: 0436
+catch type: rescue   begin: 0475 end: 0480 target: 0483
+catch type: rescue   begin: 0516 end: 0522 target: 0525
+catch type: rescue   begin: 0558 end: 0564 target: 0567
+catch type: rescue   begin: 0600 end: 0610 target: 0613
+catch type: rescue   begin: 0646 end: 0656 target: 0659
+catch type: rescue   begin: 0750 end: 0757 target: 0760
+file: /w/errors.rb
+    1 000 TDEF		R3	:ensure_order	I[0]
+    7 004 BLOCK		R5	I[1]
+    7 007 SSENDB	R4	:ensure_order	n=0
+    7 011 SSEND		R3	:p	n=1
+    8 015 TDEF		R3	:early	I[2]
+   13 019 SSEND0	R4	:early
+   13 022 SSEND		R3	:p	n=1
+   14 026 TDEF		R3	:with_rescue	I[3]
+   23 030 BLOCK		R5	I[4]
+   23 033 SSENDB	R4	:with_rescue	n=0
+   23 037 SSEND		R3	:p	n=1
+   24 041 BLOCK		R5	I[5]
+   24 044 SSENDB	R4	:with_rescue	n=0
+   24 048 SSEND		R3	:p	n=1
+   26 052 BLOCK		R4	I[6]
+   26 055 SSENDB	R3	:with_rescue	n=0
+   26 059 JMP		101
+   26 062 EXCEPT	R3	
+   26 064 GETCONST	R4	StandardError
+   26 067 RESCUE	R3	R4
+   26 070 JMPIF		R4	077
+   26 074 JMP		099
+   26 077 MOVE		R1	R3	; R1:e
+   28 080 MOVE		R4	R1	; R1:e
+   28 083 SEND0		R4	:class
+   28 086 MOVE		R5	R1	; R1:e
+   28 089 SEND0		R5	:message
+   28 092 SSEND		R3	:p	n=2
+   28 096 JMP		101
+   28 099 RAISEIF	R3	
+   30 101 LOADNIL	R3	(nil)
+   30 103 GETCONST	R4	StandardError
+   30 106 CLASS		R3	:MyError
+   30 109 EXEC		R3	I[7]
+   36 112 GETCONST	R4	MyError
+   36 115 SSEND		R3	:raise	n=1
+   36 119 JMP		171
+   36 122 EXCEPT	R3	
+   37 124 GETCONST	R4	MyError
+   37 127 RESCUE	R3	R4
+   37 130 JMPIF		R4	137
+   37 134 JMP		169
+   37 137 MOVE		R1	R3	; R1:e
+   38 140 MOVE		R4	R1	; R1:e
+   38 143 SEND0		R4	:message
+   38 146 MOVE		R5	R1	; R1:e
+   38 149 SEND0		R5	:class
+   38 152 SEND0		R5	:ancestors
+   38 155 GETCONST	R6	StandardError
+   38 158 SEND		R5	:include?	n=1
+   38 162 SSEND		R3	:p	n=2
+   38 166 JMP		171
+   38 169 RAISEIF	R3	
+   41 171 GETCONST	R4	MyError
+   41 174 STRING	R5	L[0]	; custom
+   41 177 SSEND		R3	:raise	n=2
+   41 181 JMP		227
+   41 184 EXCEPT	R3	
+   42 186 GETCONST	R4	StandardError
+   42 189 RESCUE	R3	R4
+   42 192 JMPIF		R4	199
+   42 196 JMP		225
+   42 199 MOVE		R1	R3	; R1:e
+   43 202 MOVE		R4	R1	; R1:e
+   43 205 SEND0		R4	:message
+   43 208 MOVE		R5	R1	; R1:e
+   43 211 GETCONST	R6	MyError
+   43 214 SEND		R5	:is_a?	n=1
+   43 218 SSEND		R3	:p	n=2
+   43 222 JMP		227
+   43 225 RAISEIF	R3	
+   45 227 TDEF		R3	:retrying	I[8]
+   56 231 SSEND0	R4	:retrying
+   56 234 SSEND		R3	:p	n=1
+   57 238 LOADI_1	R3	(1)
+   57 240 LOADI_2	R4	(2)
+   57 242 LOADI_3	R5	(3)
+   57 244 ARRAY		R3	3
+   57 247 BLOCK		R4	I[9]
+   57 250 SENDB		R3	:each	n=0
+   57 254 MOVE		R2	R3	; R2:x
+   66 257 SSEND0	R3	:puts
+   67 260 MOVE		R4	R2	; R2:x
+   67 263 SSEND		R3	:p	n=1
+   70 267 STRING	R4	L[1]	; inner
+   70 270 SSEND		R3	:raise	n=1
+   70 274 JMP		277
+   70 277 EXCEPT	R5	
+   72 279 STRING	R7	L[2]	; inner ensure
+   72 282 SSEND		R6	:puts	n=1
+   72 286 RAISEIF	R5	
+   72 288 JMP		324
+   72 291 EXCEPT	R3	
+   72 293 GETCONST	R4	StandardError
+   72 296 RESCUE	R3	R4
+   72 299 JMPIF		R4	306
+   72 303 JMP		322
+   72 306 MOVE		R1	R3	; R1:e
+   75 309 MOVE		R4	R1	; R1:e
+   75 312 SEND0		R4	:message
+   75 315 SSEND		R3	:p	n=1
+   75 319 JMP		324
+   75 322 RAISEIF	R3	
+   78 324 STRING	R4	L[3]	; abc
+   78 327 SSEND		R3	:Integer	n=1
+   78 331 JMP		367
+   78 334 EXCEPT	R3	
+   79 336 GETCONST	R4	ArgumentError
+   79 339 RESCUE	R3	R4
+   79 342 JMPIF		R4	349
+   79 346 JMP		365
+   79 349 MOVE		R1	R3	; R1:e
+   80 352 MOVE		R4	R1	; R1:e
+   80 355 SEND0		R4	:message
+   80 358 SSEND		R3	:p	n=1
+   80 362 JMP		367
+   80 365 RAISEIF	R3	
+   83 367 ARRAY		R3	0
+   83 370 LOADI_3	R4	(3)
+   83 372 SEND		R3	:fetch	n=1
+   83 376 JMP		418
+   83 379 EXCEPT	R3	
+   84 381 GETCONST	R4	IndexError
+   84 384 RESCUE	R3	R4
+   84 387 JMPIF		R4	394
+   84 391 JMP		416
+   84 394 MOVE		R1	R3	; R1:e
+   85 397 MOVE		R4	R1	; R1:e
+   85 400 SEND0		R4	:class
+   85 403 MOVE		R5	R1	; R1:e
+   85 406 SEND0		R5	:message
+   85 409 SSEND		R3	:p	n=2
+   85 413 JMP		418
+   85 416 RAISEIF	R3	
+   88 418 LOADSYM	R3	:a
+   88 421 LOADI_1	R4	(1)
+   88 423 HASH		R3	1
+   88 426 LOADSYM	R4	:b
+   88 429 SEND		R3	:fetch	n=1
+   88 433 JMP		475
+   88 436 EXCEPT	R3	
+   89 438 GETCONST	R4	KeyError
+   89 441 RESCUE	R3	R4
+   89 444 JMPIF		R4	451
+   89 448 JMP		473
+   89 451 MOVE		R1	R3	; R1:e
+   90 454 MOVE		R4	R1	; R1:e
+   90 457 SEND0		R4	:class
+   90 460 MOVE		R5	R1	; R1:e
+   90 463 SEND0		R5	:message
+   90 466 SSEND		R3	:p	n=2
+   90 470 JMP		475
+   90 473 RAISEIF	R3	
+   93 475 LOADNIL	R3	(nil)
+   93 477 ADDI		R3	1
+   93 480 JMP		516
+   93 483 EXCEPT	R3	
+   94 485 GETCONST	R4	NoMethodError
+   94 488 RESCUE	R3	R4
+   94 491 JMPIF		R4	498
+   94 495 JMP		514
+   94 498 MOVE		R1	R3	; R1:e
+   95 501 MOVE		R4	R1	; R1:e
+   95 504 SEND0		R4	:message
+   95 507 SSEND		R3	:p	n=1
+   95 511 JMP		516
+   95 514 RAISEIF	R3	
+   98 516 LOADI_1	R3	(1)
+   98 518 LOADNIL	R4	(nil)
+   98 520 ADD		R3	(R4)
+   98 522 JMP		558
+   98 525 EXCEPT	R3	
+   99 527 GETCONST	R4	TypeError
+   99 530 RESCUE	R3	R4
+   99 533 JMPIF		R4	540
+   99 537 JMP		556
+   99 540 MOVE		R1	R3	; R1:e
+  100 543 MOVE		R4	R1	; R1:e
+  100 546 SEND0		R4	:message
+  100 549 SSEND		R3	:p	n=1
+  100 553 JMP		558
+  100 556 RAISEIF	R3	
+  103 558 STRING	R3	L[4]	; a
+  103 561 ADDI		R3	1
+  103 564 JMP		600
+  103 567 EXCEPT	R3	
+  104 569 GETCONST	R4	TypeError
+  104 572 RESCUE	R3	R4
+  104 575 JMPIF		R4	582
+  104 579 JMP		598
+  104 582 MOVE		R1	R3	; R1:e
+  105 585 MOVE		R4	R1	; R1:e
+  105 588 SEND0		R4	:message
+  105 591 SSEND		R3	:p	n=1
+  105 595 JMP		600
+  105 598 RAISEIF	R3	
+  108 600 TDEF		R3	:two	I[10]
+  109 604 LOADI_1	R4	(1)
+  109 606 SSEND		R3	:two	n=1
+  109 610 JMP		646
+  109 613 EXCEPT	R3	
+  110 615 GETCONST	R4	ArgumentError
+  110 618 RESCUE	R3	R4
+  110 621 JMPIF		R4	628
+  110 625 JMP		644
+  110 628 MOVE		R1	R3	; R1:e
+  111 631 MOVE		R4	R1	; R1:e
+  111 634 SEND0		R4	:message
+  111 637 SSEND		R3	:p	n=1
+  111 641 JMP		646
+  111 644 RAISEIF	R3	
+  114 646 GETCONST	R4	Exception
+  114 649 STRING	R5	L[5]	; base
+  114 652 SSEND		R3	:raise	n=2
+  114 656 JMP		715
+  114 659 EXCEPT	R3	
+  115 661 GETCONST	R4	StandardError
+  115 664 RESCUE	R3	R4
+  115 667 JMPIF		R4	674
+  115 671 JMP		684
+  116 674 LOADSYM	R4	:wrong
+  116 677 SSEND		R3	:p	n=1
+  116 681 JMP		715
+  117 684 GETCONST	R4	Exception
+  117 687 RESCUE	R3	R4
+  117 690 JMPIF		R4	697
+  117 694 JMP		713
+  117 697 MOVE		R1	R3	; R1:e
+  118 700 MOVE		R4	R1	; R1:e
+  118 703 SEND0		R4	:message
+  118 706 SSEND		R3	:p	n=1
+  118 710 JMP		715
+  118 713 RAISEIF	R3	
+  120 715 GETCONST	R3	RuntimeError
+  120 718 STRING	R4	L[6]	; made
+  120 721 SEND		R3	:new	n=1
+  120 725 MOVE		R1	R3	; R1:e
+  121 728 MOVE		R4	R1	; R1:e
+  121 731 SEND0		R4	:message
+  121 734 MOVE		R5	R1	; R1:e
+  121 737 SEND0		R5	:inspect
+  121 740 MOVE		R6	R1	; R1:e
+  121 743 SEND0		R6	:backtrace
+  121 746 SSEND		R3	:p	n=3
+  122 750 STRING	R5	L[7]	; x
+  122 753 SSEND		R4	:raise	n=1
+  122 757 JMP		777
+  122 760 EXCEPT	R4	
+  122 762 GETCONST	R5	StandardError
+  122 765 RESCUE	R4	R5
+  122 768 JMPIF		R5	774
+  122 772 RAISEIF	R4	
+  122 774 STRING	R4	L[8]	; inline rescue
+  122 777 SSEND		R3	:p	n=1
+  122 781 RETURN	R3	
+  122 783 STOP
+
+irep 0x5ff1b29c2cc0 nregs=8 nlocals=2 pools=1 syms=2 reps=0 ilen=30
+catch type: ensure   begin: 0004 end: 0017 target: 0017
+catch type: rescue   begin: 0004 end: 0014 target: 0017
+file: /w/errors.rb
+    1 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    2 004 BLKPUSH	R2	0:0:0:0 (0)
+    2 008 BLKCALL		R2	0
+    3 011 LOADSYM	R2	:normal
+    3 014 JMP		017
+    3 017 EXCEPT	R4	
+    5 019 STRING	R6	L[0]	; ensure ran
+    5 022 SSEND		R5	:puts	n=1
+    5 026 RAISEIF	R4	
+    5 028 RETURN	R2	
+
+irep 0x5ff1b29c37b0 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/errors.rb
+    7 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    7 004 LOADI_1	R2	(1)
+    7 006 RETURN	R2	
+
+irep 0x5ff1b29c3f10 nregs=8 nlocals=2 pools=1 syms=2 reps=0 ilen=25
+catch type: ensure   begin: 0004 end: 0012 target: 0012
+catch type: rescue   begin: 0004 end: 0009 target: 0012
+file: /w/errors.rb
+    8 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    9 004 LOADSYM	R2	:early
+    9 007 RETURN_BLK	R2	
+    9 009 JMP		012
+    9 012 EXCEPT	R4	
+   11 014 STRING	R6	L[0]	; ensure on return
+   11 017 SSEND		R5	:puts	n=1
+   11 021 RAISEIF	R4	
+   11 023 RETURN	R2	
+
+irep 0x5ff1b29c4ef0 nregs=9 nlocals=3 pools=3 syms=3 reps=0 ilen=64
+local variable names:
+  R2:e
+catch type: ensure   begin: 0004 end: 0051 target: 0051
+catch type: rescue   begin: 0004 end: 0011 target: 0014
+file: /w/errors.rb
+   14 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   15 004 BLKPUSH	R3	0:0:0:0 (0)
+   15 008 BLKCALL		R3	0
+   15 011 JMP		048
+   15 014 EXCEPT	R3	
+   16 016 GETCONST	R4	TypeError
+   16 019 RESCUE	R3	R4
+   16 022 JMPIF		R4	029
+   16 026 JMP		046
+   16 029 MOVE		R2	R3	; R2:e
+   17 032 STRING	R3	L[0]	; rescued 
+   17 035 MOVE		R4	R2	; R2:e
+   17 038 SEND0		R4	:message
+   17 041 STRCAT	R3	(R4)
+   17 043 JMP		051
+   17 046 RAISEIF	R3	
+   19 048 STRING	R3	L[1]	; no error
+   19 051 EXCEPT	R5	
+   21 053 STRING	R7	L[2]	; always
+   21 056 SSEND		R6	:puts	n=1
+   21 060 RAISEIF	R5	
+   21 062 RETURN	R3	
+
+irep 0x5ff1b29c5be0 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/errors.rb
+   23 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   23 004 LOADI_1	R2	(1)
+   23 006 RETURN	R2	
+
+irep 0x5ff1b29c6340 nregs=6 nlocals=2 pools=1 syms=2 reps=0 ilen=16
+file: /w/errors.rb
+   24 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   24 004 GETCONST	R3	TypeError
+   24 007 STRING	R4	L[0]	; boom
+   24 010 SSEND		R2	:raise	n=2
+   24 014 RETURN	R2	
+
+irep 0x5ff1b29c7720 nregs=5 nlocals=2 pools=1 syms=1 reps=0 ilen=13
+file: /w/errors.rb
+   26 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   26 004 STRING	R3	L[0]	; other
+   26 007 SSEND		R2	:raise	n=1
+   26 011 RETURN	R2	
+
+irep 0x5ff1b29c7a90 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/errors.rb
+   31 000 TDEF		R1	:initialize	I[0]
+   31 004 RETURN	R1	
+
+irep 0x5ff1b29c2b30 nregs=7 nlocals=3 pools=1 syms=0 reps=0 ilen=22
+local variable names:
+  R1:msg
+file: /w/errors.rb
+   31 000 ENTER		0:1:0:0:0:0:0:0 (0x2000)
+   31 004 JMP		010
+   31 007 JMP		013
+   31 010 STRING	R1	L[0]	; my default	; R1:msg
+   32 013 ARGARY	R4	1:0:0:0 (0)
+   32 017 SUPER		R3	n=*
+   32 020 RETURN	R3	
+
+irep 0x5ff1b29c9090 nregs=6 nlocals=3 pools=1 syms=3 reps=0 ilen=73
+local variable names:
+  R2:tries
+catch type: rescue   begin: 0006 end: 0031 target: 0034
+file: /w/errors.rb
+   45 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   46 004 LOADI_0	R2	(0)	; R2:tries
+   48 006 ADDILV	R2	R3	1	; R2:tries
+   49 010 MOVE		R3	R2	; R2:tries
+   49 013 LOADI_3	R4	(3)
+   49 015 LT		R3	(R4)
+   49 017 JMPNOT	R3	028
+   49 021 STRING	R4	L[0]	; fail
+   49 024 SSEND		R3	:raise	n=1
+   50 028 MOVE		R3	R2	; R2:tries
+   50 031 JMP		071
+   50 034 EXCEPT	R3	
+   50 036 GETCONST	R4	StandardError
+   50 039 RESCUE	R3	R4
+   50 042 JMPIF		R4	049
+   50 046 JMP		069
+   52 049 MOVE		R3	R2	; R2:tries
+   52 052 LOADI_3	R4	(3)
+   52 054 LT		R3	(R4)
+   52 056 JMPNOT	R3	063
+   52 060 JMPUW		006
+   53 063 LOADSYM	R3	:gave_up
+   53 066 JMP		071
+   53 069 RAISEIF	R3	
+   53 071 RETURN	R3	
+
+irep 0x5ff1b29c7be0 nregs=9 nlocals=3 pools=0 syms=3 reps=0 ilen=64
+local variable names:
+  R1:i
+catch type: ensure   begin: 0004 end: 0051 target: 0051
+catch type: rescue   begin: 0004 end: 0027 target: 0030
+file: /w/errors.rb
+   57 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   59 004 MOVE		R3	R1	; R1:i
+   59 007 LOADI_2	R4	(2)
+   59 009 EQ		R3	(R4)
+   59 011 JMPNOT	R3	025
+   59 015 GETCONST	R4	ArgumentError
+   59 018 SSEND		R3	:raise	n=1
+   59 022 JMP		027
+   59 025 LOADNIL	R3	(nil)
+   59 027 JMP		051
+   59 030 EXCEPT	R3	
+   60 032 GETCONST	R4	ArgumentError
+   60 035 RESCUE	R3	R4
+   60 038 JMPIF		R4	045
+   60 042 JMP		049
+   61 045 RETNIL
+   61 046 JMP		051
+   61 049 RAISEIF	R3	
+   61 051 EXCEPT	R5	
+   63 053 MOVE		R7	R1	; R1:i
+   63 056 SSEND		R6	:print	n=1
+   63 060 RAISEIF	R5	
+   63 062 RETURN	R3	
+
+irep 0x5ff1b29c72f0 nregs=5 nlocals=4 pools=0 syms=0 reps=0 ilen=5
+local variable names:
+  R1:a
+  R2:b
+file: /w/errors.rb
+  108 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+  108 004 RETNIL
+

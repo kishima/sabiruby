@@ -1,0 +1,22 @@
+[package]
+name = "sabiruby"
+version = "0.0.1"
+edition = "2024"
+description = "SabiRuby: an mruby 4.1.0 bytecode-compatible VM written in Rust (\"rusted Ruby\")"
+license = "MIT"
+keywords = ["mruby", "ruby", "bytecode", "vm", "embedded"]
+categories = ["compilers", "embedded", "game-development"]
+repository = "https://github.com/kishima/sabiruby"
+readme = "README.md"
+
+[lib]
+name = "sabiruby"
+path = "src/lib.rs"
+
+[[bin]]
+name = "sabiruby"
+path = "src/bin/sabiruby.rs"
+
+[dependencies]
+
+[dev-dependencies]

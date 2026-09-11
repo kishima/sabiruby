@@ -1,0 +1,102 @@
+irep 0x604904069c00 nregs=15 nlocals=4 pools=10 syms=17 reps=0 ilen=265
+local variable names:
+  R1:a
+  R2:h
+  R3:s
+file: /w/collections.rb
+    1 000 LOADI_3	R4	(3)
+    1 002 LOADI_1	R5	(1)
+    1 004 LOADI_2	R6	(2)
+    1 006 ARRAY		R1	R4	3	; R1:a
+    2 010 MOVE		R4	R1	; R1:a
+    2 013 LOADI_4	R5	(4)
+    2 015 SEND		R4	:<<	n=1
+    3 019 MOVE		R4	R1	; R1:a
+    3 022 LOADI_5	R5	(5)
+    3 024 SEND		R4	:push	n=1
+    4 028 MOVE		R5	R1	; R1:a
+    4 031 MOVE		R6	R1	; R1:a
+    4 034 SEND0		R6	:size
+    4 037 GETIDX0	R7	R1[0]
+    4 040 MOVE		R8	R1	; R1:a
+    4 043 LOADI__1	R9	(-1)
+    4 045 GETIDX	R8	(R9)
+    4 047 MOVE		R9	R1	; R1:a
+    4 050 LOADI_1	R10	(1)
+    4 052 LOADI_2	R11	(2)
+    4 054 SEND		R9	:[]	n=2
+    4 058 MOVE		R10	R1	; R1:a
+    4 061 SEND0		R10	:first
+    4 064 MOVE		R11	R1	; R1:a
+    4 067 SEND0		R11	:last
+    4 070 SSEND		R4	:p	n=7
+    5 074 LOADSYM	R4	:b
+    5 077 LOADI_1	R5	(1)
+    5 079 STRING	R6	L[0]	; s
+    5 082 LOADI_2	R7	(2)
+    5 084 HASH		R4	2
+    5 087 MOVE		R2	R4	; R2:h
+    6 090 MOVE		R4	R2	; R2:h
+    6 093 LOADSYM	R5	:c
+    6 096 LOADI_3	R6	(3)
+    6 098 SETIDX	R4	(R5)	(R6)
+    7 100 MOVE		R5	R2	; R2:h
+    7 103 MOVE		R6	R2	; R2:h
+    7 106 LOADSYM	R7	:b
+    7 109 GETIDX	R6	(R7)
+    7 111 MOVE		R7	R2	; R2:h
+    7 114 STRING	R8	L[0]	; s
+    7 117 GETIDX	R7	(R8)
+    7 119 MOVE		R8	R2	; R2:h
+    7 122 SEND0		R8	:size
+    7 125 MOVE		R9	R2	; R2:h
+    7 128 SEND0		R9	:keys
+    7 131 SSEND		R4	:p	n=5
+    8 135 STRING	R3	L[1]	; abc	; R3:s
+    9 138 MOVE		R4	R3	; R3:s
+    9 141 STRING	R5	L[2]	; def
+    9 144 SEND		R4	:<<	n=1
+   10 148 MOVE		R5	R3	; R3:s
+   10 151 MOVE		R6	R3	; R3:s
+   10 154 SEND0		R6	:size
+   10 157 MOVE		R7	R3	; R3:s
+   10 160 STRING	R8	L[3]	; !
+   10 163 ADD		R7	(R8)
+   10 165 STRING	R8	L[4]	; x
+   10 168 LOADI_3	R9	(3)
+   10 170 MUL		R8	(R9)
+   10 172 MOVE		R9	R3	; R3:s
+   10 175 LOADI_1	R10	(1)
+   10 177 GETIDX	R9	(R10)
+   10 179 MOVE		R10	R3	; R3:s
+   10 182 LOADI_1	R11	(1)
+   10 184 LOADI_2	R12	(2)
+   10 186 SEND		R10	:[]	n=2
+   10 190 MOVE		R11	R3	; R3:s
+   10 193 SEND0		R11	:upcase
+   10 196 STRING	R12	L[5]	; a,b
+   10 199 STRING	R13	L[6]	; ,
+   10 202 SEND		R12	:split	n=1
+   10 206 SSEND		R4	:p	n=8
+   11 210 LOADI_1	R5	(1)
+   11 212 LOADI_3	R6	(3)
+   11 214 RANGE_INC	R5
+   11 216 LOADI_1	R6	(1)
+   11 218 LOADI_3	R7	(3)
+   11 220 RANGE_EXC	R6
+   11 222 SEND0		R6	:to_a
+   11 225 LOADSYM	R7	:sym
+   11 228 LOADSYM	R8	:sym
+   11 231 SEND0		R8	:to_s
+   11 234 STRING	R9	L[7]	; str
+   11 237 SEND0		R9	:to_sym
+   11 240 LOADI8	R10	42
+   11 243 SEND0		R10	:to_s
+   11 246 STRING	R11	L[8]	; 42
+   11 249 SEND0		R11	:to_i
+   11 252 LOADL		R12	L[9]	; 3.700000
+   11 255 SEND0		R12	:to_i
+   11 258 SSEND		R4	:p	n=8
+   11 262 RETURN	R4	
+   11 264 STOP
+

@@ -1,0 +1,34 @@
+ensure ran
+:normal
+ensure on return
+:early
+always
+"no error"
+always
+"rescued boom"
+always
+RuntimeError
+"other"
+"my default"
+true
+"custom"
+true
+3
+123
+[1, 2, 3]
+inner ensure
+"inner"
+"invalid string for number(\"abc\")"
+IndexError
+"index 3 outside of array bounds: 0...0"
+KeyError
+"Key not found: :b"
+"undefined method '+' for NilClass"
+"can't convert nil into Float"
+"Integer cannot be converted to String"
+"wrong number of arguments (given 1, expected 2)"
+"base"
+"made"
+"#<RuntimeError: made>"
+nil
+"inline rescue"

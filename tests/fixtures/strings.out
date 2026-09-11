@@ -1,0 +1,63 @@
+12
+"HELLO, WORLD"
+"hello, world"
+"dlroW ,olleH"
+4
+true
+"H"
+"d"
+"Hello"
+"World"
+"Hello"
+"Hello, WorldHello, World"
+["a", "b", "c"]
+"x"
+"abc"
+["a", "b", "c"]
+[97, 98, 99]
+-1
+true
+true
+false
+"x=2"
+"single \#{no}"
+"\"tab\\tnl\\n\""
+true
+true
+"aBc"
+"bbb"
+12
+3.5
+31
+255
+"11111111"
+"ff"
+"abd"
+"ba"
+"aaa"
+"b0"
+:abc
+:"with space"
+:"a-b"
+"Mutable string"
+false
+false
+multi
+a
+b
+
+3.5
+no newline
+1.0
+1.5e+20
+1.0e-05
+33.333333333333336
+4611686018427387904
+3.5
+[3, 1]
+[-4, 1]
+7
+8
+8
+2
+-2

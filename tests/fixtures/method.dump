@@ -1,0 +1,75 @@
+irep 0x57b242e375c0 nregs=8 nlocals=1 pools=0 syms=4 reps=3 ilen=76
+file: /w/method.rb
+    1 000 TDEF		R1	:add	I[0]
+    4 004 TDEF		R1	:fib	I[1]
+    7 008 TDEF		R1	:opt	I[2]
+   10 012 LOADI_1	R3	(1)
+   10 014 LOADI_2	R4	(2)
+   10 016 SSEND		R2	:add	n=2
+   10 020 SSEND		R1	:p	n=1
+   11 024 LOADI8	R3	15
+   11 027 SSEND		R2	:fib	n=1
+   11 031 SSEND		R1	:p	n=1
+   12 035 LOADI_1	R3	(1)
+   12 037 SSEND		R2	:opt	n=1
+   12 041 SSEND		R1	:p	n=1
+   13 045 LOADI_1	R3	(1)
+   13 047 LOADI_2	R4	(2)
+   13 049 SSEND		R2	:opt	n=2
+   13 053 SSEND		R1	:p	n=1
+   14 057 LOADI_1	R3	(1)
+   14 059 LOADI_2	R4	(2)
+   14 061 LOADI_3	R5	(3)
+   14 063 LOADI_4	R6	(4)
+   14 065 SSEND		R2	:opt	n=4
+   14 069 SSEND		R1	:p	n=1
+   14 073 RETURN	R1	
+   14 075 STOP
+
+irep 0x57b242e3a040 nregs=7 nlocals=4 pools=0 syms=0 reps=0 ilen=14
+local variable names:
+  R1:a
+  R2:b
+file: /w/method.rb
+    1 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+    2 004 MOVE		R4	R1	; R1:a
+    2 007 MOVE		R5	R2	; R2:b
+    2 010 ADD		R4	(R5)
+    2 012 RETURN	R4	
+
+irep 0x57b242e3ab30 nregs=8 nlocals=3 pools=0 syms=1 reps=0 ilen=45
+local variable names:
+  R1:n
+file: /w/method.rb
+    4 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    5 004 MOVE		R3	R1	; R1:n
+    5 007 LOADI_2	R4	(2)
+    5 009 LT		R3	(R4)
+    5 011 JMPNOT	R3	021
+    5 015 MOVE		R3	R1	; R1:n
+    5 018 JMP		043
+    5 021 MOVE		R4	R1	; R1:n
+    5 024 SUBI		R4	1
+    5 027 SSEND		R3	:fib	n=1
+    5 031 MOVE		R5	R1	; R1:n
+    5 034 SUBI		R5	2
+    5 037 SSEND		R4	:fib	n=1
+    5 041 ADD		R3	(R4)
+    5 043 RETURN	R3	
+
+irep 0x57b242e3b270 nregs=8 nlocals=5 pools=0 syms=0 reps=0 ilen=27
+local variable names:
+  R1:a
+  R2:b
+  R3:rest
+file: /w/method.rb
+    7 000 ENTER		1:1:1:0:0:0:0:0 (0x43000)
+    7 004 JMP		010
+    7 007 JMP		013
+    7 010 LOADI8	R2	10	; R2:b
+    8 013 MOVE		R5	R1	; R1:a
+    8 016 MOVE		R6	R2	; R2:b
+    8 019 MOVE		R7	R3	; R3:rest
+    8 022 ARRAY		R5	3
+    8 025 RETURN	R5	
+

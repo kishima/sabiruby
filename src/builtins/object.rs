@@ -1,0 +1,337 @@
+//! BasicObject / Object / Module / Class / NilClass / TrueClass / FalseClass.
+
+use crate::argc;
+use crate::error::VmResult;
+use crate::object::{Method, ObjKind};
+use crate::value::Value;
+use crate::vm::Vm;
+
+pub fn init(vm: &mut Vm) {
+    let c = vm.core;
+    vm.define_methods(c.basic_object, &[
+        ("initialize", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("==", |_vm, s, a, _b| { Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false))) }),
+        ("equal?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
+        ("!", |_vm, s, _a, _b| Ok(Value::bool(!s.truthy()))),
+        ("!=", |vm, s, a, _b| { argc!(vm, a, 1); let r = vm.equal(s, a[0])?; Ok(Value::bool(!r)) }),
+        ("__id__", |_vm, s, _a, _b| Ok(object_id(s))),
+        ("__send__", send),
+        ("instance_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
+        ("method_missing", method_missing),
+    ]);
+    vm.define_methods(c.object, &[
+        ("class", |vm, s, _a, _b| Ok(Value::Obj(vm.real_class_of(s)))),
+        ("singleton_class", |vm, s, _a, _b| Ok(Value::Obj(vm.singleton_class(s)?))),
+        ("object_id", |_vm, s, _a, _b| Ok(object_id(s))),
+        ("hash", |vm, s, _a, _b| Ok(Value::Int(vm.value_hash(s)))),
+        ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
+        ("===", |vm, s, a, _b| { argc!(vm, a, 1); Ok(Value::bool(vm.equal(s, a[0])?)) }),
+        ("=~", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("nil?", |_vm, s, _a, _b| Ok(Value::bool(s.is_nil()))),
+        ("to_s", |vm, s, _a, _b| { let t = any_to_s(vm, s); Ok(vm.str_from(t)) }),
+        ("inspect", obj_inspect),
+        ("is_a?", is_a),
+        ("kind_of?", is_a),
+        ("instance_of?", |vm, s, a, _b| { argc!(vm, a, 1); let c = class_arg(vm, a[0])?; Ok(Value::bool(vm.real_class_of(s) == c)) }),
+        ("respond_to?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let m = sym_arg(vm, a[0])?; Ok(Value::bool(vm.respond_to(s, m))) }),
+        ("send", send),
+        ("public_send", send),
+        ("dup", dup),
+        ("clone", dup),
+        ("freeze", |vm, s, _a, _b| { if let Value::Obj(o) = s { vm.heap.get_mut(o).frozen = true; } Ok(s) }),
+        ("frozen?", |vm, s, _a, _b| Ok(Value::bool(match s { Value::Obj(o) => vm.heap.get(o).frozen, _ => true }))),
+        ("instance_variable_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(match s { Value::Obj(o) => vm.heap.ivar_get(o, n), _ => Value::Nil }) }),
+        ("instance_variable_set", |vm, s, a, _b| { argc!(vm, a, 2); let n = sym_arg(vm, a[0])?; match s { Value::Obj(o) => { vm.heap.ivar_set(o, n, a[1]); Ok(a[1]) } _ => Err(vm.raise_type("can't set instance variable")) } }),
+        ("instance_variable_defined?", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(Value::bool(match s { Value::Obj(o) => vm.heap.get(o).ivars.iter().any(|(k, _)| *k == n), _ => false })) }),
+        ("instance_variables", |vm, s, _a, _b| { let names: Vec<Value> = match s { Value::Obj(o) => vm.heap.get(o).ivars.iter().map(|(k, _)| Value::Sym(*k)).collect(), _ => vec![] }; Ok(vm.ary_new(names)) }),
+        ("methods", |vm, s, _a, _b| { let list = method_list(vm, vm.class_of(s)); Ok(vm.ary_new(list)) }),
+        ("singleton_methods", |vm, s, _a, _b| { let c = vm.class_of(s); let mut list = vec![]; if vm.heap.class(c).is_singleton { for (k, m) in &vm.heap.class(c).methods { if !matches!(m, Method::Undef) { list.push(Value::Sym(*k)); } } } Ok(vm.ary_new(list)) }),
+        ("define_singleton_method", |vm, s, a, b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let body = if a.len() == 2 { a[1] } else { b }; let sc = vm.singleton_class(s)?; match body { Value::Obj(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => { if let ObjKind::Proc(pd) = &mut vm.heap.get_mut(p).kind { pd.target_class = Some(sc); } vm.heap.class_mut(sc).methods.insert(n, Method::Ruby(p)); Ok(Value::Sym(n)) } _ => Err(vm.raise_arg("tried to create Proc object without a block")) } }),
+        ("extend", |vm, s, a, _b| { for m in a { let m = class_arg(vm, *m)?; let sc = vm.singleton_class(s)?; vm.include_module(sc, m); } Ok(s) }),
+        ("itself", |_vm, s, _a, _b| Ok(s)),
+        ("tap", |vm, s, _a, b| { vm.call_block(b, &[s])?; Ok(s) }),
+        ("then", |vm, s, _a, b| vm.call_block(b, &[s])),
+        ("to_enum", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "fiber required for enumerator"))),
+        ("enum_for", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "fiber required for enumerator"))),
+    ]);
+
+    // Module
+    vm.define_methods(c.module, &[
+        ("name", |vm, s, _a, _b| { let o = s.obj().unwrap(); match vm.heap.class(o).name { Some(_) if !vm.heap.class(o).is_singleton => { let n = vm.class_name(o); Ok(vm.str_from(n)) } _ => Ok(Value::Nil) } }),
+        ("to_s", mod_to_s),
+        ("inspect", mod_to_s),
+        ("===", |vm, s, a, _b| { argc!(vm, a, 1); Ok(Value::bool(vm.obj_is_kind_of(a[0], s.obj().unwrap()))) }),
+        ("==", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
+        ("<", |vm, s, a, _b| { argc!(vm, a, 1); let o = class_arg(vm, a[0])?; Ok(Value::bool(s.obj().unwrap() != o && class_le(vm, s.obj().unwrap(), o))) }),
+        ("<=", |vm, s, a, _b| { argc!(vm, a, 1); let o = class_arg(vm, a[0])?; Ok(Value::bool(class_le(vm, s.obj().unwrap(), o))) }),
+        ("include", |vm, s, a, _b| { let cls = s.obj().unwrap(); for m in a.iter().rev() { let m = class_arg(vm, *m)?; if !vm.heap.class(m).is_module { return Err(vm.raise_type("wrong argument type (expected Module)")); } vm.include_module(cls, m); } Ok(s) }),
+        ("prepend", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "prepend is not implemented"))),
+        ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let m = class_arg(vm, a[0])?; let mut c = vm.heap.class(s.obj().unwrap()).superclass; while let Some(x) = c { if vm.heap.class(x).iclass_of == Some(m) { return Ok(Value::True); } c = vm.heap.class(x).superclass; } Ok(Value::False) }),
+        ("ancestors", |vm, s, _a, _b| { let mut list = vec![]; let mut c = Some(s.obj().unwrap()); while let Some(x) = c { let cd = vm.heap.class(x); list.push(Value::Obj(cd.iclass_of.unwrap_or(x))); c = cd.superclass; } Ok(vm.ary_new(list)) }),
+        ("attr_reader", |vm, s, a, _b| { attr(vm, s, a, true, false) }),
+        ("attr_writer", |vm, s, a, _b| { attr(vm, s, a, false, true) }),
+        ("attr_accessor", |vm, s, a, _b| { attr(vm, s, a, true, true) }),
+        ("attr", |vm, s, a, _b| { attr(vm, s, a, true, false) }),
+        ("public", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("private", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("protected", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("module_function", |vm, s, a, _b| { let m = s.obj().unwrap(); for n in a { let n = sym_arg(vm, *n)?; if let Some((mth, _)) = vm.find_method(m, n) { let sc = vm.singleton_class(s)?; vm.heap.class_mut(sc).methods.insert(n, mth); } } Ok(a.first().copied().unwrap_or(Value::Nil)) }),
+        ("alias_method", |vm, s, a, _b| { argc!(vm, a, 2); let m = s.obj().unwrap(); let (new, old) = (sym_arg(vm, a[0])?, sym_arg(vm, a[1])?); match vm.find_method(m, old) { Some((mth, _)) => { vm.heap.class_mut(m).methods.insert(new, mth); Ok(s) } None => { let n = vm.sym_name(old); Err(vm.raise(vm.core.name_error, &format!("undefined method '{n}'"))) } } }),
+        ("undef_method", |vm, s, a, _b| { let m = s.obj().unwrap(); for n in a { let n = sym_arg(vm, *n)?; vm.heap.class_mut(m).methods.insert(n, Method::Undef); } Ok(s) }),
+        ("remove_method", |vm, s, a, _b| { let m = s.obj().unwrap(); for n in a { let n = sym_arg(vm, *n)?; vm.heap.class_mut(m).methods.remove(&n); } Ok(s) }),
+        ("define_method", |vm, s, a, b| { argc!(vm, a, 1, 2); let m = s.obj().unwrap(); let n = sym_arg(vm, a[0])?; let body = if a.len() == 2 { a[1] } else { b }; match body { Value::Obj(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => { if let ObjKind::Proc(pd) = &mut vm.heap.get_mut(p).kind { pd.target_class = Some(m); } vm.heap.class_mut(m).methods.insert(n, Method::Ruby(p)); Ok(Value::Sym(n)) } _ => Err(vm.raise_arg("tried to create Proc object without a block")) } }),
+        ("method_defined?", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(Value::bool(vm.find_method(s.obj().unwrap(), n).is_some())) }),
+        ("instance_methods", |vm, s, _a, _b| { let list = method_list(vm, s.obj().unwrap()); Ok(vm.ary_new(list)) }),
+        ("instance_method", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "instance_method is not implemented"))),
+        ("const_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; match vm.const_get(s.obj().unwrap(), n) { Some(v) => Ok(v), None => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("uninitialized constant {nn}"))) } } }),
+        ("const_set", |vm, s, a, _b| { argc!(vm, a, 2); let n = sym_arg(vm, a[0])?; vm.heap.class_mut(s.obj().unwrap()).consts.insert(n, a[1]); Ok(a[1]) }),
+        ("const_defined?", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(Value::bool(vm.const_get(s.obj().unwrap(), n).is_some())) }),
+        ("constants", |vm, s, _a, _b| { let list: Vec<Value> = vm.heap.class(s.obj().unwrap()).consts.keys().map(|k| Value::Sym(*k)).collect(); Ok(vm.ary_new(list)) }),
+        ("class_variable_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(vm.heap.class(s.obj().unwrap()).cvars.get(&n).copied().unwrap_or(Value::Nil)) }),
+        ("class_variable_set", |vm, s, a, _b| { argc!(vm, a, 2); let n = sym_arg(vm, a[0])?; vm.heap.class_mut(s.obj().unwrap()).cvars.insert(n, a[1]); Ok(a[1]) }),
+        ("module_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
+        ("class_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
+        ("method_added", |_vm, _s, _a, _b| Ok(Value::Nil)),
+    ]);
+    // Class
+    vm.define_methods(c.class, &[
+        ("new", |vm, s, a, b| vm.class_new_instance(s.obj().unwrap(), a, b)),
+        ("allocate", |vm, s, _a, _b| vm.instance_alloc(s.obj().unwrap())),
+        ("superclass", |vm, s, _a, _b| { let mut c = vm.heap.class(s.obj().unwrap()).superclass; while let Some(x) = c { let cd = vm.heap.class(x); if cd.iclass_of.is_none() && !cd.is_singleton { return Ok(Value::Obj(x)); } c = cd.superclass; } Ok(Value::Nil) }),
+        ("inherited", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("class_variable_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(vm.heap.class(s.obj().unwrap()).cvars.get(&n).copied().unwrap_or(Value::Nil)) }),
+    ]);
+    // Module.new / Class.new (with optional superclass) on their singleton classes
+    let sc = vm.singleton_class(Value::Obj(c.class)).unwrap();
+    vm.define_method(sc, "new", |vm, _s, a, b| {
+        argc!(vm, a, 0, 1);
+        let sup = if a.is_empty() { vm.core.object } else { class_arg(vm, a[0])? };
+        let cls = vm.heap.alloc(vm.core.class, ObjKind::Class(crate::object::ClassData { superclass: Some(sup), ..Default::default() }));
+        vm.singleton_class(Value::Obj(cls))?;
+        if !b.is_nil() { vm.call_block_with_self(b, Value::Obj(cls), &[Value::Obj(cls)])?; }
+        Ok(Value::Obj(cls))
+    });
+    let sm = vm.singleton_class(Value::Obj(c.module)).unwrap();
+    vm.define_method(sm, "new", |vm, _s, _a, b| {
+        let m = vm.heap.alloc(vm.core.module, ObjKind::Class(crate::object::ClassData { is_module: true, ..Default::default() }));
+        if !b.is_nil() { vm.call_block_with_self(b, Value::Obj(m), &[Value::Obj(m)])?; }
+        Ok(Value::Obj(m))
+    });
+
+    // nil / true / false
+    vm.define_methods(c.nil_class, &[
+        ("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b""))),
+        ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"nil"))),
+        ("to_a", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),
+        ("to_i", |_vm, _s, _a, _b| Ok(Value::Int(0))),
+        ("to_f", |_vm, _s, _a, _b| Ok(Value::Float(0.0))),
+        ("to_h", |vm, _s, _a, _b| Ok(vm.hash_new())),
+        ("&", |_vm, _s, _a, _b| Ok(Value::False)),
+        ("|", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
+        ("^", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
+    ]);
+    vm.define_methods(c.true_class, &[
+        ("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b"true"))),
+        ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"true"))),
+        ("&", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
+        ("|", |_vm, _s, _a, _b| Ok(Value::True)),
+        ("^", |_vm, _s, a, _b| Ok(Value::bool(!a.first().map(|v| v.truthy()).unwrap_or(false)))),
+    ]);
+    vm.define_methods(c.false_class, &[
+        ("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b"false"))),
+        ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"false"))),
+        ("&", |_vm, _s, _a, _b| Ok(Value::False)),
+        ("|", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
+        ("^", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
+    ]);
+    // Comparable / Enumerable bodies come from mrblib; `clamp` is mruby-compar-ext (a gem), added natively.
+    vm.define_method(c.comparable, "clamp", |vm, s, a, _b| {
+        argc!(vm, a, 2);
+        let cmp = vm.intern("<=>");
+        let lo = vm.funcall(a[0], cmp, &[a[1]], Value::Nil)?;
+        if matches!(lo, Value::Int(i) if i > 0) { return Err(vm.raise_arg("min argument must be less than or equal to max argument")); }
+        let c1 = vm.funcall(s, cmp, &[a[0]], Value::Nil)?;
+        if matches!(c1, Value::Int(i) if i < 0) { return Ok(a[0]); }
+        let c2 = vm.funcall(s, cmp, &[a[1]], Value::Nil)?;
+        if matches!(c2, Value::Int(i) if i > 0) { return Ok(a[1]); }
+        Ok(s)
+    });
+}
+
+pub fn object_id(v: Value) -> Value {
+    match v {
+        Value::Nil => Value::Int(8),
+        Value::True => Value::Int(20),
+        Value::False => Value::Int(0),
+        Value::Int(i) => Value::Int(i.wrapping_mul(2).wrapping_add(1)),
+        Value::Float(f) => Value::Int(f.to_bits() as i64),
+        Value::Sym(s) => Value::Int((s.0 as i64) << 8 | 0x0c),
+        Value::Obj(o) => Value::Int((o.0 as i64 + 1) * 8),
+    }
+}
+
+/// `#<ClassName:0x...>` — the address is the heap index, so it is stable.
+pub fn any_to_s(vm: &mut Vm, v: Value) -> String {
+    let c = vm.real_class_of(v);
+    let cn = vm.class_name(c);
+    match v {
+        Value::Obj(o) => format!("#<{cn}:0x{:012x}>", (o.0 as usize + 1) * 0x40),
+        _ => format!("#<{cn}>"),
+    }
+}
+
+fn obj_inspect(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
+    if let Value::Obj(o) = s {
+        let ivars = vm.heap.get(o).ivars.clone();
+        if !ivars.is_empty() && matches!(vm.heap.get(o).kind, ObjKind::Object) {
+            let mut out = any_to_s(vm, s);
+            out.pop(); // '>'
+            let mut first = true;
+            for (k, v) in ivars {
+                out.push_str(if first { " " } else { ", " });
+                first = false;
+                out.push_str(&vm.sym_name(k));
+                out.push('=');
+                out.push_str(&vm.inspect_str(v)?);
+            }
+            out.push('>');
+            return Ok(vm.str_from(out));
+        }
+    }
+    let t = any_to_s(vm, s);
+    Ok(vm.str_from(t))
+}
+
+fn mod_to_s(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
+    let o = s.obj().unwrap();
+    let cd = vm.heap.class(o);
+    if cd.is_singleton {
+        let att = cd.attached.unwrap_or(Value::Nil);
+        let inner = if let Value::Obj(x) = att { if vm.heap.is_class(x) { vm.class_name(x) } else { any_to_s(vm, att) } } else { any_to_s(vm, att) };
+        return Ok(vm.str_from(format!("#<Class:{inner}>")));
+    }
+    let n = vm.class_name(o);
+    Ok(vm.str_from(n))
+}
+
+pub fn class_arg(vm: &mut Vm, v: Value) -> VmResult<crate::value::ObjId> {
+    match v {
+        Value::Obj(o) if vm.heap.is_class(o) => Ok(o),
+        _ => Err(vm.raise_type("class or module required")),
+    }
+}
+
+pub fn sym_arg(vm: &mut Vm, v: Value) -> VmResult<crate::symbol::Sym> {
+    match v {
+        Value::Sym(s) => Ok(s),
+        _ => match vm.str_bytes(v) {
+            Some(b) => { let b = b.to_vec(); Ok(vm.syms.intern(&b)) }
+            None => { let d = vm.inspect_str(v)?; Err(vm.raise_type(&format!("{d} is not a symbol nor a string"))) }
+        },
+    }
+}
+
+fn is_a(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    argc!(vm, a, 1);
+    let c = class_arg(vm, a[0])?;
+    Ok(Value::bool(vm.obj_is_kind_of(s, c)))
+}
+
+fn class_le(vm: &Vm, a: crate::value::ObjId, b: crate::value::ObjId) -> bool {
+    let mut c = Some(a);
+    while let Some(x) = c {
+        let cd = vm.heap.class(x);
+        if x == b || cd.iclass_of == Some(b) { return true; }
+        c = cd.superclass;
+    }
+    false
+}
+
+fn send(vm: &mut Vm, s: Value, a: &[Value], b: Value) -> VmResult<Value> {
+    if a.is_empty() { return Err(vm.raise_arg("no method name given")); }
+    let m = sym_arg(vm, a[0])?;
+    vm.funcall(s, m, &a[1..], b)
+}
+
+fn method_missing(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    let name = match a.first() { Some(Value::Sym(m)) => vm.sym_name(*m), _ => "?".into() };
+    let desc = vm.describe_for_error(s);
+    Err(vm.raise(vm.core.no_method_error, &format!("undefined method '{name}' for {desc}")))
+}
+
+fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
+    let o = match s { Value::Obj(o) => o, _ => return Ok(s) };
+    let (class, ivars, kind) = {
+        let h = vm.heap.get(o);
+        let kind = match &h.kind {
+            ObjKind::Object => ObjKind::Object,
+            ObjKind::String(b) => ObjKind::String(b.clone()),
+            ObjKind::Array(v) => ObjKind::Array(v.clone()),
+            ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), default: hd.default }),
+            ObjKind::Range { begin, end, excl } => ObjKind::Range { begin: *begin, end: *end, excl: *excl },
+            ObjKind::Exception => ObjKind::Exception,
+            ObjKind::Class(_) | ObjKind::Proc(_) | ObjKind::Env(_) | ObjKind::Break { .. } => return Ok(s),
+        };
+        (vm.real_class_of(s), h.ivars.clone(), kind)
+    };
+    let n = vm.heap.alloc(class, kind);
+    vm.heap.get_mut(n).ivars = ivars;
+    Ok(Value::Obj(n))
+}
+
+fn attr(vm: &mut Vm, s: Value, a: &[Value], reader: bool, writer: bool) -> VmResult<Value> {
+    let cls = s.obj().unwrap();
+    let mut out = vec![];
+    for n in a {
+        let n = sym_arg(vm, *n)?;
+        let name = vm.sym_name(n);
+        let iv = vm.intern(&format!("@{name}"));
+        if reader {
+            vm.heap.class_mut(cls).methods.insert(n, Method::AttrReader(iv));
+            out.push(Value::Sym(n));
+        }
+        if writer {
+            let w = vm.intern(&format!("{name}="));
+            vm.heap.class_mut(cls).methods.insert(w, Method::AttrWriter(iv));
+            out.push(Value::Sym(w));
+        }
+    }
+    Ok(vm.ary_new(out))
+}
+
+fn method_list(vm: &Vm, class: crate::value::ObjId) -> Vec<Value> {
+    let mut list = vec![];
+    let mut c = Some(class);
+    while let Some(x) = c {
+        let cd = vm.heap.class(x);
+        let tbl = match cd.iclass_of { Some(m) => &vm.heap.class(m).methods, None => &cd.methods };
+        for (k, m) in tbl {
+            if !matches!(m, Method::Undef) && !list.contains(&Value::Sym(*k)) { list.push(Value::Sym(*k)); }
+        }
+        c = cd.superclass;
+    }
+    list
+}
+
+impl Vm {
+    /// Deterministic hash used by `Object#hash` and Hash keys.
+    pub fn value_hash(&self, v: Value) -> i64 {
+        fn fnv(bytes: &[u8]) -> i64 {
+            let mut h: u64 = 0xcbf29ce484222325;
+            for b in bytes { h ^= *b as u64; h = h.wrapping_mul(0x100000001b3); }
+            (h >> 1) as i64
+        }
+        match v {
+            Value::Obj(o) => match &self.heap.get(o).kind {
+                ObjKind::String(b) => fnv(b),
+                _ => (o.0 as i64 + 1) * 8,
+            },
+            Value::Int(i) => i,
+            Value::Float(f) => f.to_bits() as i64 >> 1,
+            Value::Sym(s) => s.0 as i64 * 31 + 7,
+            Value::Nil => 8,
+            Value::True => 20,
+            Value::False => 0,
+        }
+    }
+}

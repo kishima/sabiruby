@@ -1,0 +1,66 @@
+irep 0x5a56ea0b4720 nregs=8 nlocals=3 pools=0 syms=8 reps=0 ilen=176
+local variable names:
+  R1:i
+  R2:v
+file: /w/control.rb
+    1 000 LOADI_0	R1	(0)	; R1:i
+    2 002 MOVE		R3	R1	; R1:i
+    2 005 LOADI_3	R4	(3)
+    2 007 LT		R3	(R4)
+    2 009 JMPNOT	R3	021
+    2 013 NOP
+    3 014 ADDILV	R1	R3	1	; R1:i
+    3 018 JMP		002
+    5 021 MOVE		R4	R1	; R1:i
+    5 024 SSEND		R3	:p	n=1
+    6 028 MOVE		R3	R1	; R1:i
+    6 031 LOADI_2	R4	(2)
+    6 033 GT		R3	(R4)
+    6 035 JMPNOT	R3	045
+    6 039 LOADSYM	R3	:big
+    6 042 JMP		048
+    6 045 LOADSYM	R3	:small
+    6 048 MOVE		R2	R3	; R2:v
+    7 051 MOVE		R4	R2	; R2:v
+    7 054 SSEND		R3	:p	n=1
+    8 058 MOVE		R3	R1	; R1:i
+    9 061 LOADI_1	R4	(1)
+    9 063 MOVE		R5	R3
+    9 066 SEND		R4	:===	n=1
+    9 070 JMPIF		R4	077
+    9 074 JMP		087
+    9 077 LOADSYM	R5	:one
+    9 080 SSEND		R4	:p	n=1
+    9 084 JMP		123
+   10 087 LOADI_3	R4	(3)
+   10 089 MOVE		R5	R3
+   10 092 SEND		R4	:===	n=1
+   10 096 JMPIF		R4	103
+   10 100 JMP		113
+   10 103 LOADSYM	R5	:three
+   10 106 SSEND		R4	:p	n=1
+   10 110 JMP		123
+   11 113 LOADSYM	R5	:other
+   11 116 SSEND		R4	:p	n=1
+   11 120 JMP		123
+   13 123 LOADI_2	R4	(2)
+   13 125 SSEND		R3	:p	n=1
+   14 129 MOVE		R4	R1	; R1:i
+   14 132 LOADI_0	R5	(0)
+   14 134 GT		R4	(R5)
+   14 136 JMPNOT	R4	148
+   14 140 MOVE		R4	R1	; R1:i
+   14 143 LOADI8	R5	10
+   14 146 LT		R4	(R5)
+   14 148 MOVE		R5	R1	; R1:i
+   14 151 LOADI_5	R6	(5)
+   14 153 GT		R5	(R6)
+   14 155 JMPIF		R5	161
+   14 159 LOADFALSE	R5	(false)
+   14 161 LOADTRUE	R6	(true)
+   14 163 SEND0		R6	:!
+   14 166 ARRAY		R4	3
+   14 169 SSEND		R3	:p	n=1
+   14 173 RETURN	R3	
+   14 175 STOP
+
