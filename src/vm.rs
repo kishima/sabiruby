@@ -178,11 +178,15 @@ pub struct Syms {
 pub struct Vm {
     pub heap: Heap,
     pub syms: Interner,
+    #[doc(hidden)]
     pub ireps: Vec<VmIrep>,
+    #[doc(hidden)]
     pub stack: Vec<Slot>,
+    #[doc(hidden)]
     pub ci: Vec<CallInfo>,
     pub globals: HashMap<Sym, Slot>,
     /// The exception being propagated (`mrb->exc`) between `L_RAISE` and `EXCEPT`.
+    #[doc(hidden)]
     pub exc: Option<Value>,
     out: Vec<u8>,
     pub core: Core,
@@ -192,6 +196,7 @@ pub struct Vm {
     step_left: Option<u64>,
     /// The Proc whose body is a single `OP_CALL` (mruby `call_proc`): the
     /// method body of `Proc#call`, so calling a block does not re-enter the VM.
+    #[doc(hidden)]
     pub call_proc: ObjId,
     pub instructions: u64,
     /// Executions per opcode (index = opcode number); the test runner reports
@@ -200,27 +205,34 @@ pub struct Vm {
     /// Nesting of native -> VM re-entries (`call_proc_with`); bounded to protect the host stack.
     native_depth: u32,
     /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
+    #[doc(hidden)]
     pub inspect_guard: Vec<ObjId>,
     /// Keyword hash of the native call in progress. `Vm::funcall` re-attaches it
     /// as keywords when a native forwards its arguments unchanged (`send`, `new`).
+    #[doc(hidden)]
     pub pending_kw: Option<Value>,
     /// Pairs whose `==`/`eql?` is in progress (recursive containers compare equal).
+    #[doc(hidden)]
     pub eq_guard: Vec<(ObjId, ObjId)>,
     /// `GC.disable` state: collections are postponed until `GC.enable`.
     pub gc_disabled: bool,
     pending_vis_break: bool,
     /// Native fns that stand for `mrb_notimplement()`: `respond_to?` answers false for them.
+    #[doc(hidden)]
     pub notimpl_fns: Vec<crate::object::NativeFn>,
     pub gc_step_limit: i64,
     /// `GC.interval_ratio` (percent): the heap may grow to `live * ratio / 100` between collections.
     pub gc_interval_ratio: i64,
     /// Collect at the first instruction boundary after every allocation (`SABIRUBY_GC_STRESS`).
+    #[doc(hidden)]
     pub gc_stress: bool,
     /// Natives running on the host stack (SEND -> native, `funcall` -> native).
     /// Their Rust locals may hold values the collector cannot see, so it does not
     /// run while this is non-zero (see `docs/gc.md`, "Contract for native code").
+    #[doc(hidden)]
     pub native_active: u32,
     /// Objects the host keeps across calls (`mrb_gc_register`).
+    #[doc(hidden)]
     pub gc_registered: Vec<ObjId>,
     /// Objects alive after the last collection.
     pub live_after_gc: usize,
@@ -231,12 +243,15 @@ pub struct Vm {
     /// Monotonic clock in nanoseconds (the library is no_std; the CLI supplies one).
     pub gc_clock: Option<fn() -> u64>,
     /// All contexts (fibers); `contexts[cur]` is the running one (its stack/ci are in `stack`/`ci`).
+    #[doc(hidden)]
     pub contexts: Vec<Context>,
+    #[doc(hidden)]
     pub cur: usize,
     /// True while a native method called straight from a SEND instruction runs
     /// (mruby: the frame's `cci == CINFO_NONE`); false when called through
     /// `funcall` from other native code. Decides whether a fiber switch can
     /// continue in the current run loop or needs a nested one.
+    #[doc(hidden)]
     pub direct_send: bool,
     /// Absolute register the native call in progress writes its result to.
     native_ret_reg: usize,
@@ -244,6 +259,7 @@ pub struct Vm {
     /// termination of a fiber resumed by native code): the loop returns this value.
     loop_exit: Option<Value>,
     /// Arity of natives as the reference declares it (`MRB_ARGS_*`), for `Method#arity`.
+    #[doc(hidden)]
     pub native_arity: Vec<(crate::object::NativeFn, i64)>,
 }
 

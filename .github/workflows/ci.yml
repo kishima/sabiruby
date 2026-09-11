@@ -11,3 +11,14 @@ jobs:
       - run: cargo test
       - run: tools/check_no_std.sh
       - run: cargo build --lib --target wasm32-unknown-unknown
+      # what docs.rs and crates.io will get
+      - run: cargo doc --no-deps --lib
+        env:
+          RUSTDOCFLAGS: -D warnings
+      - run: cargo publish --dry-run
+  msrv:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@1.85   # rust-version in Cargo.toml
+      - run: cargo check --all-targets

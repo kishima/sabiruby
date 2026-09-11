@@ -6,7 +6,7 @@ behavioural compatibility with mruby 4.1.0, verified against the reference
 implementation rather than against a spec.
 
 SabiRuby is the VM only. Compilation still uses the reference `mrbc`. The Bevy
-integration lives in a separate crate, [`rubevy`](../rubevy).
+integration lives in a separate crate, [`rubevy`](https://github.com/kishima/rubevy).
 
 The design follows the book *Deep dive into mruby* (in Japanese): the register
 layout (`R0` of the callee is `R[a]` of the caller), `OP_ENTER`, environments,
@@ -28,17 +28,17 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 * Keyword parameters, visibility (`private`/`protected`/`module_function`), `prepend`,
   hooks (`inherited`, `included`, `method_added`, …), `defined?`, frozen objects.
 * Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
-  [`docs/fibers.md`](docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
+  [`docs/fibers.md`](https://github.com/kishima/sabiruby/blob/main/docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
   -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
-  loaded in the reference gembox order; see [`docs/gems.md`](docs/gems.md)). `send`/`__send__`
+  loaded in the reference gembox order; see [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md)). `send`/`__send__`
   from bytecode dispatch in place, as in mruby, so a `Fiber.yield` behind them is not a native
   boundary.
 * Garbage collection: stop-the-world mark & sweep with a free list, run at instruction
   boundaries and never while a native is on the host stack (natives need no arena; a host
   keeping objects across calls uses `Vm::gc_register`). `GC.start`/`enable`/`disable`,
   `interval_ratio`, `malloc_threshold`, `GC.stat[:live]` are real. `SABIRUBY_GC_STRESS=1`
-  collects after every allocation. See [`docs/gc.md`](docs/gc.md).
+  collects after every allocation. See [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md).
 
 Not yet: bigint, `$~`/`$_`, the remaining mrbgems
 (`io`, `time`, `math`, `struct`, …), encodings. Native code may re-enter the VM
@@ -65,8 +65,8 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 17 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`).
 
 mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
-gems (`gem_*`, 394 assertions) passes 1185 of 1227 (see [`docs/mrbtest.md`](docs/mrbtest.md),
-reasons for the rest in [`docs/mrbtest-notes.md`](docs/mrbtest-notes.md)); of the gem
+gems (`gem_*`, 394 assertions) passes 1185 of 1227 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
+reasons for the rest in [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
 assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
 ones skip.
 The rest: 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
@@ -82,7 +82,7 @@ fixtures stay on core behaviour, and the few gem methods that were convenient (`
 
 `tools/mrbtest.sh` copies `test/assert.rb` and `test/t/*.rb` from the reference tree,
 compiles them with the reference `mrbc` (Docker) and runs each file on a fresh VM
-(`sabiruby mrbtest`). The result is written to [`docs/mrbtest.md`](docs/mrbtest.md):
+(`sabiruby mrbtest`). The result is written to [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md):
 a per-file table of `report` counts (ok / ko / crash / warn / skip) and the list of
 opcodes the suite never executed. `tests/mrbtest/baseline.txt` records the `ok` count
 per file and `cargo test` fails if any file drops below it; refresh it with
@@ -95,16 +95,16 @@ suite keeps going and the table shows them as "crash".
 ## Performance
 
 `tools/bench.sh` runs mruby's own `benchmark/*.rb` on the reference `mruby` and on SabiRuby
-and writes [`docs/bench.md`](docs/bench.md) (best of 3, plus instruction counts and
+and writes [`docs/bench.md`](https://github.com/kishima/sabiruby/blob/main/docs/bench.md) (best of 3, plus instruction counts and
 ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
 first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
 The value representation (16-byte enum) and the heap (index into a `Vec`) are the
 known structural costs; measure before changing them. Storage (registers, array elements,
 hash entries, ivars, envs, constants, globals) holds `Slot`; computation works on `Value`;
 `slot.get()` / `Slot::from(v)` are the only crossings, so an 8-byte representation can be
-tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](docs/performance.md).
-Exception/break unwinding without longjmp: [`docs/exceptions.md`](docs/exceptions.md).
-GC: [`docs/gc.md`](docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](docs/gc-plan.md)).
+tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](https://github.com/kishima/sabiruby/blob/main/docs/performance.md).
+Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github.com/kishima/sabiruby/blob/main/docs/exceptions.md).
+GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc-plan.md)).
 
 ## Usage
 
@@ -147,5 +147,6 @@ loop {
 
 ## License
 
-MIT. `src/mrblib.mrb` is compiled from mruby's `mrblib`, which is MIT licensed
-(Copyright (c) 2010- mruby developers).
+MIT (`LICENSE`). `src/mrblib.mrb` and `src/mrblib_*.mrb` are compiled from mruby's `mrblib`
+and the Ruby parts of its bundled gems, and `tests/mrbtest/src/` holds copies of mruby's test
+suite; those are MIT licensed, Copyright (c) 2010- mruby developers (`LICENSE-mruby`).

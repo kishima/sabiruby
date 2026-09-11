@@ -1,12 +1,12 @@
 //! RITE 0400 binary reader (mruby 4.1.0 `src/load.c`).
 //!
 //! Layout (all integers big-endian):
-//! - binary header: "RITE" "0400" size:u32 compiler_name[4] compiler_version[4]
-//! - sections: ident[4] size:u32 ... repeated until "END\0"
-//!   - "IREP": rite_version[4] then one irep record tree
-//!   - "DBG\0": line numbers (parsed minimally), "LVAR": local variable names
-//! - irep record: size:u32 nlocals:u16 nregs:u16 rlen:u16 clen:u16 ilen:u32
-//!   iseq[ilen] catch[clen*13] plen:u16 pool... slen:u16 syms... then rlen child records
+//! - binary header: `"RITE" "0400" size:u32 compiler_name[4] compiler_version[4]`
+//! - sections: `ident[4] size:u32 ...` repeated until `"END\0"`
+//!   - `"IREP"`: `rite_version[4]` then one irep record tree
+//!   - `"DBG\0"`: line numbers (parsed minimally), `"LVAR"`: local variable names
+//! - irep record: `size:u32 nlocals:u16 nregs:u16 rlen:u16 clen:u16 ilen:u32`
+//!   `iseq[ilen] catch[clen*13] plen:u16 pool... slen:u16 syms...` then `rlen` child records
 
 use alloc::{format, string::String, vec::Vec};
 

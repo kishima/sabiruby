@@ -142,6 +142,7 @@ impl Vm {
 }
 
 /// Wraps a native fn body: `native!(vm, self_, args, blk, { ... })`.
+#[doc(hidden)]
 #[macro_export]
 macro_rules! argc {
     ($vm:expr, $args:expr, $n:expr) => {

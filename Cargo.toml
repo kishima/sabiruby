@@ -1,13 +1,18 @@
 [package]
 name = "sabiruby"
-version = "0.0.1"
+version = "0.1.0"
 edition = "2024"
+# edition 2024 and core::ptr::fn_addr_eq need 1.85
+rust-version = "1.85"
 description = "SabiRuby: an mruby 4.1.0 bytecode-compatible VM written in Rust (\"rusted Ruby\")"
 license = "MIT"
 keywords = ["mruby", "ruby", "bytecode", "vm", "embedded"]
-categories = ["compilers", "embedded", "game-development"]
+categories = ["compilers", "embedded", "game-development", "no-std"]
 repository = "https://github.com/kishima/sabiruby"
 readme = "README.md"
+# What crates.io gets: the library, the CLI, the design notes and the licences. The test
+# suite (fixtures, mruby's test/t copies and their .mrb), benchmarks and tools stay in git.
+include = ["/src/**/*", "/docs/*.md", "/README.md", "/LICENSE", "/LICENSE-mruby"]
 
 [lib]
 name = "sabiruby"

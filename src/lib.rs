@@ -1,14 +1,54 @@
 //! SabiRuby — an mruby 4.1.0 bytecode-compatible virtual machine in Rust.
 //!
-//! The VM executes RITE 0400 binaries produced by mruby's `mrbc`. It follows the
-//! semantics documented in "Deep dive into mruby" (register layout, callinfo,
-//! catch handlers, environments) while replacing mruby's C-side implementation
-//! choices (boxing, tricolor GC, setjmp) with Rust-native ones.
+//! The VM executes RITE 0400 binaries (`.mrb` files) produced by mruby 4.1's `mrbc`;
+//! compilation still uses the reference compiler. Behaviour is checked against the
+//! reference mruby 4.1.0-rc (its own test suite passes 1185 of 1227 assertions; see the
+//! repository's README for what is missing). The design follows the book *Deep dive into
+//! mruby* (register layout, callinfo, catch handlers, environments) and replaces mruby's
+//! C-side choices (boxing, tricolor GC, setjmp) with Rust-native ones.
 //!
-//! Status: early. See `README.md` for the supported subset.
+//! # Usage
 //!
-//! The crate is `no_std` + `alloc`. Rule: no `std::` paths in `src/` outside
-//! `src/bin/`; `tools/check_no_std.sh` builds for a bare-metal target to enforce it.
+//! ```
+//! # fn run(bytes: &[u8]) -> Result<(), sabiruby::VmError> {
+//! let mut vm = sabiruby::Vm::with_mrblib()?; // core classes + mruby's mrblib
+//! vm.load_and_run(bytes)?;                   // a RITE binary, run to completion
+//! let out = vm.take_output();                // what puts/p/print wrote
+//! # let _ = out; Ok(()) }
+//! ```
+//!
+//! Stepped execution, e.g. once per frame of a game loop:
+//!
+//! ```
+//! # fn run(bytes: &[u8]) -> Result<(), sabiruby::VmError> {
+//! use sabiruby::Step;
+//! let mut vm = sabiruby::Vm::with_mrblib()?;
+//! let irep = vm.load(bytes)?;
+//! vm.start(irep);
+//! loop {
+//!     match vm.step(10_000)? {        // at most 10 000 instructions
+//!         Step::Paused => { /* next frame */ }
+//!         Step::Finished(_) => break,
+//!     }
+//! }
+//! # Ok(()) }
+//! ```
+//!
+//! Native methods are `fn(&mut Vm, self, args, block) -> VmResult<Value>` registered with
+//! [`Vm::define_method`]. A native may keep values in Rust locals while it runs; objects kept
+//! across calls into the VM must be registered with [`Vm::gc_register`] (see the repository's
+//! `docs/gc.md`).
+//!
+//! # Features
+//!
+//! The library is `no_std` + `alloc` (it builds for bare-metal targets and
+//! `wasm32-unknown-unknown`). The default `std` feature only adds `std::error::Error` for
+//! [`VmError`] and is needed by the `sabiruby` command-line tool.
+//!
+//! # Stability
+//!
+//! 0.x: the API follows the VM's internals and will change between minor versions. Items
+//! hidden from these docs are internal even where they are `pub`.
 #![cfg_attr(not(feature = "std"), no_std)]
 
 extern crate alloc;
@@ -20,7 +60,10 @@ pub mod rite;
 pub mod symbol;
 pub mod value;
 pub mod vm;
+#[doc(hidden)]
 pub mod builtins;
+/// Runner for mruby's own test suite (used by `sabiruby mrbtest` and the crate's tests).
+#[doc(hidden)]
 pub mod mrbtest;
 
 pub use error::VmError;
