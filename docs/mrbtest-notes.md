@@ -36,9 +36,9 @@ Categories:
 | regexperror | 0 assertions | gem | The file defines no assertion unless mruby-regexp is present; the reference reports 0 too. |
 | gem_fiber2 | (all pass) | — | Needs the six natives of `mruby-fiber/test/fibertest.c`; SabiRuby provides them in `src/mrbtest.rs`. The reference `mruby` command lacks them and crashes on all 4. |
 
-Summary (2026-09-11): 910 assertions, 882 pass. Not passing: 11 crashes (all C fixtures),
+Summary (2026-09-11): 910 assertions, 883 pass. Not passing: 11 crashes (all C fixtures),
 7 KO (5 GC arena, 2 deliberate deviations), 9 skips (bigint 3, regexp 1, backtrace 2,
-Float defined 1, revision 1, plus the empty `regexperror`), 1 warning — see below.
+Float defined 1, revision 1, plus the empty `regexperror`), 0 warnings (one was a bug, see below).
 
 ## Warnings
 

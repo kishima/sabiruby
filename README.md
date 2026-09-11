@@ -59,7 +59,8 @@ until mruby-enum-ext (`each_slice`, `each_cons`) is ported.
 
 mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
 gems (`gem_*`, 77 assertions: mruby-fiber's `fiber.rb`/`fiber2.rb` and mruby-enumerator's)
-passes 882 of 910 (see [`docs/mrbtest.md`](docs/mrbtest.md)); every gem assertion passes.
+passes 883 of 910 (see [`docs/mrbtest.md`](docs/mrbtest.md), reasons for the rest in
+[`docs/mrbtest-notes.md`](docs/mrbtest-notes.md)); every gem assertion passes.
 The rest: 16 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
 `ary_shared.c`) or a real garbage collector (arena tests), 2 are the deviations above, and
 the remaining ones are skips the reference makes too (bigint, regexp, build-dependent).
