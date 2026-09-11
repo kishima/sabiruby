@@ -14,7 +14,7 @@ RUNS=${RUNS:-3}
 mkdir -p $DIR/src
 cp "$MRUBY"/benchmark/bm_*.rb "$MRUBY"/benchmark/vm_optimization_bench.rb $DIR/src/ 2>/dev/null || true
 docker run --rm -v "$PWD/$DIR:/w" $IMG /bin/sh -c 'cd /w && for rb in src/*.rb; do b=$(basename $rb .rb); mrbc -o $b.mrb $rb || echo "compile failed: $b"; done'
-cargo build --release -q
+cargo build --release -q -p sabiruby-cli
 best() { sort -n | head -1; }
 {
   echo "# Benchmarks: SabiRuby vs mruby 4.1.0-rc"

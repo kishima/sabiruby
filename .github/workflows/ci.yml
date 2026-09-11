@@ -14,9 +14,9 @@ jobs:
       # the VM, the CLI, and the compiler's golden tests against the reference mrbc output
       - run: cargo test --workspace
       - run: tools/check_no_std.sh
-      # the library only: the default `compiler` feature (C) is not for wasm
-      - run: cargo build --lib --no-default-features --target wasm32-unknown-unknown
-      # what docs.rs and crates.io will get (both crates, the compiler first)
+      # the VM library, pure Rust (the C compiler is only in sabiruby-compiler / sabiruby-cli)
+      - run: cargo build -p sabiruby --lib --target wasm32-unknown-unknown
+      # what docs.rs and crates.io will get (sabiruby-compiler, sabiruby, sabiruby-cli, in that order)
       - run: cargo doc --no-deps --workspace
         env:
           RUSTDOCFLAGS: -D warnings

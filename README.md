@@ -5,11 +5,15 @@ It executes RITE bytecode (`.mrb` files produced by mruby 4.1's `mrbc`) and aims
 behavioural compatibility with mruby 4.1.0, verified against the reference
 implementation rather than against a spec.
 
-The VM runs bytecode only. To run Ruby source, the `sabiruby` command embeds the
-reference compiler itself (mruby 4.1.0-rc's `mruby-compiler` with Prism, built as C in the
-[`sabiruby-compiler`](https://github.com/kishima/sabiruby/tree/main/compiler) crate), so `sabiruby run foo.rb` produces exactly the bytecode
-`mrbc` would. The Bevy integration lives in a separate crate,
-[`rubevy`](https://github.com/kishima/rubevy).
+The VM runs bytecode only and is pure Rust (`no_std`). Three crates live in this repository:
+
+| crate | what | |
+|---|---|---|
+| [`sabiruby`](https://crates.io/crates/sabiruby) | the VM library | pure Rust, `no_std` + `alloc`, wasm |
+| [`sabiruby-compiler`](https://github.com/kishima/sabiruby/tree/main/compiler) | the reference compiler (mruby 4.1.0-rc's `mruby-compiler` with Prism) built as C; output byte-identical to `mrbc` | needs a C compiler |
+| [`sabiruby-cli`](https://github.com/kishima/sabiruby/tree/main/cli) | the `sabiruby` command: `sabiruby run foo.rb`, `-e`, `compile`, `dump` | depends on both |
+
+The Bevy integration lives in a separate crate, [`rubevy`](https://github.com/kishima/rubevy).
 
 The design follows the book *Deep dive into mruby* (in Japanese): the register
 layout (`R0` of the callee is `R[a]` of the caller), `OP_ENTER`, environments,
@@ -43,8 +47,8 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   `interval_ratio`, `malloc_threshold`, `GC.stat[:live]` are real. `SABIRUBY_GC_STRESS=1`
   collects after every allocation. See [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md).
 * Compiler: the reference mruby-compiler (Prism) linked as C, in the `sabiruby-compiler`
-  crate; the VM crate stays free of it (the CLI uses it through the default `compiler`
-  feature). Output is byte-identical to `mrbc` for every `.rb` in the repository. See
+  crate; the VM crate does not depend on it, the `sabiruby` command (`sabiruby-cli`) does.
+  Output is byte-identical to `mrbc` for every `.rb` in the repository. See
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
 
 Not yet: bigint, `$~`/`$_`, the remaining mrbgems
@@ -116,23 +120,19 @@ GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (th
 
 ## Usage
 
-The library is on crates.io as [`sabiruby`](https://crates.io/crates/sabiruby)
-(`cargo add sabiruby`; the CLI below is the `sabiruby` binary of the same crate).
+The library: `cargo add sabiruby` (`default-features = false` for `no_std`). The command:
+`cargo install sabiruby-cli` (installs `sabiruby`; building it compiles the C sources of the
+reference compiler, about 2 s in a debug build and 7 s in a release build, on one core).
+In this repository:
 
 ```
-cargo run -- run  foo.rb                     # compile Ruby source and run it
-cargo run -- -e 'p [1, 2].sum'               # code on the command line
-cargo run -- run  tests/fixtures/klass.mrb   # a RITE binary from mrbc
-cargo run -- compile foo.rb -o foo.mrb       # like mrbc (-g, --remove-lv, --no-ext-ops, --no-optimize)
-cargo run -- dump tests/fixtures/klass.rb    # instruction listing (.rb or .mrb)
-cargo run -- mrbtest tests/mrbtest/assert.mrb tests/mrbtest/hash.mrb   # test suite
+cargo run -p sabiruby-cli -- run  foo.rb                     # compile Ruby source and run it
+cargo run -p sabiruby-cli -- -e 'p [1, 2].sum'               # code on the command line
+cargo run -p sabiruby-cli -- run  tests/fixtures/klass.mrb   # a RITE binary from mrbc
+cargo run -p sabiruby-cli -- compile foo.rb -o foo.mrb       # like mrbc (-g, --remove-lv, --no-ext-ops, --no-optimize)
+cargo run -p sabiruby-cli -- dump tests/fixtures/klass.rb    # instruction listing (.rb or .mrb)
+cargo run -p sabiruby-cli -- mrbtest tests/mrbtest/assert.mrb tests/mrbtest/hash.mrb   # test suite
 ```
-
-Building the CLI compiles the C sources of the reference compiler (needs a C compiler; about
-2 s in a debug build and 7 s in a release build, on one core). A program that embeds only the
-VM, or targets wasm, turns that off:
-`sabiruby = { version = "...", default-features = false, features = ["std"] }`
-(or no features at all for `no_std`).
 
 ```rust
 let mut vm = sabiruby::Vm::with_mrblib()?;   // core library loaded
@@ -164,6 +164,7 @@ loop {
 | `tools/fixtures.sh` | regenerates the fixtures and `mrblib.mrb` with Docker |
 | `src/mrbtest.rs`, `tests/mrbtest/` | runner and compiled files of mruby's test suite |
 | `compiler/` | crate `sabiruby-compiler`: the vendored reference compiler, C shim, golden tests |
+| `cli/` | crate `sabiruby-cli`: the `sabiruby` command |
 | `tools/vendor_compiler.sh` | refreshes `compiler/vendor/` from the reference tree |
 | `tools/mrbtest.sh`, `tools/check_no_std.sh` | test-suite report, no_std rule |
 

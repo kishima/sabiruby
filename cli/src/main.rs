@@ -1,5 +1,6 @@
-//! `sabiruby` command line: run, compile or dump Ruby scripts and mruby RITE binaries (.mrb).
-//! Ruby source is compiled by the embedded reference compiler (feature `compiler`).
+//! `sabiruby` command line (crate `sabiruby-cli`): run, compile or dump Ruby scripts and mruby
+//! RITE binaries (.mrb). Ruby source is compiled by the reference compiler (crate
+//! `sabiruby-compiler`), the bytecode runs on the SabiRuby VM (crate `sabiruby`).
 use std::io::Write;
 use std::process::ExitCode;
 
@@ -28,9 +29,8 @@ fn usage() -> ExitCode {
     ExitCode::from(2)
 }
 
-/// Compiles Ruby source with the embedded reference compiler (crate `sabiruby-compiler`).
+/// Compiles Ruby source with the reference compiler (crate `sabiruby-compiler`).
 /// Errors are printed as `FILE:LINE:COL: message`, like mrbc.
-#[cfg(feature = "compiler")]
 fn compile_source(src: &[u8], opts: &sabiruby_compiler::Options) -> Result<Vec<u8>, ExitCode> {
     sabiruby_compiler::compile(src, opts).map_err(|e| { eprintln!("{e}"); ExitCode::from(1) })
 }
@@ -40,14 +40,10 @@ fn compile_source(src: &[u8], opts: &sabiruby_compiler::Options) -> Result<Vec<u
 fn load_program(path: &str, debug_info: bool) -> Result<Vec<u8>, ExitCode> {
     let bytes = std::fs::read(path).map_err(|e| { eprintln!("{path}: {e}"); ExitCode::from(1) })?;
     if bytes.starts_with(b"RITE") { return Ok(bytes); }
-    #[cfg(feature = "compiler")]
-    { compile_source(&bytes, &sabiruby_compiler::Options { filename: path.to_string(), debug_info, ..Default::default() }) }
-    #[cfg(not(feature = "compiler"))]
-    { let _ = debug_info; eprintln!("{path}: not a RITE binary (this sabiruby is built without the `compiler` feature)"); Err(ExitCode::from(1)) }
+    compile_source(&bytes, &sabiruby_compiler::Options { filename: path.to_string(), debug_info, ..Default::default() })
 }
 
 /// `sabiruby compile FILE [-o OUT] [-g] [--remove-lv] [--no-ext-ops] [--no-optimize]`.
-#[cfg(feature = "compiler")]
 fn compile_cmd(args: &[String]) -> ExitCode {
     let mut opts = sabiruby_compiler::Options::default();
     let (mut input, mut output) = (None, None);
@@ -75,12 +71,6 @@ fn compile_cmd(args: &[String]) -> ExitCode {
         Ok(()) => ExitCode::SUCCESS,
         Err(e) => { eprintln!("{output}: {e}"); ExitCode::from(1) }
     }
-}
-
-#[cfg(not(feature = "compiler"))]
-fn compile_cmd(_args: &[String]) -> ExitCode {
-    eprintln!("sabiruby compile: this sabiruby is built without the `compiler` feature");
-    ExitCode::from(1)
 }
 
 /// Runs a RITE binary with `ARGV` = `argv`.
@@ -174,7 +164,6 @@ fn real_main() -> ExitCode {
         Some("compile") => return compile_cmd(&args[2..]),
         Some("--version" | "-v") => {
             println!("sabiruby {}", env!("CARGO_PKG_VERSION"));
-            #[cfg(feature = "compiler")]
             println!("compiler: {}", sabiruby_compiler::version());
             return ExitCode::SUCCESS;
         }
@@ -187,13 +176,8 @@ fn real_main() -> ExitCode {
     }
     match args[1].as_str() {
         "-e" => {
-            #[cfg(feature = "compiler")]
-            {
-                let opts = sabiruby_compiler::Options { filename: "-e".into(), debug_info: true, ..Default::default() };
-                match compile_source(args[2].as_bytes(), &opts) { Ok(bin) => run(&bin, &args[3..], stats), Err(code) => code }
-            }
-            #[cfg(not(feature = "compiler"))]
-            { eprintln!("sabiruby -e: this sabiruby is built without the `compiler` feature"); ExitCode::from(1) }
+            let opts = sabiruby_compiler::Options { filename: "-e".into(), debug_info: true, ..Default::default() };
+            match compile_source(args[2].as_bytes(), &opts) { Ok(bin) => run(&bin, &args[3..], stats), Err(code) => code }
         }
         "run" => match load_program(&args[2], true) {
             Ok(bin) => run(&bin, &args[3..], stats),

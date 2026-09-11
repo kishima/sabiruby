@@ -11,7 +11,7 @@ MRUBY=${MRUBY_SRC:-../../ref/mruby}
 DIR=tests/mrbtest
 mkdir -p $DIR/src
 if [ "${1:-}" = "-v" ]; then
-  cargo run --release -q -- mrbtest -v $DIR/assert.mrb $DIR/${2}.mrb
+  cargo run --release -q -p sabiruby-cli -- mrbtest -v $DIR/assert.mrb $DIR/${2}.mrb
   exit 0
 fi
 # copy sources (they are MIT, from mruby test/) and compile.
@@ -37,7 +37,7 @@ docker run --rm -v "$PWD/$DIR:/w" $IMG /bin/sh -c '
   mrbc -g -o /w/assert.mrb /w/src/assert.rb
   for rb in /w/src/*.rb; do b=$(basename "$rb" .rb); [ "$b" = assert ] && continue
     mrbc -g -o /w/$b.mrb "$rb" || echo "compile failed: $b"; done'
-cargo build --release -q
+cargo build --release -q -p sabiruby-cli
 {
   echo "# mruby test suite on SabiRuby"
   echo

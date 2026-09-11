@@ -1,0 +1,20 @@
+[package]
+name = "sabiruby-cli"
+version = "0.2.0"
+edition = "2024"
+rust-version = "1.85"
+description = "The `sabiruby` command: run Ruby source and mruby 4.1 bytecode on the SabiRuby VM, compile like mrbc"
+license = "MIT"
+keywords = ["mruby", "ruby", "cli", "bytecode", "vm"]
+categories = ["command-line-utilities", "compilers"]
+repository = "https://github.com/kishima/sabiruby"
+readme = "README.md"
+include = ["/src/**/*", "/README.md"]
+
+[[bin]]
+name = "sabiruby"
+path = "src/main.rs"
+
+[dependencies]
+sabiruby = { version = "0.2.0", path = ".." }
+sabiruby-compiler = { version = "0.1.0", path = "../compiler" }

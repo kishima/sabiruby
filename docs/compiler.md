@@ -10,10 +10,11 @@ that the bytecode is exactly the reference's. The plan this follows is
 ## Layout
 
 * **Crate `sabiruby-compiler`** (`compiler/`, a workspace member). std, links libc, does
-  not depend on `sabiruby`. The VM crate stays `no_std` and does not use it; only the
-  `sabiruby` binary does, through the default feature `compiler`
-  (`compiler = ["std", "dep:sabiruby-compiler"]`). `tools/check_no_std.sh` builds with
-  `--no-default-features` and is unaffected.
+  not depend on `sabiruby`. The VM crate `sabiruby` stays pure Rust and `no_std` and does not
+  depend on it. The `sabiruby` command is a third crate, `sabiruby-cli` (`cli/`), which
+  depends on both. (A first version made the compiler a default feature of `sabiruby` for its
+  binary; features apply to the whole crate, so every library user, rubevy included, would
+  have built C and lost wasm. Split on review, like mruby/edge's `mrubyedge-cli`.)
 * `compiler/vendor/`: unmodified copies of `mruby-compiler`, Prism, Prism's generated sources
   and `mrbconf.h` (origin, versions, licences and the update procedure in
   [`compiler/vendor/VENDOR.md`](../compiler/vendor/VENDOR.md); `tools/vendor_compiler.sh`).
@@ -74,7 +75,7 @@ The verification baseline does not move: `tools/mrbtest.sh`, `tools/fixtures.sh`
 `tools/bench.sh` keep compiling with the reference `mrbc` in Docker; the golden tests show that
 the embedded compiler agrees with it.
 
-## CLI
+## CLI (crate `sabiruby-cli`, `cli/`)
 
 * `sabiruby run FILE`: a file starting with `RITE` runs as before; anything else is compiled
   with `filename` = FILE and `debug_info` (DBG is not read by the VM, but the LVAR section is
@@ -97,10 +98,10 @@ A clean build of the C part: about 2 s (debug, `-O0`) and 7 s (release), on one 
 `sabiruby-compiler` package is 2.9 MiB (394 KiB compressed). CI builds and tests on Linux and macOS; Windows (MSVC) should work but is
 not tested. **wasm32 is not supported** (the C side would need clang with a wasm sysroot, i.e.
 wasi-sdk or emscripten, chosen by the build script); the VM library itself builds for
-`wasm32-unknown-unknown` with `--no-default-features`.
+`wasm32-unknown-unknown`.
 
 ## Publishing
 
-`sabiruby-compiler` first, then `sabiruby` (its binary depends on it); `cargo publish
---workspace` does both in order. `sabiruby` 0.1.0 is already on crates.io without the compiler,
-so the next `sabiruby` needs a new version number.
+In dependency order: `sabiruby-compiler` 0.1.0, `sabiruby` 0.2.0 (the library only; since
+0.1.0: the garbage collector and storage in `Slot`), `sabiruby-cli` 0.2.0. `cargo publish
+--workspace` publishes them in that order.
