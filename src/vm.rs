@@ -9,7 +9,7 @@ use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use hashbrown::HashMap;
 
 use crate::error::{VmError, VmResult};
-use crate::object::{BreakTag, ClassData, EnvData, Heap, IrepId, Method, ObjKind, ProcData};
+use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, ObjKind, ProcData, Vis};
 use crate::opcode::{Op, Operands};
 use crate::rite::{self, CatchType, Pool};
 use crate::symbol::{Interner, Sym};
@@ -48,6 +48,10 @@ pub struct CallInfo {
     pub target_class: ObjId,
     pub env: Option<ObjId>,
     pub cci: Cci,
+    /// Visibility given to methods defined by `def` in this frame (`private` with no arguments).
+    pub vis: Vis,
+    /// `module_function` with no arguments: following `def`s also become singleton methods.
+    pub modfunc: bool,
 }
 
 /// Well-known classes and modules.
@@ -150,6 +154,8 @@ pub struct Vm {
     pending_kw: Option<Value>,
     /// Pairs whose `==`/`eql?` is in progress (recursive containers compare equal).
     pub eq_guard: Vec<(ObjId, ObjId)>,
+    /// `GC.disable` state (no collector yet; the interface is kept).
+    pub gc_disabled: bool,
 }
 
 /// Result of [`Vm::step`].
@@ -210,6 +216,7 @@ impl Vm {
         let range_error = c(&mut heap, &mut syms, "RangeError", standard_error);
         let key_error = c(&mut heap, &mut syms, "KeyError", index_error);
         let script_error = c(&mut heap, &mut syms, "ScriptError", exception);
+        let _syntax_error = c(&mut heap, &mut syms, "SyntaxError", script_error);
         let not_implemented_error = c(&mut heap, &mut syms, "NotImplementedError", script_error);
         let stop_iteration = c(&mut heap, &mut syms, "StopIteration", index_error);
         let frozen_error = c(&mut heap, &mut syms, "FrozenError", runtime_error);
@@ -229,6 +236,12 @@ impl Vm {
             let id = ObjId(i as u32);
             let is_mod = heap.class(id).is_module;
             heap.get_mut(id).class = if is_mod { module } else { class };
+        }
+        for (cls, kind) in [(basic_object, InstanceKind::Object), (string, InstanceKind::String), (array, InstanceKind::Array), (hash, InstanceKind::Hash),
+                            (range, InstanceKind::Range), (exception, InstanceKind::Exception), (proc_, InstanceKind::Proc),
+                            (integer, InstanceKind::NoAlloc), (float, InstanceKind::NoAlloc), (symbol, InstanceKind::NoAlloc), (nil_class, InstanceKind::NoAlloc),
+                            (true_class, InstanceKind::NoAlloc), (false_class, InstanceKind::NoAlloc)] {
+            heap.class_mut(cls).instance_kind = Some(kind);
         }
         let s = Syms {
             initialize: syms.intern_str("initialize"),
@@ -259,7 +272,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, call_proc,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -324,7 +337,9 @@ impl Vm {
         Value::Obj(self.heap.alloc(self.core.hash, ObjKind::Hash(Default::default())))
     }
     pub fn range_new(&mut self, begin: Value, end: Value, excl: bool) -> Value {
-        Value::Obj(self.heap.alloc(self.core.range, ObjKind::Range { begin, end, excl }))
+        let o = self.heap.alloc(self.core.range, ObjKind::Range { begin, end, excl });
+        self.heap.get_mut(o).frozen = true;
+        Value::Obj(o)
     }
     pub fn exc_new(&mut self, class: ObjId, msg: &str) -> Value {
         let e = self.heap.alloc(class, ObjKind::Exception);
@@ -336,6 +351,15 @@ impl Vm {
     /// Builds an error to return with `?`: `Err(vm.raise(class, "msg"))`.
     pub fn raise(&mut self, class: ObjId, msg: &str) -> VmError {
         VmError::Raise(self.exc_new(class, msg))
+    }
+    /// A `NoMethodError` carrying `@name` (NameError#name) and an empty `@args`.
+    pub fn no_method_error(&mut self, mid: Sym, _recv: Value, msg: &str) -> VmError {
+        let e = self.exc_new(self.core.no_method_error, msg);
+        if let Value::Obj(o) = e {
+            let k = self.intern("@name"); self.heap.ivar_set(o, k, Value::Sym(mid));
+            let a = self.intern("@args"); let empty = self.ary_new(vec![]); self.heap.ivar_set(o, a, empty);
+        }
+        VmError::Raise(e)
     }
     pub fn raise_type(&mut self, msg: &str) -> VmError {
         self.raise(self.core.type_error, msg)
@@ -358,11 +382,15 @@ impl Vm {
             None => Err(self.raise_type(&format!("{what} cannot be converted to String"))),
         }
     }
-    pub fn expect_int(&mut self, v: Value, what: &str) -> VmResult<i64> {
+    pub fn expect_int(&mut self, v: Value, _what: &str) -> VmResult<i64> {
         match v {
             Value::Int(i) => Ok(i),
-            Value::Float(f) => Ok(f as i64),
-            _ => Err(self.raise_type(&format!("{what} cannot be converted to Integer"))),
+            Value::Float(f) => {
+                if f.is_nan() || f.is_infinite() { let s = crate::builtins::numeric::float_to_s(f); return Err(self.raise(self.core.float_domain_error, &s)); }
+                if f >= 9223372036854775808.0 || f < -9223372036854775808.0 { let s = crate::builtins::numeric::float_to_s(f); return Err(self.raise(self.core.range_error, &format!("float {s} out of range of integer"))); }
+                Ok(f as i64)
+            }
+            _ => { let d = self.describe_for_type_error(v); Err(self.raise_type(&format!("no implicit conversion of {d} into Integer"))) }
         }
     }
 
@@ -384,7 +412,7 @@ impl Vm {
         let mut c = self.class_of(v);
         loop {
             let cd = self.heap.class(c);
-            if cd.is_singleton || cd.iclass_of.is_some() {
+            if cd.is_singleton || cd.iclass_of.is_some() || cd.origin_of.is_some() {
                 c = cd.superclass.expect("singleton without superclass");
             } else {
                 return c;
@@ -396,8 +424,14 @@ impl Vm {
         if let Some(m) = cd.iclass_of {
             return self.class_name(m);
         }
+        if let Some(o) = cd.origin_of {
+            return self.class_name(o);
+        }
         match cd.name {
-            Some(n) => self.syms.name_str(n),
+            Some(n) => match cd.outer {
+                Some(o) if o != self.core.object && self.heap.class(o).name.is_some() => format!("{}::{}", self.class_name(o), self.syms.name_str(n)),
+                _ => self.syms.name_str(n),
+            },
             None => {
                 if cd.is_singleton {
                     "#<Class>".to_string()
@@ -428,7 +462,103 @@ impl Vm {
     }
     pub fn define_method(&mut self, class: ObjId, name: &str, f: crate::object::NativeFn) {
         let n = self.intern(name);
-        self.heap.class_mut(class).methods.insert(n, Method::Native(f));
+        self.def_method_raw(class, n, Method::Native(f));
+    }
+    pub fn alias_method(&mut self, class: ObjId, new: Sym, old: Sym) -> VmResult<()> {
+        match self.find_method(class, old) {
+            Some((m, owner)) => { let vis = self.method_vis(owner, old); self.def_method(class, new, m, vis) }
+            None => { let n = self.sym_name(old); let cn = self.class_name(class); Err(self.raise(self.core.name_error, &format!("undefined method '{n}' for class '{cn}'"))) }
+        }
+    }
+    pub fn undef_method(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        if self.heap.get(class).frozen { return Err(self.frozen_error(Value::Obj(class))); }
+        if self.find_method(class, mid).is_none() { let n = self.sym_name(mid); let cn = self.class_name(class); return Err(self.raise(self.core.name_error, &format!("undefined method '{n}' for class '{cn}'"))); }
+        let t = self.def_target(class);
+        self.heap.class_mut(t).methods.insert(mid, Method::Undef);
+        Ok(())
+    }
+    /// The table that receives definitions for `class` (its origin when modules are prepended).
+    pub fn def_target(&self, class: ObjId) -> ObjId {
+        self.heap.class(class).origin.unwrap_or(class)
+    }
+    /// Installs a method without hooks (used by initialization and internal copies).
+    pub fn def_method_raw(&mut self, class: ObjId, mid: Sym, m: Method) {
+        let t = self.def_target(class);
+        self.heap.class_mut(t).methods.insert(mid, m);
+        self.heap.class_mut(t).vis.remove(&mid);
+    }
+    /// Installs a method with visibility and calls the `method_added` hook.
+    pub fn def_method(&mut self, class: ObjId, mid: Sym, m: Method, vis: Vis) -> VmResult<()> {
+        if self.heap.get(class).frozen { return Err(self.frozen_error(Value::Obj(class))); }
+        let t = self.def_target(class);
+        self.heap.class_mut(t).methods.insert(mid, m);
+        // initialize & co. are always private (class.c)
+        let always_private = [self.s.initialize, self.intern("initialize_copy"), self.intern("respond_to_missing?")];
+        let vis = if always_private.contains(&mid) { Vis::Private } else { vis };
+        if vis == Vis::Public { self.heap.class_mut(t).vis.remove(&mid); } else { self.heap.class_mut(t).vis.insert(mid, vis); }
+        self.method_added(class, mid)
+    }
+    /// `mrb_method_added`: `method_added` / `singleton_method_added` hook.
+    pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        let cd = self.heap.class(class);
+        let (recv, hook) = if cd.is_singleton { (cd.attached.unwrap_or(Value::Nil), self.intern("singleton_method_added")) } else { (Value::Obj(class), self.intern("method_added")) };
+        if let Some((Method::Native(_), owner)) = self.find_method(self.class_of(recv), hook) {
+            if owner == self.core.module || owner == self.core.basic_object { return Ok(()); }
+        }
+        if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(mid)], Value::Nil)?; }
+        Ok(())
+    }
+    /// Visibility of `mid` as found from `class`.
+    pub fn method_vis(&self, class: ObjId, mid: Sym) -> Vis {
+        let mut c = Some(class);
+        while let Some(x) = c {
+            let cd = self.heap.class(x);
+            let tbl_owner = cd.iclass_of.unwrap_or(x);
+            let t = self.heap.class(tbl_owner);
+            if cd.origin.is_none() {
+                if t.methods.contains_key(&mid) { return t.vis.get(&mid).copied().unwrap_or(Vis::Public); }
+            }
+            c = cd.superclass;
+        }
+        Vis::Public
+    }
+    /// `private :m` etc.: sets visibility in `class`, copying an inherited method first.
+    pub fn set_visibility(&mut self, class: ObjId, mid: Sym, vis: Vis) -> VmResult<()> {
+        if self.heap.get(class).frozen { return Err(self.frozen_error(Value::Obj(class))); }
+        let t = self.def_target(class);
+        if !self.heap.class(t).methods.contains_key(&mid) {
+            match self.find_method(class, mid) {
+                Some((m, _)) => { self.heap.class_mut(t).methods.insert(mid, m); }
+                None => { let n = self.sym_name(mid); let cn = self.class_name(class); return Err(self.raise(self.core.name_error, &format!("undefined method '{n}' for class '{cn}'"))); }
+            }
+        }
+        if vis == Vis::Public { self.heap.class_mut(t).vis.remove(&mid); } else { self.heap.class_mut(t).vis.insert(mid, vis); }
+        Ok(())
+    }
+    /// `Module#prepend`: moves the class's own table into an origin include class once, then
+    /// inserts the module's include class right below the class.
+    pub fn prepend_module(&mut self, class: ObjId, module: ObjId) -> VmResult<()> {
+        if self.heap.get(class).frozen { return Err(self.frozen_error(Value::Obj(class))); }
+        if self.heap.class(class).origin.is_none() {
+            let (methods, vis, sup) = { let c = self.heap.class_mut(class); (core::mem::take(&mut c.methods), core::mem::take(&mut c.vis), c.superclass) };
+            let origin = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, origin_of: Some(class), methods, vis, ..Default::default() }));
+            let c = self.heap.class_mut(class);
+            c.superclass = Some(origin);
+            c.origin = Some(origin);
+        }
+        // already prepended (between class and origin)?
+        let origin = self.heap.class(class).origin.unwrap();
+        let mut c = self.heap.class(class).superclass;
+        while let Some(x) = c {
+            if x == origin { break; }
+            if self.heap.class(x).iclass_of == Some(module) { return Ok(()); }
+            c = self.heap.class(x).superclass;
+        }
+        if module == class { return Err(self.raise_arg("cyclic prepend detected")); }
+        let sup = self.heap.class(class).superclass;
+        let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(module), ..Default::default() }));
+        self.heap.class_mut(class).superclass = Some(ic);
+        Ok(())
     }
     /// Defines the same native method on several classes.
     pub fn define_methods(&mut self, class: ObjId, list: &[(&str, crate::object::NativeFn)]) {
@@ -446,9 +576,10 @@ impl Vm {
             }
             c = self.heap.class(x).superclass;
         }
-        let sup = self.heap.class(class).superclass;
+        let at = self.def_target(class); // below the origin when modules are prepended
+        let sup = self.heap.class(at).superclass;
         let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(module), ..Default::default() }));
-        self.heap.class_mut(class).superclass = Some(ic);
+        self.heap.class_mut(at).superclass = Some(ic);
     }
     /// The singleton class of `v`, created on demand (`prepare_singleton_class`).
     pub fn singleton_class(&mut self, v: Value) -> VmResult<ObjId> {
@@ -506,6 +637,7 @@ impl Vm {
         let mut c = Some(class);
         while let Some(x) = c {
             let cd = self.heap.class(x);
+            if cd.origin.is_some() { c = cd.superclass; continue; } // own table lives in the origin
             let tbl = match cd.iclass_of {
                 Some(m) => &self.heap.class(m).methods,
                 None => &cd.methods,
@@ -566,7 +698,7 @@ impl Vm {
         self.stack.resize(base + nregs, Value::Nil);
         self.stack[base] = Value::Obj(self.top_self);
         let depth = self.ci.len();
-        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: 0, kw: false, mid: None, target_class: self.core.object, env: None, cci: Cci::Skip });
+        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: 0, kw: false, mid: None, target_class: self.core.object, env: None, cci: Cci::Skip, vis: Vis::Public, modfunc: false });
         let r = self.run_loop(depth);
         self.stack.truncate(base);
         r
@@ -581,7 +713,7 @@ impl Vm {
         let nregs = self.ireps[irep].nregs.max(4);
         self.stack.resize(base + nregs, Value::Nil);
         self.stack[base] = Value::Obj(self.top_self);
-        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: 0, kw: false, mid: None, target_class: self.core.object, env: None, cci: Cci::Skip });
+        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: 0, kw: false, mid: None, target_class: self.core.object, env: None, cci: Cci::Skip, vis: Vis::Public, modfunc: false });
     }
 
     /// Executes at most `budget` instructions of a program started with
@@ -634,7 +766,7 @@ impl Vm {
             Some((Method::Undef, _)) | None => {
                 let name = self.sym_name(mid);
                 let desc = self.describe_for_error(recv);
-                Err(self.raise(self.core.no_method_error, &format!("undefined method '{name}' for {desc}")))
+                Err(self.no_method_error(mid, recv, &format!("undefined method '{name}' for {desc}")))
             }
         }
     }
@@ -712,7 +844,7 @@ impl Vm {
             (None, Some(e)) => self.heap.env(e).target_class.unwrap_or(self.core.object),
             (None, None) => self.heap.proc_data(proc_).target_class.unwrap_or(self.core.object),
         };
-        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: n as u8, kw: kw.is_some(), mid, target_class: tc, env: None, cci: Cci::Skip });
+        self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: n as u8, kw: kw.is_some(), mid, target_class: tc, env: None, cci: Cci::Skip, vis: Vis::Public, modfunc: false });
         let r = self.run_loop(depth);
         self.stack.truncate(base);
         r
@@ -1044,6 +1176,7 @@ impl Vm {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = reg!(a);
                     let cls = self.cvar_class(ci.proc_);
+                    if self.heap.get(cls).frozen { return Err(self.frozen_error(Value::Obj(cls))); }
                     self.cvar_set(cls, s, v);
                 }
                 Op::Getconst => {
@@ -1056,11 +1189,13 @@ impl Vm {
                     let v = reg!(a);
                     let tc = ci.target_class;
                     if self.heap.is_class(tc) {
+                        if self.heap.get(tc).frozen { return Err(self.frozen_error(Value::Obj(tc))); }
                         self.heap.class_mut(tc).consts.insert(s, v);
                         // name anonymous classes on first assignment
                         if let Value::Obj(o) = v {
                             if self.heap.is_class(o) && self.heap.class(o).name.is_none() {
                                 self.heap.class_mut(o).name = Some(s);
+                                self.heap.class_mut(o).outer = Some(tc);
                             }
                         }
                     }
@@ -1129,8 +1264,9 @@ impl Vm {
                     let mid = self.ireps[ci.irep].syms[b];
                     let argc = if matches!(op, Op::Send0 | Op::Ssend0) { 0 } else { c };
                     let has_blk = matches!(op, Op::Sendb | Op::Ssendb);
-                    if matches!(op, Op::Ssend | Op::Ssend0 | Op::Ssendb) { reg!(a) = reg!(0); }
-                    self.op_send(base, a, mid, argc, has_blk, false)?;
+                    let explicit = matches!(op, Op::Send | Op::Send0 | Op::Sendb);
+                    if !explicit { reg!(a) = reg!(0); }
+                    self.op_send_vis(base, a, mid, argc, has_blk, false, explicit)?;
                 }
                 Op::Super => {
                     let argc = b;
@@ -1151,7 +1287,7 @@ impl Vm {
                     let nbase = base + a;
                     let (n, kw, _) = self.prepare_call(nbase, b, false)?;
                     let npos = if n == 15 { 1 } else { n };
-                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: ci.target_class, env: None, cci: Cci::None });
+                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: ci.target_class, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false });
                     self.vm_call_proc(p, npos + (if kw { 1 } else { 0 }) + 2);
                 }
                 Op::Argary => { self.op_argary(base, a, b)?; }
@@ -1309,7 +1445,7 @@ impl Vm {
                         _ => {
                             let sup = if is_module { None } else { Some(given_sup.unwrap_or(self.core.object)) };
                             let meta = if is_module { self.core.module } else { self.core.class };
-                            let ncls = self.heap.alloc(meta, ObjKind::Class(ClassData { name: Some(s), superclass: sup, is_module, ..Default::default() }));
+                            let ncls = self.heap.alloc(meta, ObjKind::Class(ClassData { name: Some(s), superclass: sup, is_module, outer: Some(outer), ..Default::default() }));
                             self.heap.class_mut(outer).consts.insert(s, Value::Obj(ncls));
                             if !is_module { self.singleton_class(Value::Obj(ncls))?; }
                             if let Some(sup) = sup { self.call_inherited(sup, ncls)?; }
@@ -1326,14 +1462,19 @@ impl Vm {
                     let nregs = self.ireps[nirep].nregs.max(4);
                     if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Value::Nil); }
                     for i in 1..nregs { self.stack[nbase + i] = Value::Nil; }
-                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: 0, kw: false, mid: None, target_class: cls, env: None, cci: Cci::None });
+                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: 0, kw: false, mid: None, target_class: cls, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false });
                 }
                 Op::Def => {
                     let s = self.ireps[ci.irep].syms[b];
                     let target = match reg!(a) { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let p = match reg!(a + 1) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("not a proc")) };
                     if let ObjKind::Proc(pd) = &mut self.heap.get_mut(p).kind { pd.target_class = Some(target); }
-                    self.heap.class_mut(target).methods.insert(s, Method::Ruby(p));
+                    let (vis, modfunc) = (self.ci[top].vis, self.ci[top].modfunc);
+                    self.def_method(target, s, Method::Ruby(p), if modfunc { Vis::Private } else { vis })?;
+                    if modfunc {
+                        let sc = self.singleton_class(Value::Obj(target))?;
+                        self.def_method(sc, s, Method::Ruby(p), Vis::Public)?;
+                    }
                     reg!(a) = Value::Sym(s);
                 }
                 Op::Tdef | Op::Sdef => {
@@ -1341,15 +1482,17 @@ impl Vm {
                     let nirep = self.ireps[ci.irep].reps[c];
                     let target = if matches!(op, Op::Tdef) { ci.target_class } else { let v = reg!(a); self.singleton_class(v)? };
                     let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false }));
-                    self.heap.class_mut(target).methods.insert(s, Method::Ruby(p));
+                    let (vis, modfunc) = if matches!(op, Op::Tdef) { (self.ci[top].vis, self.ci[top].modfunc) } else { (Vis::Public, false) };
+                    self.def_method(target, s, Method::Ruby(p), if modfunc { Vis::Private } else { vis })?;
+                    if modfunc { let sc = self.singleton_class(Value::Obj(target))?; self.def_method(sc, s, Method::Ruby(p), Vis::Public)?; }
                     reg!(a) = Value::Sym(s);
                 }
                 Op::Alias => {
                     let (new, old) = (self.ireps[ci.irep].syms[a], self.ireps[ci.irep].syms[b]);
                     let tc = ci.target_class;
-                    match self.find_method(tc, old) { Some((m, _)) => { self.heap.class_mut(tc).methods.insert(new, m); } None => { let n = self.sym_name(old); return Err(self.raise(self.core.name_error, &format!("undefined method '{n}'"))); } }
+                    self.alias_method(tc, new, old)?;
                 }
-                Op::Undef => { let s = self.ireps[ci.irep].syms[a]; self.heap.class_mut(ci.target_class).methods.insert(s, Method::Undef); }
+                Op::Undef => { let s = self.ireps[ci.irep].syms[a]; self.undef_method(ci.target_class, s)?; }
                 Op::Sclass => { let v = reg!(a); reg!(a) = Value::Obj(self.singleton_class(v)?); }
                 Op::Tclass => { reg!(a) = Value::Obj(ci.target_class); }
                 Op::Debug => {}
@@ -1411,7 +1554,7 @@ impl Vm {
         let mut s = self.heap.class(c).superclass;
         while let Some(x) = s {
             let cd = self.heap.class(x);
-            if cd.iclass_of.is_none() && !cd.is_singleton { return Some(x); }
+            if cd.iclass_of.is_none() && !cd.is_singleton && cd.origin_of.is_none() { return Some(x); }
             s = cd.superclass;
         }
         None
@@ -1483,8 +1626,8 @@ impl Vm {
     }
     pub fn hash_set(&mut self, h: Value, k: Value, v: Value) -> VmResult<()> {
         let o = match h.obj() { Some(o) => o, None => return Err(self.raise_type("not a hash")) };
-        // String keys are copied (and frozen in mruby); we copy.
-        let k = if let Some(b) = self.str_bytes(k) { let b = b.to_vec(); self.str_new(&b) } else { k };
+        // an unfrozen String key is copied and the copy frozen; a frozen key is used as is
+        let k = match k { Value::Obj(ko) if self.heap.string(ko).is_some() && !self.heap.get(ko).frozen => { let b = self.heap.string(ko).unwrap().to_vec(); let nk = self.str_new(&b); if let Some(no) = nk.obj() { self.heap.get_mut(no).frozen = true; } nk } _ => k };
         let pos = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.entries.iter().position(|(ek, _)| self.eql(*ek, k)), _ => return Err(self.raise_type("not a hash")) };
         if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind {
             match pos { Some(i) => hd.entries[i].1 = v, None => hd.entries.push((k, v)) }
@@ -1583,6 +1726,10 @@ impl Vm {
     }
 
     fn op_send(&mut self, base: usize, a: usize, mid: Sym, c: usize, has_blk: bool, is_super: bool) -> VmResult<()> {
+        self.op_send_vis(base, a, mid, c, has_blk, is_super, false)
+    }
+    /// `explicit`: the receiver was written (SEND/SEND0/SENDB), so private/protected are enforced.
+    fn op_send_vis(&mut self, base: usize, a: usize, mid: Sym, c: usize, has_blk: bool, is_super: bool, explicit: bool) -> VmResult<()> {
         let recv = self.stack[base + a];
         let (argc, kw, blk) = self.prepare_call(base + a, c, has_blk)?;
         let start_class = if is_super {
@@ -1591,7 +1738,20 @@ impl Vm {
         } else { self.class_of(recv) };
         let found = self.find_method(start_class, mid);
         let (m, owner) = match found {
-            Some(x) => x,
+            Some((m, owner)) => {
+                if explicit && !is_super {
+                    match self.method_vis(owner, mid) {
+                        Vis::Public => {}
+                        Vis::Private => { let name = self.sym_name(mid); let desc = self.describe_for_error(recv); return Err(self.no_method_error(mid, recv, &format!("private method '{name}' called for {desc}"))); }
+                        Vis::Protected => {
+                            let caller_self = self.stack[base];
+                            let home = self.heap.class(owner).iclass_of.unwrap_or(owner);
+                            if !self.obj_is_kind_of(caller_self, home) { let name = self.sym_name(mid); let desc = self.describe_for_error(recv); return Err(self.no_method_error(mid, recv, &format!("protected method '{name}' called for {desc}"))); }
+                        }
+                    }
+                }
+                (m, owner)
+            }
             None => {
                 if is_super {
                     let name = self.sym_name(mid);
@@ -1613,7 +1773,10 @@ impl Vm {
                 }
                 let name = self.sym_name(mid);
                 let desc = self.describe_for_error(recv);
-                return Err(self.raise(self.core.no_method_error, &format!("undefined method '{name}' for {desc}")));
+                let args = self.native_args(base + a, argc, kw).0;
+                let e = self.no_method_error(mid, recv, &format!("undefined method '{name}' for {desc}"));
+                if let VmError::Raise(Value::Obj(o)) = e { let av = self.ary_new(args); let k = self.intern("@args"); self.heap.ivar_set(o, k, av); }
+                return Err(e);
             }
         };
         match m {
@@ -1644,7 +1807,7 @@ impl Vm {
                 if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Value::Nil); }
                 let used = (if argc == 15 { 1 } else { argc }) + (if kw { 1 } else { 0 }) + 2;
                 for i in used..nregs { self.stack[nbase + i] = Value::Nil; }
-                self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(mid), target_class: owner, env: None, cci: Cci::None });
+                self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(mid), target_class: owner, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false });
             }
             Method::Undef => unreachable!(),
         }

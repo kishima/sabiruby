@@ -77,8 +77,16 @@ fn sort_values(vm: &mut Vm, list: &mut Vec<Value>, blk: Value) -> VmResult<()> {
         } else { vm.call_block(blk, &[a, b]) };
         match r {
             Ok(Value::Int(i)) => i.cmp(&0),
-            Ok(Value::Float(f)) => f.partial_cmp(&0.0).unwrap_or(core::cmp::Ordering::Equal),
-            Ok(_) => { let x = vm.describe_for_error(a); let y = vm.describe_for_error(b); err = Some(vm.raise_arg(&format!("comparison of {x} with {y} failed"))); core::cmp::Ordering::Equal }
+            Ok(Value::Nil) => { let x = vm.describe_for_error(a); let y = vm.describe_for_error(b); err = Some(vm.raise_arg(&format!("comparison of {x} with {y} failed"))); core::cmp::Ordering::Equal }
+            Ok(v) => {
+                // any other answer is asked `> 0` then `< 0` (a NaN is a tie)
+                let (gt, lt) = (vm.s.gt, vm.s.lt);
+                match vm.funcall(v, gt, &[Value::Int(0)], Value::Nil) {
+                    Ok(t) if t.truthy() => core::cmp::Ordering::Greater,
+                    Ok(_) => match vm.funcall(v, lt, &[Value::Int(0)], Value::Nil) { Ok(t) if t.truthy() => core::cmp::Ordering::Less, Ok(_) => core::cmp::Ordering::Equal, Err(e) => { err = Some(e); core::cmp::Ordering::Equal } },
+                    Err(e) => { err = Some(e); core::cmp::Ordering::Equal }
+                }
+            }
             Err(e) => { err = Some(e); core::cmp::Ordering::Equal }
         }
     };
@@ -154,13 +162,13 @@ pub fn init(vm: &mut Vm) {
         ("&", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, s); let o = items(vm, a[0]); let mut out: Vec<Value> = vec![]; for it in v { let mut hit = false; for x in &o { if vm.equal(it, *x)? { hit = true; break; } } if hit { let mut dup = false; for x in &out { if vm.equal(it, *x)? { dup = true; break; } } if !dup { out.push(it); } } } Ok(vm.ary_new(out)) }),
         ("|", |vm, s, a, _b| { argc!(vm, a, 1); let mut v = items(vm, s); v.extend(items(vm, a[0])); let mut out: Vec<Value> = vec![]; for it in v { let mut dup = false; for x in &out { if vm.equal(it, *x)? { dup = true; break; } } if !dup { out.push(it); } } Ok(vm.ary_new(out)) }),
         ("==", ary_eq),
-        ("eql?", ary_eq),
+        ("eql?", |vm, s, a, _b| { argc!(vm, a, 1); if s == a[0] { return Ok(Value::True); } let (x, y) = (items(vm, s), match vm.ary(a[0]) { Some(y) => y.clone(), None => return Ok(Value::False) }); if x.len() != y.len() { return Ok(Value::False); } let eql = vm.s.eql; for (p, q) in x.iter().zip(y.iter()) { if !vm.funcall(*p, eql, &[*q], Value::Nil)?.truthy() { return Ok(Value::False); } } Ok(Value::True) }),
         ("<=>", ary_cmp),
         ("__ary_eq", ary_eq),
         ("__ary_cmp", ary_cmp),
         ("__ary_index", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for (i, it) in list.iter().enumerate() { if vm.equal(*it, a[0])? { return Ok(Value::Int(i as i64)); } } Ok(Value::Nil) }),
         ("__svalue", |vm, s, _a, _b| { let list = items(vm, s); Ok(if list.len() == 1 { list[0] } else if list.is_empty() { Value::Nil } else { s }) }),
-        ("hash", |vm, s, _a, _b| { let list = items(vm, s); let mut h: i64 = list.len() as i64; let hs = vm.s.hash; for it in list { let x = match vm.funcall(it, hs, &[], Value::Nil)? { Value::Int(i) => i, _ => 0 }; h = h.wrapping_mul(31).wrapping_add(x); } Ok(Value::Int(h)) }),
+        ("hash", |vm, s, _a, _b| { let o = s.obj().unwrap(); if vm.inspect_guard.contains(&o) { return Ok(Value::Int(0)); } vm.inspect_guard.push(o); let list = items(vm, s); let mut h: i64 = list.len() as i64; let hs = vm.s.hash; let mut err = None; for it in list { match vm.funcall(it, hs, &[], Value::Nil) { Ok(Value::Int(i)) => h = h.wrapping_mul(31).wrapping_add(i), Ok(_) => {} Err(e) => { err = Some(e); break; } } } vm.inspect_guard.pop(); if let Some(e) = err { return Err(e); } Ok(Value::Int(h)) }),
         ("inspect", |vm, s, _a, _b| { let b = ary_inspect(vm, s)?; Ok(vm.str_new(&b)) }),
         ("to_s", |vm, s, _a, _b| { let b = ary_inspect(vm, s)?; Ok(vm.str_new(&b)) }),
         ("to_a", |_vm, s, _a, _b| Ok(s)),
@@ -193,8 +201,6 @@ pub fn init(vm: &mut Vm) {
         ("sort", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; Ok(vm.ary_new(v)) }),
         ("sort!", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; with_mut(vm, s, |arr| *arr = v)?; Ok(s) }),
         ("sort_by", |vm, s, _a, b| { let v = items(vm, s); let mut keyed: Vec<(Value, Value)> = vec![]; for it in v { keyed.push((vm.call_block(b, &[it])?, it)); } let mut keys: Vec<Value> = keyed.iter().map(|(k, _)| *k).collect(); let idx: Vec<usize> = (0..keys.len()).collect(); let mut order: Vec<Value> = idx.iter().map(|i| Value::Int(*i as i64)).collect(); let _ = &mut keys; let cmp = vm.intern("<=>"); let mut err = None; order.sort_by(|x, y| { if err.is_some() { return core::cmp::Ordering::Equal; } let (i, j) = (match x { Value::Int(i) => *i as usize, _ => 0 }, match y { Value::Int(j) => *j as usize, _ => 0 }); match vm.funcall(keyed[i].0, cmp, &[keyed[j].0], Value::Nil) { Ok(Value::Int(r)) => r.cmp(&0), Ok(_) => { err = Some(vm.raise_arg("comparison failed")); core::cmp::Ordering::Equal } Err(e) => { err = Some(e); core::cmp::Ordering::Equal } } }); if let Some(e) = err { return Err(e); } let out: Vec<Value> = order.iter().map(|x| match x { Value::Int(i) => keyed[*i as usize].1, _ => Value::Nil }).collect(); Ok(vm.ary_new(out)) }),
-        ("min", |vm, s, _a, b| { let v = items(vm, s); let mut best: Option<Value> = None; let cmp = vm.intern("<=>"); for it in v { best = Some(match best { None => it, Some(cur) => { let r = if b.is_nil() { vm.funcall(it, cmp, &[cur], Value::Nil)? } else { vm.call_block(b, &[it, cur])? }; if matches!(r, Value::Int(i) if i < 0) { it } else { cur } } }); } Ok(best.unwrap_or(Value::Nil)) }),
-        ("max", |vm, s, _a, b| { let v = items(vm, s); let mut best: Option<Value> = None; let cmp = vm.intern("<=>"); for it in v { best = Some(match best { None => it, Some(cur) => { let r = if b.is_nil() { vm.funcall(it, cmp, &[cur], Value::Nil)? } else { vm.call_block(b, &[it, cur])? }; if matches!(r, Value::Int(i) if i > 0) { it } else { cur } } }); } Ok(best.unwrap_or(Value::Nil)) }),
         ("sum", |vm, s, a, _b| { let v = items(vm, s); let mut acc = a.first().copied().unwrap_or(Value::Int(0)); let plus = vm.s.plus; for it in v { acc = vm.funcall(acc, plus, &[it], Value::Nil)?; } Ok(acc) }),
         ("take", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("attempt to take negative size")); } let v: Vec<Value> = items(vm, s).into_iter().take(n as usize).collect(); Ok(vm.ary_new(v)) }),
         ("drop", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("attempt to drop negative size")); } let v: Vec<Value> = items(vm, s).into_iter().skip(n as usize).collect(); Ok(vm.ary_new(v)) }),
@@ -230,6 +236,8 @@ fn ary_join(vm: &mut Vm, s: Value, sep: &[u8]) -> VmResult<Value> {
 
 fn ary_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1, 2);
+    let a: Vec<Value> = a.iter().map(|v| match v { Value::Float(f) => Value::Int(*f as i64), v => *v }).collect();
+    let a = &a[..];
     if let [Value::Int(i)] = a {
         // hot path (`each` in mrblib indexes with `self[idx]`): no copy of the array
         let list = match vm.ary(s) { Some(l) => l, None => return Ok(Value::Nil) };
@@ -247,6 +255,7 @@ fn ary_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 2, 3);
     let val = a[a.len() - 1];
     let len = items(vm, s).len();
+    if a.len() == 3 { let n = vm.expect_int(a[1], "length")?; if n < 0 { return Err(vm.raise(vm.core.index_error, &format!("negative length ({n})"))); } }
     if let [Value::Int(i), _] = a {
         let i = if *i < 0 { *i + len as i64 } else { *i };
         if i < 0 { return Err(vm.raise(vm.core.index_error, &format!("index {} too small for array; minimum: -{}", i - len as i64, len))); }

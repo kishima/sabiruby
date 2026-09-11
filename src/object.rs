@@ -43,7 +43,24 @@ pub struct ClassData {
     /// For an include class (mruby `MRB_TT_ICLASS`): the module whose
     /// method table and constants are shared.
     pub iclass_of: Option<ObjId>,
+    /// Non-public methods of this table (absent = public).
+    pub vis: HashMap<Sym, Vis>,
+    /// For a class with prepended modules: the include class that now holds
+    /// this class's own method table (mruby `MRB_FL_CLASS_IS_ORIGIN`).
+    pub origin: Option<ObjId>,
+    /// For an origin include class: the class it belongs to.
+    pub origin_of: Option<ObjId>,
+    /// Lexical parent for the name (`Outer::Inner`); `None` = top level.
+    pub outer: Option<ObjId>,
+    /// Representation of instances (copied by `Class#dup`); `None` = inherit.
+    pub instance_kind: Option<InstanceKind>,
 }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Vis { Public, Private, Protected }
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum InstanceKind { Object, String, Array, Hash, Range, Exception, Proc, NoAlloc }
 
 pub struct ProcData {
     pub irep: IrepId,

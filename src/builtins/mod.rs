@@ -17,7 +17,7 @@ pub mod string;
 pub mod symbol;
 
 use crate::error::VmResult;
-use crate::object::ObjKind;
+use crate::object::{InstanceKind, ObjKind};
 use crate::value::{ObjId, Value};
 use crate::vm::Vm;
 
@@ -82,20 +82,20 @@ impl Vm {
         if cd.is_singleton { return Err(self.raise_type("can't create instance of singleton class")); }
         let core = self.core;
         let mut c = Some(class);
-        let kind = loop {
+        let ik = loop {
             match c {
-                None => break ObjKind::Object,
-                Some(x) if x == core.object || x == core.basic_object => break ObjKind::Object,
-                Some(x) if x == core.exception => break ObjKind::Exception,
-                Some(x) if x == core.string => break ObjKind::String(Vec::new()),
-                Some(x) if x == core.array => break ObjKind::Array(Vec::new()),
-                Some(x) if x == core.hash => break ObjKind::Hash(Default::default()),
-                Some(x) if x == core.range || x == core.proc_ || x == core.integer || x == core.float || x == core.symbol || x == core.nil_class || x == core.true_class || x == core.false_class => {
-                    let n = self.class_name(x);
-                    return Err(self.raise(core.no_method_error, &format!("undefined method 'new' for {n}")));
-                }
-                Some(x) => c = self.heap.class(x).superclass,
+                None => break InstanceKind::Object,
+                Some(x) => match self.heap.class(x).instance_kind { Some(k) => break k, None => c = self.heap.class(x).superclass },
             }
+        };
+        let kind = match ik {
+            InstanceKind::Object => ObjKind::Object,
+            InstanceKind::Exception => ObjKind::Exception,
+            InstanceKind::String => ObjKind::String(Vec::new()),
+            InstanceKind::Array => ObjKind::Array(Vec::new()),
+            InstanceKind::Hash => ObjKind::Hash(Default::default()),
+            InstanceKind::Range => ObjKind::Range { begin: Value::Nil, end: Value::Nil, excl: false },
+            InstanceKind::Proc | InstanceKind::NoAlloc => { let n = self.class_name(class); return Err(self.raise(core.no_method_error, &format!("undefined method 'new' for {n}"))); }
         };
         Ok(Value::Obj(self.heap.alloc(class, kind)))
     }

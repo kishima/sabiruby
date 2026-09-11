@@ -112,10 +112,10 @@ fn block_given(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Valu
         if bidx >= vm.heap.env(e).len && !vm.heap.env(e).attached { return Ok(Value::False); }
         vm.env_value(e, bidx)
     } else {
-        // the frame running `p` itself
+        // the frame running `p` itself (a top-level or class-body frame has no block)
         match vm.ci.iter().rev().find(|c| c.proc_ == p) {
-            Some(c) => { let b = Vm::frame_bidx(c); vm.stack.get(c.base + b).copied().unwrap_or(Value::Nil) }
-            None => return Ok(Value::False),
+            Some(c) if c.mid.is_some() => { let b = Vm::frame_bidx(c); vm.stack.get(c.base + b).copied().unwrap_or(Value::Nil) }
+            _ => return Ok(Value::False),
         }
     };
     Ok(Value::bool(!blk.is_nil()))

@@ -97,7 +97,11 @@ fn to_f(b: &[u8]) -> f64 {
     let mut seen_dot = false; let mut seen_e = false;
     while end < cs.len() {
         let c = cs[end];
-        if c.is_ascii_digit() || c == '_' { end += 1; }
+        if c == '_' {
+            // a single underscore between digits is skipped; anything else ends the number
+            if end > 0 && cs[end - 1].is_ascii_digit() && end + 1 < cs.len() && cs[end + 1].is_ascii_digit() { end += 1; } else { break; }
+        }
+        else if c.is_ascii_digit() { end += 1; }
         else if c == '.' && !seen_dot && !seen_e && end + 1 < cs.len() && cs[end + 1].is_ascii_digit() { seen_dot = true; end += 1; }
         else if (c == 'e' || c == 'E') && !seen_e && end > 0 { seen_e = true; end += 1; if end < cs.len() && (cs[end] == '-' || cs[end] == '+') { end += 1; } }
         else if (c == '-' || c == '+') && end == 0 { end += 1; }
@@ -136,7 +140,16 @@ pub fn init(vm: &mut Vm) {
         ("concat", str_concat),
         ("[]", str_aref),
         ("slice", str_aref),
-        ("[]=", |vm, s, a, _b| { argc!(vm, a, 2, 3); let mut b = bytes(vm, s); let val = vm.expect_str(a[a.len() - 1], "value")?; match index_args(vm, b.len(), &a[..a.len() - 1])? { Some((i, n)) => { b.splice(i..i + n, val.iter().copied()); set(vm, s, b)?; Ok(a[a.len() - 1]) } None => Err(vm.raise(vm.core.index_error, "index out of string")) } }),
+        ("[]=", |vm, s, a, _b| {
+            argc!(vm, a, 2, 3);
+            let mut b = bytes(vm, s);
+            let val = vm.expect_str(a[a.len() - 1], "value")?;
+            if a.len() == 3 { let n = vm.expect_int(a[1], "length")?; if n < 0 { return Err(vm.raise(vm.core.index_error, &format!("negative length {n}"))); } }
+            match index_args(vm, b.len(), &a[..a.len() - 1])? {
+                Some((i, n)) => { b.splice(i..i + n, val.iter().copied()); set(vm, s, b)?; Ok(a[a.len() - 1]) }
+                None => { let d = vm.inspect_str(a[0])?; Err(vm.raise(vm.core.index_error, &format!("index {d} out of string"))) }
+            }
+        }),
         ("upcase", |vm, s, _a, _b| { let b = bytes(vm, s).to_ascii_uppercase(); Ok(vm.str_new(&b)) }),
         ("downcase", |vm, s, _a, _b| { let b = bytes(vm, s).to_ascii_lowercase(); Ok(vm.str_new(&b)) }),
         ("upcase!", |vm, s, _a, _b| { let b = bytes(vm, s); let u = b.to_ascii_uppercase(); if u == b { Ok(Value::Nil) } else { set(vm, s, u)?; Ok(s) } }),

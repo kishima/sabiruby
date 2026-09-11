@@ -23,7 +23,7 @@ pub fn float_to_s(f: f64) -> String {
     if f.is_infinite() { return if f > 0.0 { "Infinity".into() } else { "-Infinity".into() }; }
     if f == 0.0 { return if f.is_sign_negative() { "-0.0".into() } else { "0.0".into() }; }
     let abs = f.abs();
-    if !(1e-4..1e16).contains(&abs) {
+    if !(1e-4..1e15).contains(&abs) {
         // exponent form: d.ddde+XX
         let s = format!("{:e}", f);
         let (mant, exp) = s.split_once('e').unwrap();
@@ -68,22 +68,39 @@ fn as_f64(v: Value) -> Option<f64> {
     match v { Value::Int(i) => Some(i as f64), Value::Float(f) => Some(f), _ => None }
 }
 
-fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Option<core::cmp::Ordering>> {
+/// Exact Integer/Float comparison (numeric.c `mrb_int_float_cmp`): `None` for a NaN.
+pub fn int_float_cmp(x: i64, y: f64) -> Option<core::cmp::Ordering> {
+    use core::cmp::Ordering::*;
+    if y.is_nan() { return None; }
+    if y < -9223372036854775808.0 { return Some(Greater); }
+    if y >= 9223372036854775808.0 { return Some(Less); }
+    let yi = y as i64;
+    if x > yi { return Some(Greater); }
+    if x < yi { return Some(Less); }
+    if y > yi as f64 { return Some(Less); }
+    if y < yi as f64 { return Some(Greater); }
+    Some(Equal)
+}
+
+/// `Ok(Some)` ordered, `Ok(None)` numeric but unordered (NaN), `Err` not comparable.
+fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Result<Option<core::cmp::Ordering>, ()>> {
     argc!(vm, a, 1);
-    match (s, a[0]) {
+    Ok(match (s, a[0]) {
         (Value::Int(p), Value::Int(q)) => Ok(Some(p.cmp(&q))),
-        _ => match (as_f64(s), as_f64(a[0])) {
-            (Some(p), Some(q)) => Ok(p.partial_cmp(&q)),
-            _ => Ok(None),
-        },
-    }
+        (Value::Int(p), Value::Float(q)) => Ok(int_float_cmp(p, q)),
+        (Value::Float(p), Value::Int(q)) => Ok(int_float_cmp(q, p).map(|o| o.reverse())),
+        (Value::Float(p), Value::Float(q)) => Ok(p.partial_cmp(&q)),
+        _ => Err(()),
+    })
 }
-fn cmp_or_fail(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<core::cmp::Ordering> {
+/// For `<` and friends: unordered numbers answer false, non-numbers raise.
+fn cmp_or_fail(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Option<core::cmp::Ordering>> {
     match cmp(vm, s, a)? {
-        Some(o) => Ok(o),
-        None => { let x = vm.describe_for_error(s); let y = vm.describe_for_error(a[0]); Err(vm.raise_arg(&format!("comparison of {x} with {y} failed"))) }
+        Ok(o) => Ok(o),
+        Err(()) => { let x = vm.describe_for_error(s); let y = vm.describe_for_error(a[0]); Err(vm.raise_arg(&format!("comparison of {x} with {y} failed"))) }
     }
 }
+fn ord_test(o: Option<core::cmp::Ordering>, f: fn(core::cmp::Ordering) -> bool) -> Value { Value::bool(o.map(f).unwrap_or(false)) }
 
 fn int_pow(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Value> {
     let (x, y) = num_args(vm, s, a)?;
@@ -125,20 +142,22 @@ pub fn init(vm: &mut Vm) {
         let n = vm.intern(name);
         vm.heap.class_mut(c.float).consts.insert(n, Value::Int(v));
     }
+    let isc = vm.singleton_class(Value::Obj(c.integer)).unwrap();
+    vm.define_method(isc, "__ensure", |vm, _s, a, _b| { argc!(vm, a, 1); match a[0] { Value::Int(_) => Ok(a[0]), v => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&format!("can't convert {d} into Integer"))) } } });
     vm.define_methods(c.numeric, &[
         ("+@", |_vm, s, _a, _b| Ok(s)),
         ("integer?", |_vm, _s, _a, _b| Ok(Value::False)),
         ("zero?", |_vm, s, _a, _b| Ok(Value::bool(as_f64(s) == Some(0.0)))),
         ("positive?", |_vm, s, _a, _b| Ok(Value::bool(as_f64(s).map(|f| f > 0.0).unwrap_or(false)))),
         ("negative?", |_vm, s, _a, _b| Ok(Value::bool(as_f64(s).map(|f| f < 0.0).unwrap_or(false)))),
-        ("<=>", |vm, s, a, _b| Ok(match cmp(vm, s, a)? { Some(o) => Value::Int(o as i64), None => Value::Nil })),
-        ("<", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_lt())) }),
-        ("<=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_le())) }),
-        (">", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_gt())) }),
-        (">=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(Value::bool(o.is_ge())) }),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(core::cmp::Ordering::Equal)))),
-        ("between?", |vm, s, a, _b| { argc!(vm, a, 2); let lo = cmp_or_fail(vm, s, &a[..1])?; let hi = cmp_or_fail(vm, s, &a[1..])?; Ok(Value::bool(lo.is_ge() && hi.is_le())) }),
-        ("clamp", |vm, s, a, _b| { argc!(vm, a, 2); if cmp_or_fail(vm, s, &a[..1])?.is_lt() { return Ok(a[0]); } if cmp_or_fail(vm, s, &a[1..])?.is_gt() { return Ok(a[1]); } Ok(s) }),
+        ("<=>", |vm, s, a, _b| Ok(match cmp(vm, s, a)? { Ok(Some(o)) => Value::Int(o as i64), _ => Value::Nil })),
+        ("<", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_lt())) }),
+        ("<=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_le())) }),
+        (">", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_gt())) }),
+        (">=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_ge())) }),
+        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
+        ("between?", |vm, s, a, _b| { argc!(vm, a, 2); let lo = cmp_or_fail(vm, s, &a[..1])?; let hi = cmp_or_fail(vm, s, &a[1..])?; match (lo, hi) { (Some(l), Some(h)) => Ok(Value::bool(l.is_ge() && h.is_le())), _ => { let x = vm.describe_for_error(s); Err(vm.raise_arg(&format!("comparison of {x} with {x} failed"))) } } }),
+        ("clamp", |vm, s, a, _b| { argc!(vm, a, 2); match cmp_or_fail(vm, s, &a[..1])? { Some(o) if o.is_lt() => return Ok(a[0]), Some(_) => {} None => { let x = vm.describe_for_error(s); return Err(vm.raise_arg(&format!("comparison of {x} with {x} failed"))); } } match cmp_or_fail(vm, s, &a[1..])? { Some(o) if o.is_gt() => Ok(a[1]), Some(_) => Ok(s), None => { let x = vm.describe_for_error(s); Err(vm.raise_arg(&format!("comparison of {x} with {x} failed"))) } } }),
         ("abs", |_vm, s, _a, _b| Ok(match s { Value::Int(i) => Value::Int(i.wrapping_abs()), Value::Float(f) => Value::Float(f.abs()), v => v })),
         ("to_int", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Int(f as i64), v => v })),
         ("nan?", |_vm, s, _a, _b| Ok(Value::bool(matches!(s, Value::Float(f) if f.is_nan())))),
@@ -164,9 +183,10 @@ pub fn init(vm: &mut Vm) {
         ("^", |vm, s, a, _b| bit(vm, s, a, |p, q| p ^ q)),
         ("<<", |vm, s, a, _b| shift(vm, s, a, true)),
         (">>", |vm, s, a, _b| shift(vm, s, a, false)),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(core::cmp::Ordering::Equal)))),
+        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
         ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("hash", |_vm, s, _a, _b| Ok(s)),
+        ("__coerce_step_counter", |vm, s, a, _b| { argc!(vm, a, 1); Ok(match a[0] { Value::Float(_) => Value::Float(match s { Value::Int(i) => i as f64, _ => 0.0 }), _ => s }) }),
         ("to_s", int_to_s),
         ("inspect", int_to_s),
         ("to_i", |_vm, s, _a, _b| Ok(s)),
@@ -200,9 +220,10 @@ pub fn init(vm: &mut Vm) {
         ("%", |vm, s, a, _b| float_binop(vm, s, a, |p, q| { let m = p % q; if m != 0.0 && ((m < 0.0) != (q < 0.0)) { m + q } else { m } })),
         ("**", |vm, s, a, _b| float_binop(vm, s, a, libm::pow)),
         ("-@", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Float(-f), v => v })),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Some(core::cmp::Ordering::Equal)))),
+        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
         ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("hash", |_vm, s, _a, _b| Ok(Value::Int(match s { Value::Float(f) => (f.to_bits() >> 1) as i64, _ => 0 }))),
+        ("__coerce_step_counter", |_vm, s, _a, _b| Ok(s)),
         ("to_s", |vm, s, _a, _b| { let f = match s { Value::Float(f) => f, _ => 0.0 }; Ok(vm.str_from(float_to_s(f))) }),
         ("inspect", |vm, s, _a, _b| { let f = match s { Value::Float(f) => f, _ => 0.0 }; Ok(vm.str_from(float_to_s(f))) }),
         ("to_f", |_vm, s, _a, _b| Ok(s)),
@@ -211,10 +232,33 @@ pub fn init(vm: &mut Vm) {
         ("truncate", float_to_i),
         ("floor", |vm, s, _a, _b| float_round(vm, s, libm::floor)),
         ("ceil", |vm, s, _a, _b| float_round(vm, s, libm::ceil)),
-        ("round", |vm, s, a, _b| { if a.is_empty() { float_round(vm, s, libm::round) } else { let d = vm.expect_int(a[0], "digits")?; let f = match s { Value::Float(f) => f, _ => 0.0 }; let m = libm::pow(10.0, d as f64); Ok(Value::Float(libm::round(f * m) / m)) } }),
+        ("round", |vm, s, a, _b| { argc!(vm, a, 0, 1); let nd = if a.is_empty() { 0 } else { vm.expect_int(a[0], "digits")? }; flo_round(vm, s, nd) }),
         ("abs", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Float(f.abs()), v => v })),
         ("divmod", |vm, s, a, _b| { argc!(vm, a, 1); let p = match s { Value::Float(f) => f, _ => 0.0 }; let q = match as_f64(a[0]) { Some(q) => q, None => return Err(coerce_fail(vm, a[0], "divmod")) }; let d = libm::floor(p / q); Ok(vm.ary_new(vec![Value::Float(d), Value::Float(p - d * q)])) }),
     ]);
+}
+
+/// numeric.c `flo_round`.
+fn flo_round(vm: &mut Vm, s: Value, nd: i64) -> VmResult<Value> {
+    let number = match s { Value::Float(f) => f, _ => return Ok(s) };
+    if nd > 0 && !number.is_finite() { return Ok(s); }
+    if !number.is_finite() { return Err(vm.raise(vm.core.float_domain_error, &float_to_s(number))); }
+    const DBL_DIG: i64 = 15;
+    if nd < -DBL_DIG - 2 { return Ok(Value::Int(0)); }
+    if nd > DBL_DIG + 2 { return Ok(s); }
+    let mut f = 1.0f64;
+    for _ in 0..nd.abs() { f *= 10.0; }
+    let mut x = number;
+    if f.is_infinite() { if nd < 0 { x = 0.0; } }
+    else {
+        if nd < 0 { x /= f; } else { x *= f; }
+        if x > 0.0 { let d = libm::floor(x); x = d + if x - d >= 0.5 { 1.0 } else { 0.0 }; }
+        else if x < 0.0 { let d = libm::ceil(x); x = d - if d - x >= 0.5 { 1.0 } else { 0.0 }; }
+        if nd < 0 { x *= f; } else { x /= f; }
+    }
+    if nd > 0 { return Ok(if x.is_finite() { Value::Float(x) } else { s }); }
+    if x.abs() >= 4611686018427387904.0 { return Ok(Value::Float(x)); }
+    Ok(Value::Int(x as i64))
 }
 
 #[derive(Clone, Copy, PartialEq)]
