@@ -77,6 +77,15 @@ individual assertion messages of one file.
 Errors the VM raises for missing features surface as `NotImplementedError`, so the
 suite keeps going and the table shows them as "crash".
 
+## Performance
+
+`tools/bench.sh` runs mruby's own `benchmark/*.rb` on the reference `mruby` and on SabiRuby
+and writes [`docs/bench.md`](docs/bench.md) (best of 3, plus instruction counts and
+ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
+first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
+The value representation (16-byte enum) and the heap (index into a `Vec`, no GC) are the
+known structural costs; measure before changing them.
+
 ## Usage
 
 ```

@@ -3,7 +3,7 @@ use std::io::Write;
 use std::process::ExitCode;
 
 fn usage() -> ExitCode {
-    eprintln!("usage: sabiruby run <file.mrb>        run a compiled script");
+    eprintln!("usage: sabiruby run [--stats] <file.mrb>   run a compiled script (--stats: instructions and time to stderr)");
     eprintln!("       sabiruby dump <file.mrb>       print the instruction sequence");
     eprintln!("       sabiruby mrbtest [-v] <assert.mrb> <test.mrb>...");
     eprintln!("                                      run mruby's test suite, print a Markdown report");
@@ -62,10 +62,12 @@ fn main() -> ExitCode {
 }
 
 fn real_main() -> ExitCode {
-    let args: Vec<String> = std::env::args().collect();
+    let mut args: Vec<String> = std::env::args().collect();
     if args.len() >= 2 && args[1] == "mrbtest" {
         return mrbtest(&args[2..]);
     }
+    let stats = args.iter().any(|a| a == "--stats");
+    args.retain(|a| a != "--stats");
     if args.len() < 3 {
         return usage();
     }
@@ -94,7 +96,17 @@ fn real_main() -> ExitCode {
                 eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e));
                 return ExitCode::from(1);
             }
+            // like the `mruby` command: ARGV holds the arguments after the script
+            let argv: Vec<sabiruby::Value> = args[3..].iter().map(|a| vm.str_new(a.as_bytes())).collect();
+            let argv = vm.ary_new(argv);
+            let n = vm.intern("ARGV");
+            vm.heap.class_mut(vm.core.object).consts.insert(n, argv);
+            let started = std::time::Instant::now();
             let result = vm.load_and_run(&bin);
+            if stats {
+                let e = started.elapsed();
+                eprintln!("instructions: {} elapsed_ms: {:.3} ns_per_instruction: {:.1}", vm.instructions, e.as_secs_f64() * 1000.0, e.as_nanos() as f64 / vm.instructions.max(1) as f64);
+            }
             let out = std::io::stdout();
             let mut lock = out.lock();
             lock.write_all(vm.take_output().as_slice()).ok();
