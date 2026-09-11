@@ -1,7 +1,9 @@
 //! SabiRuby — an mruby 4.1.0 bytecode-compatible virtual machine in Rust.
 //!
-//! The VM executes RITE 0400 binaries (`.mrb` files) produced by mruby 4.1's `mrbc`;
-//! compilation still uses the reference compiler. Behaviour is checked against the
+//! The VM executes RITE 0400 binaries (`.mrb` files) produced by mruby 4.1's `mrbc`. To
+//! compile Ruby source in the same program, use the companion crate
+//! [`sabiruby-compiler`](https://crates.io/crates/sabiruby-compiler) (the reference
+//! compiler built as C; the `sabiruby` command line tool uses it). Behaviour is checked against the
 //! reference mruby 4.1.0-rc (its own test suite passes 1185 of 1227 assertions; see the
 //! repository's README for what is missing). The design follows the book *Deep dive into
 //! mruby* (register layout, callinfo, catch handlers, environments) and replaces mruby's
@@ -43,7 +45,9 @@
 //!
 //! The library is `no_std` + `alloc` (it builds for bare-metal targets and
 //! `wasm32-unknown-unknown`). The default `std` feature only adds `std::error::Error` for
-//! [`VmError`] and is needed by the `sabiruby` command-line tool.
+//! [`VmError`] and is needed by the `sabiruby` command-line tool. The default `compiler`
+//! feature only adds the dependency the command-line tool uses to compile Ruby source; the
+//! library does not use it (`default-features = false, features = ["std"]` leaves it out).
 //!
 //! # Stability
 //!

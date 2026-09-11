@@ -27,12 +27,17 @@ path = "src/bin/sabiruby.rs"
 required-features = ["std"]
 
 [features]
-default = ["std"]
+default = ["std", "compiler"]
 # The library itself is no_std + alloc. `std` only adds `std::error::Error` glue
 # and is required by the CLI (`src/bin/sabiruby.rs`) and the fixture tests.
 std = []
+# The CLI compiles Ruby source with the reference mruby compiler (crate sabiruby-compiler,
+# C, needs a C compiler; not for wasm). The library does not use it: embedders that do not
+# want it use `default-features = false, features = ["std"]`.
+compiler = ["std", "dep:sabiruby-compiler"]
 
 [dependencies]
+sabiruby-compiler = { version = "0.1.0", path = "compiler", optional = true }
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
 libm = { version = "0.2", default-features = false }
 

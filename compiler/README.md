@@ -1,0 +1,65 @@
+# sabiruby-compiler
+
+The reference mruby 4.1.0 compiler as a Rust library: Ruby source in, RITE bytecode
+(`.mrb`) out, **byte for byte what the reference `mrbc` writes**.
+
+It is not a port. The crate builds mruby's own `mruby-compiler` (the Prism parser plus
+mruby's code generator) as C with the [`cc`](https://crates.io/crates/cc) crate, in the
+standalone configuration the reference `mrbc` itself is built in (no mruby VM linked), and
+calls it through a small C shim. The bytecode runs on the
+[SabiRuby](https://crates.io/crates/sabiruby) VM, or on mruby.
+
+```rust
+use sabiruby_compiler::{compile, Options};
+
+let bin = compile(b"puts 'hello'", &Options::default())?;          // like `mrbc -`
+let dbg = compile(src, &Options { filename: "app.rb".into(), debug_info: true, ..Default::default() })?; // `mrbc -g app.rb`
+```
+
+A failure is a `CompileError` whose `diagnostics` carry kind, message, file, line and
+column; `Display` prints the errors as `FILE:LINE:COL: message`, as `mrbc` does.
+
+## What is vendored
+
+`vendor/` holds unmodified copies from mruby 4.1.0-rc (commit `3cf73ee`), listed with their
+licences in [`vendor/VENDOR.md`](vendor/VENDOR.md):
+
+* `mrbgems/mruby-compiler` (`include/`, `src/`): MIT, Copyright (c) HASUMI Hitoshi
+* Prism 1.9.0 (`lib/prism`: `include/`, `src/`): MIT, Copyright Shopify Inc.
+* the Prism sources generated from its ERB templates, taken from a reference build
+  (so building this crate needs no Ruby)
+* mruby's `include/mrbconf.h`: MIT, mruby developers
+
+`tools/vendor_compiler.sh` in the repository redoes the copy for a new mruby version.
+
+## API
+
+* `compile(src: &[u8], opts: &Options) -> Result<Vec<u8>, CompileError>`
+* `Options { filename, debug_info /* -g */, remove_lv, no_ext_ops, no_optimize }`;
+  the default is `filename: "-e"`, everything else off (plain `mrbc`)
+* `Diagnostic { kind: Kind, message, filename, line, column }`,
+  `Kind::{ParserWarning, ParserError, GeneratorWarning, GeneratorError}`
+* `version()`: `"mruby 4.1.0-rc (3cf73ee), Prism 1.9.0"`
+
+Compilations are serialised by a lock: `mrc_presym.c` writes a global on every parse.
+
+## Platforms
+
+Needs a C compiler (C99) at build time. Built and tested on Linux (gcc) and macOS (clang)
+in CI; Windows (MSVC) is expected to work, as Prism and mruby support it, but is not tested.
+A clean build of the C part takes about 2 s (debug) and 7 s (release, one core).
+
+**`wasm32` is not supported**: the C sources would need clang with a wasm sysroot
+(wasi-sdk or emscripten) and the build script would have to select it. That is left for later.
+
+## Verification
+
+The repository's golden tests compile every `.rb` that has a `.mrb` produced by the reference
+`mrbc` (Docker image `kishima/mruby:4.1.0-rc`): the 17 VM fixtures, the 61 files of mruby's
+test suite (with `-g`, so DBG and LVAR are compared too) and the benchmarks. All are
+byte-identical. The error messages and exit codes of `sabiruby compile` match `mrbc`'s.
+
+## License
+
+MIT for the Rust code and the shim; the vendored sources keep their own MIT licences
+(`vendor/VENDOR.md`).

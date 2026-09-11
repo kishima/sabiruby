@@ -2,23 +2,28 @@ name: ci
 on: [push, pull_request]
 jobs:
   test:
-    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
         with:
           targets: thumbv7em-none-eabi, wasm32-unknown-unknown
-      - run: cargo test
+      # the VM, the CLI, and the compiler's golden tests against the reference mrbc output
+      - run: cargo test --workspace
       - run: tools/check_no_std.sh
-      - run: cargo build --lib --target wasm32-unknown-unknown
-      # what docs.rs and crates.io will get
-      - run: cargo doc --no-deps --lib
+      # the library only: the default `compiler` feature (C) is not for wasm
+      - run: cargo build --lib --no-default-features --target wasm32-unknown-unknown
+      # what docs.rs and crates.io will get (both crates, the compiler first)
+      - run: cargo doc --no-deps --workspace
         env:
           RUSTDOCFLAGS: -D warnings
-      - run: cargo publish --dry-run
+      - run: cargo publish --dry-run --workspace
   msrv:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@1.85   # rust-version in Cargo.toml
-      - run: cargo check --all-targets
+      - run: cargo check --workspace --all-targets
