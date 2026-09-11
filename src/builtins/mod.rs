@@ -68,8 +68,8 @@ impl Vm {
                 let r = self.funcall(a, self.s.eq, &[b], Value::Nil)?;
                 Ok(r.truthy())
             }
-            (Value::Int(x), Value::Float(y)) => Ok(x as f64 == y),
-            (Value::Float(x), Value::Int(y)) => Ok(x == y as f64),
+            (Value::Int(x), Value::Float(y)) => Ok(numeric::int_float_cmp(x, y) == Some(core::cmp::Ordering::Equal)),
+            (Value::Float(x), Value::Int(y)) => Ok(numeric::int_float_cmp(y, x) == Some(core::cmp::Ordering::Equal)),
             _ => Ok(a == b),
         }
     }

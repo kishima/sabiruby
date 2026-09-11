@@ -89,6 +89,12 @@ pub struct EnvData {
     pub values: Vec<Value>,
     pub mid: Option<Sym>,
     pub target_class: Option<ObjId>,
+    /// Default visibility / module_function state of the scope that owns this env
+    /// (mruby keeps them in `REnv` flags so closures defined later still see them).
+    pub vis: Vis,
+    pub modfunc: bool,
+    /// `instance_eval`/`class_eval` boundary (`MRB_ENV_VISIBILITY_BREAK`).
+    pub vis_break: bool,
 }
 
 #[derive(Default)]

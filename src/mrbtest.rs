@@ -34,6 +34,7 @@ pub fn install(vm: &mut Vm) {
     let tni = vm.define_class("TestNotImplement", vm.core.object);
     fn gone(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Value> { Err(vm.raise(vm.core.not_implemented_error, "gone() function is unimplemented on this machine")) }
     vm.define_method(tni, "gone", gone);
+    vm.notimpl_fns.push(gone);
     let tsc = vm.singleton_class(Value::Obj(tni)).expect("singleton");
     vm.define_method(tsc, "gone", gone);
     let nameless = vm.exc_new(vm.core.not_implemented_error, "function is unimplemented on this machine");

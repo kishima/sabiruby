@@ -7,6 +7,15 @@ use crate::object::ObjKind;
 use crate::value::Value;
 use crate::vm::Vm;
 
+/// `Proc#==`: the same body and the same environment (mruby `mrb_proc_eql`).
+fn proc_eq(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    let (o1, o2) = match (s, a.first().copied()) { (Value::Obj(x), Some(Value::Obj(y))) => (x, y), _ => return Ok(Value::False) };
+    if o1 == o2 { return Ok(Value::True); }
+    if !matches!(vm.heap.get(o2).kind, ObjKind::Proc(_)) { return Ok(Value::False); }
+    let (p1, p2) = (vm.heap.proc_data(o1), vm.heap.proc_data(o2));
+    Ok(Value::bool(p1.irep == p2.irep && p1.env == p2.env && p1.target_class == p2.target_class))
+}
+
 /// `Proc#dup`: a copy that is an orphan (`break` inside it has no home).
 fn proc_dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     let o = s.obj().unwrap();
@@ -36,6 +45,9 @@ pub fn init(vm: &mut Vm) {
         ("lambda?", |vm, s, _a, _b| Ok(Value::bool(s.obj().map(|o| vm.heap.proc_data(o).strict).unwrap_or(false)))),
         ("arity", |vm, s, _a, _b| { let o = s.obj().unwrap(); let pd = vm.heap.proc_data(o); let irep = &vm.ireps[pd.irep]; Ok(Value::Int(arity_of(irep, pd.strict))) }),
         ("initialize", |_vm, s, _a, _b| Ok(s)),
+        ("==", proc_eq),
+        ("eql?", proc_eq),
+        ("hash", |vm, s, _a, _b| { let p = vm.heap.proc_data(s.obj().unwrap()); Ok(Value::Int((p.irep as i64) * 31 + p.env.map(|e| e.0 as i64).unwrap_or(0))) }),
         ("dup", proc_dup),
         ("clone", proc_dup),
         ("parameters", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),

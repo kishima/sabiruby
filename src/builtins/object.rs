@@ -35,7 +35,7 @@ pub fn init(vm: &mut Vm) {
         ("is_a?", is_a),
         ("kind_of?", is_a),
         ("instance_of?", |vm, s, a, _b| { argc!(vm, a, 1); let c = class_arg(vm, a[0])?; Ok(Value::bool(vm.real_class_of(s) == c)) }),
-        ("respond_to?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let m = sym_arg(vm, a[0])?; let include_private = a.get(1).map(|v| v.truthy()).unwrap_or(false); if let Some((_, owner)) = vm.find_method(vm.class_of(s), m) { let vis = vm.method_vis(owner, m); if vis == Vis::Public || include_private { return Ok(Value::True); } return Ok(Value::False); } let rtm = vm.intern("respond_to_missing?"); let priv_ = a.get(1).copied().unwrap_or(Value::False); let r = vm.funcall(s, rtm, &[Value::Sym(m), priv_], Value::Nil)?; Ok(Value::bool(r.truthy())) }),
+        ("respond_to?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let m = sym_arg(vm, a[0])?; let include_private = a.get(1).map(|v| v.truthy()).unwrap_or(false); if let Some((mth, owner)) = vm.find_method(vm.class_of(s), m) { if let Method::Native(f) = mth { if vm.notimpl_fns.iter().any(|g| core::ptr::fn_addr_eq(*g, f)) { return Ok(Value::False); } } let vis = vm.method_vis(owner, m); if vis == Vis::Public || include_private { return Ok(Value::True); } return Ok(Value::False); } let rtm = vm.intern("respond_to_missing?"); let priv_ = a.get(1).copied().unwrap_or(Value::False); let r = vm.funcall(s, rtm, &[Value::Sym(m), priv_], Value::Nil)?; Ok(Value::bool(r.truthy())) }),
         ("respond_to_missing?", |_vm, _s, _a, _b| Ok(Value::False)),
         ("remove_instance_variable", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; match s { Value::Obj(o) => { if vm.heap.get(o).frozen { return Err(vm.frozen_error(s)); } let pos = vm.heap.get(o).ivars.iter().position(|(k, _)| *k == n); match pos { Some(i) => Ok(vm.heap.get_mut(o).ivars.remove(i).1), None => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("instance variable {nn} not defined"))) } } } _ => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("instance variable {nn} not defined"))) } } }),
         ("send", |vm, s, a, b| { if a.is_empty() { return Err(vm.argnum_error(0, "1+")); } send(vm, s, a, b) }),
@@ -77,7 +77,7 @@ pub fn init(vm: &mut Vm) {
         ("extended", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("prepended", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("remove_const", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; check_const_name(vm, n)?; let m = s.obj().unwrap(); if vm.heap.get(m).frozen { return Err(vm.frozen_error(s)); } match vm.heap.class_mut(m).consts.remove(&n) { Some(v) => Ok(v), None => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("constant {nn} not defined"))) } } }),
-        ("const_missing", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; let nn = vm.sym_name(n); let o = s.obj().unwrap(); let msg = if o == vm.core.object { format!("uninitialized constant {nn}") } else { let cn = vm.class_name(o); format!("uninitialized constant {cn}::{nn}") }; Err(vm.raise(vm.core.name_error, &msg)) }),
+        ("const_missing", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; let nn = vm.sym_name(n); let o = s.obj().unwrap(); let msg = if o == vm.core.object { format!("uninitialized constant {nn}") } else { let cn = vm.class_name(o); format!("uninitialized constant {cn}::{nn}") }; Err(vm.name_error(n, &msg)) }),
         ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let (dst, src) = (s.obj().unwrap(), class_arg(vm, a[0])?); let (methods, consts, cvars, sup, is_module) = { let c = vm.heap.class(src); (c.methods.clone(), c.consts.clone(), c.cvars.clone(), c.superclass, c.is_module) }; let d = vm.heap.class_mut(dst); d.methods = methods; d.consts = consts; d.cvars = cvars; d.superclass = sup; d.is_module = is_module; d.name = None; Ok(s) }),
         ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let m = class_arg(vm, a[0])?; let mut c = vm.heap.class(s.obj().unwrap()).superclass; while let Some(x) = c { if vm.heap.class(x).iclass_of == Some(m) { return Ok(Value::True); } c = vm.heap.class(x).superclass; } Ok(Value::False) }),
         ("ancestors", |vm, s, _a, _b| { let mut list = vec![]; let mut c = Some(s.obj().unwrap()); while let Some(x) = c { let cd = vm.heap.class(x); if cd.origin.is_some() { c = cd.superclass; continue; } let shown = cd.iclass_of.or(cd.origin_of).unwrap_or(x); list.push(Value::Obj(shown)); c = cd.superclass; } Ok(vm.ary_new(list)) }),
@@ -90,7 +90,7 @@ pub fn init(vm: &mut Vm) {
         ("protected", |vm, s, a, _b| set_vis(vm, s, a, Vis::Protected)),
         ("module_function", |vm, s, a, _b| {
             let m = s.obj().unwrap();
-            if a.is_empty() { if let Some(ci) = vm.ci.last_mut() { ci.modfunc = true; } return Ok(Value::Nil); }
+            if a.is_empty() { vm.set_scope_vis(Vis::Private, true); return Ok(Value::Nil); }
             let names = flat_syms(vm, a)?;
             for n in &names {
                 match vm.find_method(m, *n) {
@@ -105,7 +105,7 @@ pub fn init(vm: &mut Vm) {
         ("alias_method", |vm, s, a, _b| { argc!(vm, a, 2); let m = s.obj().unwrap(); let (new, old) = (sym_arg(vm, a[0])?, sym_arg(vm, a[1])?); vm.alias_method(m, new, old)?; Ok(s) }),
         ("undef_method", |vm, s, a, _b| { let m = s.obj().unwrap(); for n in a { let n = sym_arg(vm, *n)?; vm.undef_method(m, n)?; } Ok(s) }),
         ("remove_method", |vm, s, a, _b| { let m = s.obj().unwrap(); if vm.heap.get(m).frozen { return Err(vm.frozen_error(s)); } let t = vm.def_target(m); for n in a { let n = sym_arg(vm, *n)?; if vm.heap.class_mut(t).methods.remove(&n).is_none() { let nn = vm.sym_name(n); let cn = vm.class_name(m); return Err(vm.raise(vm.core.name_error, &format!("method '{nn}' not defined in {cn}"))); } } Ok(s) }),
-        ("define_method", |vm, s, a, b| { argc!(vm, a, 1, 2); let m = s.obj().unwrap(); let n = sym_arg(vm, a[0])?; let body = if a.len() == 2 { a[1] } else { b }; match body { Value::Obj(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => { if let ObjKind::Proc(pd) = &mut vm.heap.get_mut(p).kind { pd.target_class = Some(m); } let vis = vm.ci.last().map(|c| c.vis).unwrap_or(Vis::Public); vm.def_method(m, n, Method::Ruby(p), vis)?; Ok(Value::Sym(n)) } Value::Nil if a.len() == 1 => Err(vm.raise_arg("tried to create Proc object without a block")), v => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&format!("wrong argument type {d} (expected Proc)"))) } } }),
+        ("define_method", |vm, s, a, b| { argc!(vm, a, 1, 2); let m = s.obj().unwrap(); let n = sym_arg(vm, a[0])?; let body = if a.len() == 2 { a[1] } else { b }; match body { Value::Obj(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => { if let ObjKind::Proc(pd) = &mut vm.heap.get_mut(p).kind { pd.target_class = Some(m); } let (vis, _) = vm.current_def_vis(m); vm.def_method(m, n, Method::Ruby(p), vis)?; Ok(Value::Sym(n)) } Value::Nil if a.len() == 1 => Err(vm.raise_arg("tried to create Proc object without a block")), v => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&format!("wrong argument type {d} (expected Proc)"))) } } }),
         ("method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) != Vis::Private, None => false })) }),
         ("public_method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) == Vis::Public, None => false })) }),
         ("private_method_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let m = s.obj().unwrap(); Ok(Value::bool(match vm.find_method(m, n) { Some((_, owner)) => vm.method_vis(owner, n) == Vis::Private, None => false })) }),
@@ -429,7 +429,7 @@ fn attr(vm: &mut Vm, s: Value, a: &[Value], reader: bool, writer: bool) -> VmRes
         let valid = name.chars().next().map(|c| c == '_' || c.is_alphabetic() || !c.is_ascii()).unwrap_or(false) && name.chars().all(|c| c == '_' || c.is_alphanumeric() || !c.is_ascii());
         if !valid { return Err(vm.raise(vm.core.name_error, &format!("invalid attribute name '{name}'"))); }
         let iv = vm.intern(&format!("@{name}"));
-        let vis = vm.ci.last().map(|c| c.vis).unwrap_or(Vis::Public);
+        let (vis, _) = vm.current_def_vis(cls);
         if reader {
             vm.def_method(cls, n, Method::AttrReader(iv), vis)?;
             out.push(Value::Sym(n));
@@ -479,7 +479,7 @@ fn flat_syms(vm: &mut Vm, a: &[Value]) -> VmResult<Vec<crate::symbol::Sym>> {
 fn set_vis(vm: &mut Vm, s: Value, a: &[Value], vis: Vis) -> VmResult<Value> {
     let m = s.obj().unwrap();
     if a.is_empty() {
-        if let Some(ci) = vm.ci.last_mut() { ci.vis = vis; ci.modfunc = false; }
+        vm.set_scope_vis(vis, false);
         return Ok(Value::Nil);
     }
     let names = flat_syms(vm, a)?;
