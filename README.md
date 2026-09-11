@@ -139,6 +139,7 @@ Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github
 Compiler: [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md) (the plan: [`docs/compiler-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler-plan.md)).
 GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc-plan.md)).
 eval / require (not implemented; design notes, with PicoRuby's approach as the reference): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
+UTF-8 strings (not implemented; plan): [`docs/utf8-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8-plan.md). Remaining gems and their order: [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md).
 
 ## Usage
 
@@ -147,14 +148,22 @@ The library: `cargo add sabiruby` (`default-features = false` for `no_std`). The
 reference compiler, about 2 s in a debug build and 7 s in a release build, on one core).
 In this repository:
 
+The switches are the reference `mruby` command's (`sabiruby -h` lists them); `compile` is `mrbc`:
+
 ```
-cargo run -p sabiruby-cli -- run  foo.rb                     # compile Ruby source and run it
-cargo run -p sabiruby-cli -- -e 'p [1, 2].sum'               # code on the command line
-cargo run -p sabiruby-cli -- run  tests/fixtures/klass.mrb   # a RITE binary from mrbc
-cargo run -p sabiruby-cli -- compile foo.rb -o foo.mrb       # like mrbc (-g, --remove-lv, --no-ext-ops, --no-optimize)
-cargo run -p sabiruby-cli -- dump tests/fixtures/klass.rb    # instruction listing (.rb or .mrb)
-cargo run -p sabiruby-cli -- mrbtest tests/mrbtest/assert.mrb tests/mrbtest/hash.mrb   # test suite
+sabiruby foo.rb arg1 arg2      # Ruby source or a .mrb; the arguments go to ARGV
+sabiruby -e 'p [1, 2].sum'     # one line of script (-e may be repeated)
+echo 'puts 1' | sabiruby       # no program file: read it from standard input
+sabiruby -c foo.rb             # check syntax only ("Syntax OK")
+sabiruby -v foo.rb             # version, then the instruction listing, then run
+sabiruby -b foo.mrb            # bytecode only; -d sets $DEBUG; --stats prints instructions/time/GC
+sabiruby compile foo.rb -o foo.mrb   # like mrbc (-g, -c, --remove-lv, --no-ext-ops, --no-optimize)
+sabiruby dump foo.rb           # instruction listing (.rb or .mrb)
+sabiruby mrbtest tests/mrbtest/assert.mrb tests/mrbtest/hash.mrb   # test suite
 ```
+
+A subcommand name wins over a file of the same name: run `./compile` (or `sabiruby run compile`)
+for a program file called `compile`. In this repository, use `cargo run -p sabiruby-cli -- …`.
 
 ```rust
 let mut vm = sabiruby::Vm::with_mrblib()?;   // core library loaded

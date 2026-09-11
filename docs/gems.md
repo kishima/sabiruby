@@ -135,8 +135,9 @@ enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
 Order: 1 (pure Ruby, an afternoon) → 2 (small natives) → 3 (data structures and host
-clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → 6 (regexp) → 7 (task).
-regexp is by far the heaviest and can be moved after task.
+clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
+(`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
+6 (regexp, on top of UTF-8) → 7 (task). regexp is by far the heaviest and can be moved after task.
 Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib_<gem>.mrb`,
 tests into `tools/mrbtest.sh` `GEMS`, reasons for what does not pass into
 `docs/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.
