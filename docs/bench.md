@@ -5,4 +5,9 @@ Docker image on the same machine (so the numbers are a ratio, not an absolute). 
 
 | benchmark | mruby ms | SabiRuby ms | ratio | instructions | ns/instruction |
 |---|---:|---:|---:|---:|---:|
-| bm_ao_render | 2517 | fail: undefined method 'printf' for Object (NoMethodError) | | | |
+| bm_ao_render | 2497 | fail: undefined method 'printf' for Object (NoMethodError) | | | |
+| bm_fib | 1780 | 6154.693 | 3.45x | 742675365 | 8.3 |
+| bm_mandel_term | 11 | fail: undefined method 'putc' for Object (NoMethodError) | | | |
+| bm_so_lists | 239 | 3764.657 | 15.75x | 57014273 | 66.0 |
+| bm_so_mandelbrot | 896 | 1614.818 | 1.80x | 341835676 | 4.7 |
+| vm_optimization_bench | 3365 | fail: uninitialized constant Time (NameError) | | | |
