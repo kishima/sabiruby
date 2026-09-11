@@ -6,7 +6,7 @@ bs_literal 9
 class 48
 codegen 15
 comparable 7
-ensure 4
+ensure 5
 enumerable 22
 env 0
 exception 33

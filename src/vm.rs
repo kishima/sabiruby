@@ -2520,16 +2520,23 @@ impl Vm {
         let p = self.ci[top].proc_;
         let pd = self.heap.proc_data(p);
         if pd.env.is_none() || pd.strict { return self.op_return(v, stop_depth, lc); }
-        // top_proc: walk `upper` until the method/lambda that owns the locals;
-        // its env identifies the frame to return from.
+        // mruby `top_proc(proc, &env)`: walk `upper` until the method or lambda
+        // that owns the locals. `env` ends as the environment captured by the
+        // last block on the way, i.e. the environment *of the frame* running
+        // that method/lambda (a frame's env is the one its blocks capture), so
+        // it identifies the frame to return from.
         let mut cur = p;
         let mut env = pd.env;
         loop {
             let cd = self.heap.proc_data(cur);
+            let up = match cd.upper { Some(u) => u, None => break };
             if cd.scope || cd.strict { break; }
-            match cd.upper { Some(up) => { env = self.heap.proc_data(up).env.or(env); cur = up; } None => break }
+            env = cd.env;
+            cur = up;
         }
         let target_env = env;
+        // a home frame in another fiber is not reachable (`dst->e.env->cxt == mrb->c`)
+        if let Some(e) = target_env { let ed = self.heap.env(e); if ed.attached && ed.ctx != self.cur { return Err(self.raise(self.core.local_jump_error, "unexpected return")); } }
         let mut idx = None;
         for i in (0..self.ci.len()).rev() {
             if self.ci[i].env.is_some() && self.ci[i].env == target_env { idx = Some(i); break; }
