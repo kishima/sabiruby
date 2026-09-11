@@ -64,7 +64,6 @@ pub fn init(vm: &mut Vm) {
         ("to_s", |vm, s, _a, _b| { let b = range_inspect(vm, s, false)?; Ok(vm.str_new(&b)) }),
         ("inspect", |vm, s, _a, _b| { let b = range_inspect(vm, s, true)?; Ok(vm.str_new(&b)) }),
         ("size", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); match (b, e) { (Value::Int(b), Value::Int(e)) => { let n = if x { e - b } else { e - b + 1 }; Ok(Value::Int(n.max(0))) } (Value::Int(_), Value::Nil) => Ok(Value::Float(f64::INFINITY)), _ => Ok(Value::Nil) } }),
-        ("count", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); match (b, e) { (Value::Int(b), Value::Int(e)) => { let n = if x { e - b } else { e - b + 1 }; Ok(Value::Int(n.max(0))) } _ => Ok(Value::Nil) } }),
         ("__num_to_a", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); match (b, e) { (Value::Int(b), Value::Int(e)) => { let last = if x { e - 1 } else { e }; let v: Vec<Value> = (b..=last).map(Value::Int).collect(); Ok(vm.ary_new(v)) } (Value::Int(_), Value::Nil) => Err(vm.raise(vm.core.range_error, "cannot convert endless range to an array")), _ => Ok(Value::Nil) } }),
         ("dup", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); Ok(vm.range_new(b, e, x)) }),
         ("hash", |vm, s, _a, _b| { let (b, e, x) = parts(vm, s); Ok(Value::Int(vm.value_hash(b).wrapping_mul(31).wrapping_add(vm.value_hash(e)).wrapping_add(x as i64))) }),

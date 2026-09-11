@@ -361,8 +361,12 @@ impl Vm {
     pub fn with_mrblib() -> VmResult<Vm> {
         let mut vm = Vm::new();
         vm.load_and_run(crate::MRBLIB_MRB)?;
-        // gems with a Ruby part, in dependency order (mruby-fiber has none)
-        vm.load_and_run(crate::MRBLIB_ENUMERATOR_MRB)?;
+        // gems with a Ruby part, in the order of the reference gembox
+        // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
+        // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
+        for lib in [crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB] {
+            vm.load_and_run(lib)?;
+        }
         Ok(vm)
     }
 
@@ -2210,8 +2214,9 @@ impl Vm {
             (Value::Float(p), Value::Int(q)) => Some(ord(crate::builtins::numeric::int_float_cmp(q, p).map(|o| o.reverse()))),
             (Value::Float(p), Value::Float(q)) => Some(ord(p.partial_cmp(&q))),
             _ if mid == s.eq => {
-                // fast path: identical immediates / same object
-                if x == y && !matches!(x, Value::Obj(_)) { Some(Value::True) } else { None }
+                // fast path (mruby `mrb_obj_eq` before the `==` send): identical
+                // immediates or the same object; a NaN is never equal to itself
+                if x == y { Some(Value::True) } else { None }
             }
             _ => None,
         };

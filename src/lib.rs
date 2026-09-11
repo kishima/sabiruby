@@ -32,3 +32,9 @@ pub use vm::{Step, Vm};
 pub const MRBLIB_MRB: &[u8] = include_bytes!("mrblib.mrb");
 /// `mrbgems/mruby-enumerator/mrblib/enumerator.rb` (pure Ruby, needs Fiber), loaded after the core mrblib.
 pub const MRBLIB_ENUMERATOR_MRB: &[u8] = include_bytes!("mrblib_enumerator.mrb");
+/// The Ruby parts of the *-ext gems, in the reference's gembox order (`mrbgems/default.gembox`).
+pub const MRBLIB_ENUM_EXT_MRB: &[u8] = include_bytes!("mrblib_enum-ext.mrb");
+pub const MRBLIB_STRING_EXT_MRB: &[u8] = include_bytes!("mrblib_string-ext.mrb");
+pub const MRBLIB_ARRAY_EXT_MRB: &[u8] = include_bytes!("mrblib_array-ext.mrb");
+pub const MRBLIB_HASH_EXT_MRB: &[u8] = include_bytes!("mrblib_hash-ext.mrb");
+pub const MRBLIB_RANGE_EXT_MRB: &[u8] = include_bytes!("mrblib_range-ext.mrb");

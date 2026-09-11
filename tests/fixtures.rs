@@ -25,7 +25,6 @@ fixture!(hello, arith, method, control, block, collections, klass, exception, cl
 #[test]
 fn kwargs() { run_fixture("kwargs"); }
 
-/// mruby-enumerator is ported; `each_slice`/`each_cons` still need mruby-enum-ext.
+/// mruby-enumerator and mruby-enum-ext.
 #[test]
-#[ignore = "needs mruby-enum-ext (each_slice, each_cons)"]
 fn enumerator() { run_fixture("enumerator"); }

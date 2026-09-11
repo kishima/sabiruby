@@ -17,7 +17,7 @@ fi
 # copy sources (they are MIT, from mruby test/) and compile.
 # Gem tests (mrbgems/<gem>/test/*.rb) are copied as gem_<file>.rb; the gem's
 # mrblib is compiled into src/mrblib_<gem>.mrb and loaded by Vm::with_mrblib.
-GEMS="mruby-fiber mruby-enumerator"
+GEMS="mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext"
 cp "$MRUBY/test/assert.rb" $DIR/src/
 cp "$MRUBY"/test/t/*.rb $DIR/src/
 mkdir -p target/mrblib

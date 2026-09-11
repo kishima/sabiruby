@@ -14,6 +14,8 @@ pub fn init(vm: &mut Vm) {
     vm.define_methods(k, &[
         // `mrb_obj_init_copy`: called on every dup/clone; Module has its own
         ("initialize_copy", |vm, s, a, _b| { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } if s == a[0] { return Ok(s); } if vm.real_class_of(s) != vm.real_class_of(a[0]) || core::mem::discriminant(&s) != core::mem::discriminant(&a[0]) { return Err(vm.raise_type("initialize_copy should take same class object")); } Ok(s) }),
+        // `mrb_obj_cmp`: 0 for the same object or `==`, nil otherwise
+        ("<=>", |vm, s, a, _b| { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } if s == a[0] || vm.equal(s, a[0])? { return Ok(Value::Int(0)); } Ok(Value::Nil) }),
         ("puts", puts),
         ("print", print),
         ("p", p),

@@ -7,6 +7,10 @@ use alloc::{format, string::String, vec::Vec};
 
 pub mod array;
 pub mod exception;
+pub mod ext_array;
+pub mod ext_hash;
+pub mod ext_range;
+pub mod ext_string;
 pub mod fiber;
 pub mod hash;
 pub mod kernel;
@@ -34,6 +38,11 @@ pub fn init(vm: &mut Vm) {
     proc_::init(vm);
     exception::init(vm);
     fiber::init(vm);
+    // gems (their natives replace core ones of the same name, as the gem init does)
+    ext_array::init(vm);
+    ext_hash::init(vm);
+    ext_range::init(vm);
+    ext_string::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers

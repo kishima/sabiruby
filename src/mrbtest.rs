@@ -58,6 +58,9 @@ pub fn install(vm: &mut Vm) {
         Ok(r)
     });
     vm.define_method(fiber, "transfer_by_c", |vm, s, _a, _b| { let m = vm.intern("transfer"); vm.funcall(s, m, &[], Value::Nil) });
+    // mrbgems/mruby-array-ext/test/array.c: mrb_ary_unshift() from C
+    let ary = vm.core.array;
+    vm.define_method(ary, "__unshift_from_c", |vm, s, a, _b| { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } let unshift = vm.intern("unshift"); vm.funcall(s, unshift, &[a[0]], Value::Nil) });
     let psc = vm.singleton_class(Value::Obj(vm.core.proc_)).expect("Proc singleton");
     vm.define_method(psc, "c_tunnel", |vm, _s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block(b, &[]) });
 }

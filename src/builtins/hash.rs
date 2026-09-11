@@ -51,7 +51,7 @@ pub fn hash_inspect(vm: &mut Vm, v: Value) -> VmResult<Vec<u8>> {
     Ok(out)
 }
 
-fn hash_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+pub(crate) fn hash_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1);
     if let Some(v) = vm.hash_get(s, a[0]) { return Ok(v); }
     // a redefined `default` is honoured (#3272)
@@ -92,7 +92,6 @@ pub fn init(vm: &mut Vm) {
         ("dig", |vm, s, a, _b| { let mut cur = s; let aref = vm.s.aref; for k in a { if cur.is_nil() { return Ok(Value::Nil); } cur = vm.funcall(cur, aref, &[*k], Value::Nil)?; } Ok(cur) }),
         ("size", |vm, s, _a, _b| Ok(Value::Int(hash_len(vm, s) as i64))),
         ("length", |vm, s, _a, _b| Ok(Value::Int(hash_len(vm, s) as i64))),
-        ("count", |vm, s, _a, _b| Ok(Value::Int(hash_len(vm, s) as i64))),
         ("empty?", |vm, s, _a, _b| Ok(Value::bool(hash_len(vm, s) == 0))),
         ("keys", |vm, s, _a, _b| { let k: Vec<Value> = entries(vm, s).iter().map(|(k, _)| *k).collect(); Ok(vm.ary_new(k)) }),
         ("values", |vm, s, _a, _b| { let v: Vec<Value> = entries(vm, s).iter().map(|(_, v)| *v).collect(); Ok(vm.ary_new(v)) }),

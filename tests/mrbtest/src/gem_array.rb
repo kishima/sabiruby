@@ -1,0 +1,1154 @@
+##
+# Array(Ext) Test
+
+def assert_permutation_combination(exp, receiver, meth, *args)
+  act = []
+  ret = receiver.__send__(meth, *args) { |v| act << v }
+  assert "assert_#{meth}" do
+    assert_equal(exp, act.sort)
+    assert_same(receiver, ret)
+  end
+end
+
+def assert_permutation(exp, receiver, *args)
+  assert_permutation_combination(exp, receiver, :permutation, *args)
+end
+
+def assert_combination(exp, receiver, *args)
+  assert_permutation_combination(exp, receiver, :combination, *args)
+end
+
+def assert_repeated_permutation(exp, receiver, *args)
+  assert_permutation_combination(exp, receiver, :repeated_permutation, *args)
+end
+
+def assert_repeated_combination(exp, receiver, *args)
+  assert_permutation_combination(exp, receiver, :repeated_combination, *args)
+end
+
+assert("Array#assoc") do
+  s1 = [ "colors", "red", "blue", "green" ]
+  s2 = [ "letters", "a", "b", "c" ]
+  s3 = "foo"
+  a  = [ s1, s2, s3 ]
+
+  assert_equal [ "letters", "a", "b", "c" ], a.assoc("letters")
+  assert_nil a.assoc("foo")
+end
+
+assert("Array#at") do
+  a = [ "a", "b", "c", "d", "e" ]
+  assert_equal "a", a.at(0)
+  assert_equal "e", a.at(-1)
+end
+
+assert("Array#rassoc") do
+  a = [ [ 1, "one"], [2, "two"], [3, "three"], ["ii", "two"] ]
+
+  assert_equal [2, "two"], a.rassoc("two")
+  assert_nil a.rassoc("four")
+end
+
+assert("Array#uniq!") do
+  a = [1, 2, 3, 1]
+  a.uniq!
+  assert_equal [1, 2, 3], a
+
+  b = [ "a", "b", "c" ]
+  assert_nil b.uniq!
+
+  c = [["student","sam"], ["student","george"], ["teacher","matz"]]
+  assert_equal [["student", "sam"], ["teacher", "matz"]], c.uniq! { |s| s.first }
+
+  d = [["student","sam"], ["teacher","matz"]]
+  assert_nil d.uniq! { |s| s.first }
+end
+
+assert("Array - a frozen receiver of a call that writes nothing") do
+  # Each of these leaves the array as it was and used to return before the
+  # write that carries the frozen check.
+  assert_raise(FrozenError) { [].freeze.uniq! }
+  assert_raise(FrozenError) { [1].freeze.uniq! }
+  assert_raise(FrozenError) { [1, 2].freeze.uniq! { |e| e } }
+  assert_raise(FrozenError) { [1, 2].freeze.insert(0) }
+  assert_raise(FrozenError) { [1, 2].freeze.fill(9, 0, 0) }
+  assert_raise(FrozenError) { [1, 2].freeze.fill(0, 0) { |i| i } }
+  assert_raise(FrozenError) { [1, 2].freeze.reject! { false } }
+  assert_raise(FrozenError) { [1, 2].freeze.select! { true } }
+end
+
+assert("Array#uniq") do
+  a = [1, 2, 3, 1]
+  assert_equal [1, 2, 3], a.uniq
+  assert_equal [1, 2, 3, 1], a
+
+  b = [["student","sam"], ["student","george"], ["teacher","matz"]]
+  assert_equal [["student", "sam"], ["teacher", "matz"]], b.uniq { |s| s.first }
+end
+
+assert("Array#uniq, Array#- and Array#include? with a NaN") do
+  # A NaN is equal to no value, its own included, so none of these can find one
+  # by what it is equal to; they search for the object instead, and every NaN
+  # made is one of its own, so that two made apart are two objects.
+  skip unless Object.const_defined?(:Float)
+  z = [0.0][0]
+  a = z / z
+  b = z / z
+
+  assert_equal 1, [a, a].uniq.size
+  assert_equal 2, [a, b].uniq.size
+  assert_equal 0, ([a] - [a]).size
+  assert_equal 1, ([a] - [b]).size
+  assert_equal 1, ([a] & [a]).size
+  assert_equal 0, ([a] & [b]).size
+  assert_true [a].include?(a)
+  assert_false [a].include?(b)
+  assert_true [a].member?(a)
+
+  # a Float that is equal to itself is found by what it is equal to
+  x = z + 1.5
+  y = z + 1.5
+  assert_true [x].include?(y)
+end
+
+assert("Array#-") do
+  # Test basic functionality
+  a = [1, 2, 3, 1]
+  b = [1]
+  c = 1
+
+  assert_raise(TypeError) { a - c }
+  assert_equal [2, 3], (a - b)
+  assert_equal [1, 2, 3, 1], a
+
+  # Test hash-based implementation (other_ary length past the hash threshold)
+  a = (1..50).to_a
+  b = (15..50).to_a  # well past the hash threshold
+  result = a - b
+  expected = (1..14).to_a
+
+  assert_equal expected, result
+  assert_equal 14, result.size
+
+  # Test with larger removal set
+  a = (1..60).to_a
+  b = (20..55).to_a  # well past the hash threshold
+  result = a - b
+  expected = (1..19).to_a + (56..60).to_a
+
+  assert_equal expected, result
+  assert_equal 24, result.size
+
+  # Test removing all elements
+  a = (1..20).to_a
+  b = (1..20).to_a
+  result = a - b
+  expected = []
+
+  assert_equal expected, result
+  assert_equal 0, result.size
+
+  # Test removing no elements
+  a = (1..20).to_a
+  b = (30..50).to_a  # past the hash threshold
+  result = a - b
+  expected = (1..20).to_a
+
+  assert_equal expected, result
+  assert_equal 20, result.size
+
+  # Ensure original arrays are unchanged
+  original_a = (1..30).to_a
+  original_b = (10..25).to_a
+  result = original_a - original_b
+  assert_equal [1, 2, 3, 4, 5, 6, 7, 8, 9, 26, 27, 28, 29, 30], result
+  assert_equal (1..30).to_a, original_a
+  assert_equal (10..25).to_a, original_b
+end
+
+assert("Array#|") do
+  a = [1, 2, 3, 1]
+  b = [1, 4]
+  c = 1
+
+  assert_raise(TypeError) { a | c }
+  assert_equal [1, 2, 3, 4], (a | b)
+  assert_equal [1, 2, 3, 1], a
+end
+
+assert("Array#| with large arrays") do
+  # Test hash-based implementation (total length past the hash threshold)
+  a = (1..25).to_a
+  b = (20..45).to_a  # well past the hash threshold
+  result = a | b
+  expected = (1..45).to_a
+
+  assert_equal expected, result
+  assert_equal 45, result.size
+
+  # Test with overlapping ranges
+  a = (1..20).to_a
+  b = (15..35).to_a  # well past the hash threshold
+  result = a | b
+  expected = (1..35).to_a
+
+  assert_equal expected, result
+  assert_equal 35, result.size
+
+  # Ensure original arrays are unchanged
+  original_a = (1..20).to_a
+  original_b = (18..50).to_a
+  result = original_a | original_b
+  assert_equal (1..50).to_a, result
+  assert_equal (1..20).to_a, original_a
+  assert_equal (18..50).to_a, original_b
+end
+
+assert("Array#union") do
+  a = [1, 2, 3, 1]
+  b = [1, 4]
+  c = [1, 5]
+
+  assert_equal [1, 2, 3, 4, 5], a.union(b,c)
+end
+
+assert("Array#difference") do
+  a = [1, 2, 3, 1, 6, 7]
+  b = [1, 4, 6]
+  c = [1, 5, 7]
+
+  assert_equal [2, 3], a.difference(b,c)
+end
+
+assert("Array#difference drops an element found in any argument, on either path") do
+  # `-` keeps a set path and a walk, and several arguments mean "drop what any
+  # one of them holds". Only the walk was ever asked that with more than one
+  # argument: every case above is small enough to take it. The set path had
+  # the same gap when `Array#intersection` answered `self & (a | b)` there and
+  # nothing caught it, so ask this one on both sides and require agreement.
+  pad = (100..140).to_a
+  a = [1, 2, 3] + pad             # 44 elements, long enough for the set path
+  b = [1] + (200..220).to_a       # holds 1 but not 2
+  c = [2] + (300..320).to_a       # holds 2 but not 1; 44 argument elements
+  assert_equal [3] + pad, a.difference(b, c)
+
+  # the same question below the threshold, where the walk answers it
+  assert_equal [3], [1, 2, 3].difference([1], [2])
+end
+
+assert("Array#&") do
+  a = [1, 2, 3, 1]
+  b = [1, 4]
+  c = 1
+
+  assert_raise(TypeError) { a & c }
+  assert_equal [1], (a & b)
+  assert_equal [1, 2, 3, 1], a
+end
+
+assert("Array#& with large arrays") do
+  # Test hash-based implementation (other_ary length past the hash threshold)
+  a = (1..50).to_a
+  b = (20..55).to_a  # well past the hash threshold
+  result = a & b
+  expected = (20..50).to_a
+
+  assert_equal expected, result
+  assert_equal 31, result.size
+
+  # Test with larger intersection set
+  a = (1..60).to_a
+  b = (25..60).to_a  # well past the hash threshold
+  result = a & b
+  expected = (25..60).to_a
+
+  assert_equal expected, result
+  assert_equal 36, result.size
+
+  # Test with duplicates in first array
+  a = [1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8, 9, 9, 10, 10]
+  b = (5..25).to_a  # past the hash threshold
+  result = a & b
+  expected = [5, 6, 7, 8, 9, 10]  # no duplicates in result
+
+  assert_equal expected, result
+  assert_equal 6, result.size
+
+  # Test no intersection
+  a = (1..20).to_a
+  b = (30..50).to_a  # past the hash threshold
+  result = a & b
+  expected = []
+
+  assert_equal expected, result
+  assert_equal 0, result.size
+
+  # Test complete intersection
+  a = (1..20).to_a
+  b = (1..20).to_a
+  result = a & b
+  expected = (1..20).to_a
+
+  assert_equal expected, result
+  assert_equal 20, result.size
+
+  # Ensure original arrays are unchanged
+  original_a = (1..30).to_a
+  original_b = (10..25).to_a
+  result = original_a & original_b
+  assert_equal (10..25).to_a, result
+  assert_equal (1..30).to_a, original_a
+  assert_equal (10..25).to_a, original_b
+end
+
+assert("Array#intersection") do
+  a = [1, 2, 3, 1, 8, 6, 7, 8]
+  b = [1, 4, 6, 8]
+  c = [1, 5, 7, 8]
+
+  assert_equal [1, 8], a.intersection(b,c)
+end
+
+assert("Array#intersect?") do
+  a = [ 1, 2, 3 ]
+  b = [ 3, 4, 5 ]
+  c = [ 5, 6, 7 ]
+  assert_true(a.intersect?(b))
+  assert_false(a.intersect?(c))
+end
+
+assert("Array#intersect? with large arrays") do
+  # Test hash-based implementation (shorter array past the hash threshold)
+  a = (1..50).to_a
+  b = (40..75).to_a  # well past the threshold, but a is longer so b is shorter
+  result = a.intersect?(b)
+  assert_true(result)  # should find intersection at 40-50
+
+  # Test with larger arrays, no intersection
+  a = (1..30).to_a
+  b = (50..85).to_a  # well past the hash threshold
+  result = a.intersect?(b)
+  assert_false(result)  # no intersection
+
+  # Test with first element matching (early termination)
+  a = (1..30).to_a
+  b = [1] + (50..70).to_a  # past the threshold, first element matches
+  result = a.intersect?(b)
+  assert_true(result)  # should terminate early on first element
+
+  # Test with last element matching
+  a = (1..30).to_a
+  b = (50..70).to_a + [30]  # past the threshold, last element matches
+  result = a.intersect?(b)
+  assert_true(result)  # should find match at the end
+
+  # Test empty arrays
+  a = []
+  b = (1..20).to_a
+  result = a.intersect?(b)
+  assert_false(result)  # empty array intersects with nothing
+
+  a = (1..20).to_a
+  b = []
+  result = a.intersect?(b)
+  assert_false(result)  # intersecting with empty array
+
+  # Test array size optimization (shorter array used for hash)
+  a = (1..5).to_a  # shorter
+  b = (3..30).to_a  # longer, past the threshold
+  result = a.intersect?(b)
+  assert_true(result)  # should use a (shorter) for hash, find 3,4,5
+
+  # Test with duplicates
+  a = [1, 1, 2, 2, 3, 3] * 5  # 30 elements with duplicates
+  b = (25..50).to_a  # past the threshold, no intersection
+  result = a.intersect?(b)
+  assert_false(result)
+
+  # Ensure original arrays are unchanged
+  original_a = (1..30).to_a
+  original_b = (25..50).to_a
+  result = original_a.intersect?(original_b)
+  assert_true(result)
+  assert_equal (1..30).to_a, original_a
+  assert_equal (25..50).to_a, original_b
+end
+
+assert("Array#flatten") do
+  assert_equal [1, 2, "3", {4=>5}, :'6'],    [1, 2, "3", {4=>5}, :'6'].flatten
+  assert_equal [1, 2, 3, 4, 5, 6], [1, 2,    [3, 4, 5], 6].flatten
+  assert_equal [1, 2, 3, 4, 5, 6], [1, 2,    [3, [4, 5], 6]].flatten
+  assert_equal [1, [2, [3, [4, [5, [6]]]]]], [1, [2, [3, [4, [5, [6]]]]]].flatten(0)
+  assert_equal [1, 2, [3, [4, [5, [6]]]]],   [1, [2, [3, [4, [5, [6]]]]]].flatten(1)
+  assert_equal [1, 2, 3, [4, [5, [6]]]],     [1, [2, [3, [4, [5, [6]]]]]].flatten(2)
+  assert_equal [1, 2, 3, 4, [5, [6]]],       [1, [2, [3, [4, [5, [6]]]]]].flatten(3)
+  assert_equal [1, 2, 3, 4, 5, [6]],         [1, [2, [3, [4, [5, [6]]]]]].flatten(4)
+  assert_equal [1, 2, 3, 4, 5, 6],           [1, [2, [3, [4, [5, [6]]]]]].flatten(5)
+end
+
+assert("Array#flatten!") do
+  assert_equal [1, 2, 3, 4, 5, 6], [1, 2, [3, [4, 5], 6]].flatten!
+end
+
+assert("Array#compact") do
+  a = [1, nil, "2", nil, :t, false, nil]
+  assert_equal [1, "2", :t, false], a.compact
+  assert_equal [1, nil, "2", nil, :t, false, nil], a
+end
+
+assert("Array#compact!") do
+  a = [1, nil, "2", nil, :t, false, nil]
+  a.compact!
+  assert_equal [1, "2", :t, false], a
+end
+
+assert("Array#fetch") do
+  a = [ 11, 22, 33, 44 ]
+  assert_equal 22, a.fetch(1)
+  assert_equal 44, a.fetch(-1)
+  assert_equal 'cat', a.fetch(4, 'cat')
+  ret = 0
+  a.fetch(100) { |i| ret = i }
+  assert_equal 100, ret
+  assert_raise(IndexError) { a.fetch(100) }
+
+  # Additional edge cases
+  assert_equal "default", [].fetch(0, "default")
+  assert_equal "missing 5", ["a"].fetch(5) { |i| "missing #{i}" }
+  assert_equal "from block", ["a"].fetch(5, "default") { "from block" }
+
+  # Error message format
+  begin
+    ["a", "b"].fetch(5)
+    assert_false true
+  rescue IndexError => e
+    assert_true e.message.include?("index 5 outside of array bounds: -2...2")
+  end
+end
+
+assert("Array#fetch_values") do
+  a = [ 11, 22, 33, 44 ]
+  assert_equal([33, 11], a.fetch_values(2, 0))
+  assert_raise(IndexError) { a.fetch_values(2, 5) }
+  assert_equal([33, 55], a.fetch_values(2, 5) { |i| i*11 })
+end
+
+assert("Array#fill") do
+  a = [ "a", "b", "c", "d" ]
+  assert_equal ["x", "x", "x", "x"], a.fill("x")
+  assert_equal ["x", "x", "x", "w"], a.fill("w", -1)
+  assert_equal ["x", "x", "z", "z"], a.fill("z", 2, 2)
+  assert_equal ["y", "y", "z", "z"], a.fill("y", 0..1)
+  assert_equal [0, 1, 4, 9], a.fill { |i| i*i }
+  assert_equal [0, 1, 8, 27], a.fill(-2) { |i| i*i*i }
+  assert_equal [0, 2, 3, 27], a.fill(1, 2) { |i| i+1 }
+  assert_equal [1, 2, 3, 27], a.fill(0..1) { |i| i+1 }
+  assert_raise(ArgumentError) { a.fill }
+
+  assert_equal([0, 1, 2, 3, -1, 5], [0, 1, 2, 3, 4, 5].fill(-1, -2, 1))
+  assert_equal([0, 1, 2, 3, -1, -1, -1], [0, 1, 2, 3, 4, 5].fill(-1, -2, 3))
+  assert_equal([0, 1, 2, -1, -1, 5], [0, 1, 2, 3, 4, 5].fill(-1, 3..4))
+  assert_equal([0, 1, 2, -1, 4, 5], [0, 1, 2, 3, 4, 5].fill(-1, 3...4))
+  assert_equal([0, 1, -1, -1, -1, 5], [0, 1, 2, 3, 4, 5].fill(-1, 2..-2))
+  assert_equal([0, 1, -1, -1, 4, 5], [0, 1, 2, 3, 4, 5].fill(-1, 2...-2))
+  assert_equal([0, 1, 2, 13, 14, 5], [0, 1, 2, 3, 4, 5].fill(3..4){|i| i+10})
+  assert_equal([0, 1, 2, 13, 4, 5], [0, 1, 2, 3, 4, 5].fill(3...4){|i| i+10})
+  assert_equal([0, 1, 12, 13, 14, 5], [0, 1, 2, 3, 4, 5].fill(2..-2){|i| i+10})
+  assert_equal([0, 1, 12, 13, 4, 5], [0, 1, 2, 3, 4, 5].fill(2...-2){|i| i+10})
+
+  assert_equal [1, 2, 3, 4, 'x', 'x'], [1, 2, 3, 4, 5, 6].fill('x', -2..-1)
+  assert_equal [1, 2, 3, 4, 'x', 6], [1, 2, 3, 4, 5, 6].fill('x', -2...-1)
+  assert_equal [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6].fill('x', -2...-2)
+  assert_equal [1, 2, 3, 4, 'x', 6], [1, 2, 3, 4, 5, 6].fill('x', -2..-2)
+  assert_equal [1, 2, 3, 4, 5, 6], [1, 2, 3, 4, 5, 6].fill('x', -2..0)
+
+  # Test extending array
+  a = [1, 2]
+  assert_equal [1, 2, nil, nil, "x"], a.fill("x", 4, 1)
+
+  # start + length must not overflow mrb_int
+  # (shift width via a variable; the folded literal is unrepresentable on MRB_INT32)
+  bits = 63
+  a = [1, 2, 3, 4, 5]
+  assert_raise(ArgumentError, RangeError) { a.fill(0, 1, ~(-1 << bits)) }
+  assert_equal [1, 2, 3, 4, 5], a
+end
+
+
+
+assert("Array#reverse_each") do
+  a = [ "a", "b", "c", "d" ]
+  b = []
+  a.reverse_each do |i|
+    b << i
+  end
+  assert_equal [ "d", "c", "b", "a" ], b
+end
+
+assert("Array#rotate") do
+  a = ["a", "b", "c", "d"]
+  assert_equal ["b", "c", "d", "a"], a.rotate
+  assert_equal ["a", "b", "c", "d"], a
+  assert_equal ["c", "d", "a", "b"], a.rotate(2)
+  assert_equal ["b", "c", "d", "a"], a.rotate(-3)
+  assert_equal ["c", "d", "a", "b"], a.rotate(10)
+  assert_equal [], [].rotate
+end
+
+assert("Array#rotate!") do
+  a = ["a", "b", "c", "d"]
+  assert_equal ["b", "c", "d", "a"], a.rotate!
+  assert_equal ["b", "c", "d", "a"], a
+  assert_equal ["d", "a", "b", "c"], a.rotate!(2)
+  assert_equal ["a", "b", "c", "d"], a.rotate!(-3)
+  assert_equal ["c", "d", "a", "b"], a.rotate(10)
+  assert_equal [], [].rotate!
+end
+
+assert("Array#delete_if") do
+  a = [1, 2, 3, 4, 5]
+  assert_equal [1, 2, 3, 4, 5], a.delete_if { false }
+  assert_equal [1, 2, 3, 4, 5], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [], a.delete_if { true }
+  assert_equal [], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [1, 2, 3], a.delete_if { |i| i > 3 }
+  assert_equal [1, 2, 3], a
+end
+
+assert("Array#reject!") do
+  a = [1, 2, 3, 4, 5]
+  assert_nil a.reject! { false }
+  assert_equal [1, 2, 3, 4, 5], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [], a.reject! { true }
+  assert_equal [], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [1, 2, 3], a.reject! { |val| val > 3 }
+  assert_equal [1, 2, 3], a
+end
+
+assert("Array#insert") do
+  # Basic insertion
+  a = [1, 2, 3]
+  assert_same a, a.insert(1, 99)
+  assert_equal [1, 99, 2, 3], a
+
+  # Multiple elements
+  a = [1, 2, 3]
+  a.insert(2, 'a', 'b')
+  assert_equal [1, 2, 'a', 'b', 3], a
+
+  # Negative index
+  a = [1, 2, 3, 4]
+  a.insert(-2, 99)
+  assert_equal [1, 2, 3, 99, 4], a
+
+  # Negative index out of bounds
+  a = [1, 2, 3]
+  assert_raise(IndexError) { a.insert(-5, 99) }
+  assert_equal [1, 2, 3], a
+
+  # Insertion beyond bounds (creates nils)
+  a = [1, 2]
+  a.insert(5, 99)
+  assert_equal [1, 2, nil, nil, nil, 99], a
+
+  # Insertion at the end
+  a = [1, 2, 3]
+  a.insert(3, 99)
+  assert_equal [1, 2, 3, 99], a
+
+  # Insertion into an empty array
+  a = []
+  a.insert(0, 1, 2)
+  assert_equal [1, 2], a
+
+  # Insertion into an empty array at a non-zero index
+  a = []
+  a.insert(2, 99)
+  assert_equal [nil, nil, 99], a
+
+  # No-op (inserting zero elements)
+  a = [1, 2, 3]
+  a.insert(1)
+  assert_equal [1, 2, 3], a
+
+  # Return value is self
+  a = [1, 2, 3]
+  b = a.insert(1, 99)
+  assert_same a, b
+
+  # Large array insertion
+  a = (0...1000).to_a
+  a.insert(500, "x")
+  assert_equal 1001, a.size
+  assert_equal "x", a[500]
+  assert_equal 499, a[499]
+  assert_equal 500, a[501]
+
+  # index + argc must not overflow mrb_int
+  # (shift width via a variable; the folded literal is unrepresentable on MRB_INT32)
+  bits = 63
+  a = [1, 2, 3, 4, 5]
+  assert_raise(ArgumentError, RangeError) { a.insert(~(-1 << bits), 99) }
+  assert_equal [1, 2, 3, 4, 5], a
+end
+
+assert("Array#bsearch") do
+  # Find minimum mode
+  a = [0, 2, 4]
+  assert_equal 0, a.bsearch{ |x| x >= -1 }
+  assert_equal 0, a.bsearch{ |x| x >= 0 }
+  assert_equal 2, a.bsearch{ |x| x >= 1 }
+  assert_equal 2, a.bsearch{ |x| x >= 2 }
+  assert_equal 4, a.bsearch{ |x| x >= 3 }
+  assert_equal 4, a.bsearch{ |x| x >= 4 }
+  assert_nil      a.bsearch{ |x| x >= 5 }
+
+  # Find any mode
+  a = [0, 4, 8]
+  def between(lo, x, hi)
+    if x < lo
+      1
+    elsif x > hi
+      -1
+    else
+      0
+    end
+  end
+  assert_nil      a.bsearch{ |x| between(-3, x, -1) }
+  assert_equal 0, a.bsearch{ |x| between(-1, x,  1) }
+  assert_nil      a.bsearch{ |x| between( 1, x,  3) }
+  assert_equal 4, a.bsearch{ |x| between( 3, x,  5) }
+  assert_nil      a.bsearch{ |x| between( 5, x,  7) }
+  assert_equal 8, a.bsearch{ |x| between( 7, x,  9) }
+  assert_nil      a.bsearch{ |x| between( 9, x, 11) }
+
+  assert_equal 0, a.bsearch{ |x| between( 0, x,  3) }
+  assert_equal 4, a.bsearch{ |x| between( 0, x,  4) }
+  assert_equal 4, a.bsearch{ |x| between( 4, x,  8) }
+  assert_equal 8, a.bsearch{ |x| between( 5, x,  8) }
+
+  # Invalid block result
+  assert_raise TypeError, 'invalid block result (must be numeric, true, false or nil)' do
+    a.bsearch{ 'I like to watch the world burn' }
+  end
+end
+
+# tested through Array#bsearch
+#assert("Array#bsearch_index") do
+#end
+
+assert("Array#keep_if") do
+  a = [1, 2, 3, 4, 5]
+  assert_equal [1, 2, 3, 4, 5], a.keep_if { true }
+  assert_equal [1, 2, 3, 4, 5], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [], a.keep_if { false }
+  assert_equal [], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [4, 5], a.keep_if { |val| val > 3 }
+  assert_equal [4, 5], a
+end
+
+assert("Array#select!") do
+  a = [1, 2, 3, 4, 5]
+  assert_nil a.select! { true }
+  assert_equal [1, 2, 3, 4, 5], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [], a.select! { false }
+  assert_equal [], a
+
+  a = [1, 2, 3, 4, 5]
+  assert_equal [4, 5], a.select! { |val| val > 3 }
+  assert_equal [4, 5], a
+end
+
+assert('Array#values_at') do
+  a = %w{red green purple white none}
+
+  assert_equal %w{red purple none}, a.values_at(0, 2, 4)
+  assert_equal ['green', 'white', nil, nil], a.values_at(1, 3, 5, 7)
+  assert_equal ['none', 'white', 'white', nil], a.values_at(-1, -2, -2, -7)
+  assert_equal ['none', nil, nil, 'red', 'green', 'purple'], a.values_at(4..6, 0...3)
+  assert_raise(TypeError) { a.values_at 'tt' }
+end
+
+assert('Array#to_h') do
+  assert_equal({}, [].to_h)
+  assert_equal({a: 1, b:2}, [[:a, 1], [:b, 2]].to_h)
+
+  assert_raise(TypeError)     { [1].to_h }
+  assert_raise(ArgumentError) { [[1]].to_h }
+end
+
+assert("Array#dig") do
+  h = [[[1]], 0]
+  assert_equal(1, h.dig(0, 0, 0))
+  assert_nil(h.dig(2, 0))
+  assert_raise(TypeError) {h.dig(:a)}
+end
+
+assert("Array#slice!") do
+  a = [1, 2, 3]
+  b = a.slice!(0)
+  c = [1, 2, 3, 4, 5]
+  d = c.slice!(0, 2)
+  e = [1, 2, 3, 4, 5]
+  f = e.slice!(1..3)
+  g = [1, 2, 3]
+  h = g.slice!(-1)
+  i = [1, 2, 3]
+  j = i.slice!(0, -1)
+
+  assert_equal(a, [2, 3])
+  assert_equal(b, 1)
+  assert_equal(c, [3, 4, 5])
+  assert_equal(d, [1, 2])
+  assert_equal(e, [1, 5])
+  assert_equal(f, [2, 3, 4])
+  assert_equal(g, [1, 2])
+  assert_equal(h, 3)
+  assert_equal(i, [1, 2, 3])
+  assert_equal(j, nil)
+end
+
+assert("Array#permutation") do
+  a = [1, 2, 3]
+  assert_permutation([[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]], a)
+  assert_permutation([[1],[2],[3]], a, 1)
+  assert_permutation([[1,2],[1,3],[2,1],[2,3],[3,1],[3,2]], a, 2)
+  assert_permutation([[1,2,3],[1,3,2],[2,1,3],[2,3,1],[3,1,2],[3,2,1]], a, 3)
+  assert_permutation([[]], a, 0)
+  assert_permutation([], a, 4)
+  assert_permutation([], a, -1)
+end
+
+assert("Array#combination") do
+  a = [1, 2, 3, 4]
+  assert_combination([[1],[2],[3],[4]], a, 1)
+  assert_combination([[1,2],[1,3],[1,4],[2,3],[2,4],[3,4]], a, 2)
+  assert_combination([[1,2,3],[1,2,4],[1,3,4],[2,3,4]], a, 3)
+  assert_combination([[1,2,3,4]], a, 4)
+  assert_combination([[]], a, 0)
+  assert_combination([], a, 5)
+  assert_combination([], a, -1)
+end
+
+assert('Array#transpose') do
+  assert_equal([].transpose, [])
+  assert_equal([[]].transpose, [])
+  assert_equal([[1]].transpose, [[1]])
+  assert_equal([[1,2,3]].transpose, [[1], [2], [3]])
+  assert_equal([[1], [2], [3]].transpose, [[1,2,3]])
+  assert_equal([[1,2], [3,4], [5,6]].transpose, [[1,3,5], [2,4,6]])
+  assert_raise(TypeError) { [1].transpose }
+  assert_raise(IndexError) { [[1], [2,3,4]].transpose }
+end
+
+assert "Array#product" do
+  assert_equal [[1], [2], [3]], [1, 2, 3].product
+  assert_equal [], [1, 2, 3].product([])
+  assert_equal [], [1, 2, 3].product([4, 5, 6], [])
+
+  expect = [[1, 5, 8], [1, 5, 9], [1, 6, 8], [1, 6, 9], [1, 7, 8], [1, 7, 9],
+            [2, 5, 8], [2, 5, 9], [2, 6, 8], [2, 6, 9], [2, 7, 8], [2, 7, 9],
+            [3, 5, 8], [3, 5, 9], [3, 6, 8], [3, 6, 9], [3, 7, 8], [3, 7, 9],
+            [4, 5, 8], [4, 5, 9], [4, 6, 8], [4, 6, 9], [4, 7, 8], [4, 7, 9]]
+  assert_equal expect, [1, 2, 3, 4].product([5, 6, 7], [8, 9])
+
+  expect = [[1, 4, 7], [1, 4, 8], [1, 4, 9], [1, 5, 7], [1, 5, 8], [1, 5, 9], [1, 6, 7], [1, 6, 8], [1, 6, 9],
+            [2, 4, 7], [2, 4, 8], [2, 4, 9], [2, 5, 7], [2, 5, 8], [2, 5, 9], [2, 6, 7], [2, 6, 8], [2, 6, 9],
+            [3, 4, 7], [3, 4, 8], [3, 4, 9], [3, 5, 7], [3, 5, 8], [3, 5, 9], [3, 6, 7], [3, 6, 8], [3, 6, 9]]
+
+  assert_equal expect, [1, 2, 3].product([4, 5, 6], [7, 8, 9])
+  base = [1, 2, 3]
+  x = []
+  assert_equal base, base.product([4, 5, 6], [7, 8, 9]) { |e| x << e }
+  assert_equal expect, x
+end
+
+assert("Array#repeated_combination") do
+  a = [1, 2, 3]
+  assert_raise(ArgumentError) { a.repeated_combination }
+  #assert_kind_of(Enumerator, a.repeated_combination(1))
+  assert_repeated_combination([[1],[2],[3]], a, 1)
+  assert_repeated_combination([[1,1],[1,2],[1,3],[2,2],[2,3],[3,3]], a, 2)
+  assert_repeated_combination([[1,1,1],[1,1,2],[1,1,3],[1,2,2],[1,2,3],[1,3,3],[2,2,2],
+                               [2,2,3],[2,3,3],[3,3,3]], a, 3)
+  assert_repeated_combination([[1,1,1,1],[1,1,1,2],[1,1,1,3],[1,1,2,2],[1,1,2,3],[1,1,3,3],
+                               [1,2,2,2],[1,2,2,3],[1,2,3,3],[1,3,3,3],[2,2,2,2],[2,2,2,3],
+                               [2,2,3,3],[2,3,3,3],[3,3,3,3]], a, 4)
+  assert_repeated_combination([[1,1,1,1,1],[1,1,1,1,2],[1,1,1,1,3],[1,1,1,2,2],[1,1,1,2,3],
+                               [1,1,1,3,3],[1,1,2,2,2],[1,1,2,2,3],[1,1,2,3,3],[1,1,3,3,3],
+                               [1,2,2,2,2],[1,2,2,2,3],[1,2,2,3,3],[1,2,3,3,3],[1,3,3,3,3],
+                               [2,2,2,2,2],[2,2,2,2,3],[2,2,2,3,3],[2,2,3,3,3],[2,3,3,3,3],
+                               [3,3,3,3,3]], a, 5)
+  assert_repeated_combination([[]], a, 0)
+  assert_repeated_combination([], a, -1)
+end
+
+assert("Array#repeated_permutation") do
+  a = [1, 2, 3]
+  assert_raise(ArgumentError) { a.repeated_permutation }
+  #assert_kind_of(Enumerator, a.repeated_permutation(1))
+  assert_repeated_permutation([[1],[2],[3]], a, 1)
+  assert_repeated_permutation([[1,1],[1,2],[1,3],[2,1],[2,2],[2,3],[3,1],[3,2],[3,3]], a, 2)
+  assert_repeated_permutation([[1,1,1],[1,1,2],[1,1,3],[1,2,1],[1,2,2],[1,2,3],[1,3,1],[1,3,2],[1,3,3],
+                               [2,1,1],[2,1,2],[2,1,3],[2,2,1],[2,2,2],[2,2,3],[2,3,1],[2,3,2],[2,3,3],
+                               [3,1,1],[3,1,2],[3,1,3],[3,2,1],[3,2,2],[3,2,3],[3,3,1],[3,3,2],[3,3,3]],
+                              a, 3)
+  assert_repeated_permutation([[1,1,1,1],[1,1,1,2],[1,1,1,3],[1,1,2,1],[1,1,2,2],[1,1,2,3],
+                               [1,1,3,1],[1,1,3,2],[1,1,3,3],[1,2,1,1],[1,2,1,2],[1,2,1,3],
+                               [1,2,2,1],[1,2,2,2],[1,2,2,3],[1,2,3,1],[1,2,3,2],[1,2,3,3],
+                               [1,3,1,1],[1,3,1,2],[1,3,1,3],[1,3,2,1],[1,3,2,2],[1,3,2,3],
+                               [1,3,3,1],[1,3,3,2],[1,3,3,3],[2,1,1,1],[2,1,1,2],[2,1,1,3],
+                               [2,1,2,1],[2,1,2,2],[2,1,2,3],[2,1,3,1],[2,1,3,2],[2,1,3,3],
+                               [2,2,1,1],[2,2,1,2],[2,2,1,3],[2,2,2,1],[2,2,2,2],[2,2,2,3],
+                               [2,2,3,1],[2,2,3,2],[2,2,3,3],[2,3,1,1],[2,3,1,2],[2,3,1,3],
+                               [2,3,2,1],[2,3,2,2],[2,3,2,3],[2,3,3,1],[2,3,3,2],[2,3,3,3],
+                               [3,1,1,1],[3,1,1,2],[3,1,1,3],[3,1,2,1],[3,1,2,2],[3,1,2,3],
+                               [3,1,3,1],[3,1,3,2],[3,1,3,3],[3,2,1,1],[3,2,1,2],[3,2,1,3],
+                               [3,2,2,1],[3,2,2,2],[3,2,2,3],[3,2,3,1],[3,2,3,2],[3,2,3,3],
+                               [3,3,1,1],[3,3,1,2],[3,3,1,3],[3,3,2,1],[3,3,2,2],[3,3,2,3],
+                               [3,3,3,1],[3,3,3,2],[3,3,3,3]], a, 4)
+  assert_repeated_permutation([[]], a, 0)
+  assert_repeated_permutation([], a, -1)
+end
+
+assert("Array#deconstruct") do
+  # Basic functionality - returns self
+  a = [1, 2, 3]
+  result = a.deconstruct
+  assert_equal([1, 2, 3], result)
+  assert_true(result.equal?(a))
+
+  # Empty array
+  b = []
+  result_empty = b.deconstruct
+  assert_equal([], result_empty)
+  assert_true(result_empty.equal?(b))
+
+  # Mixed types
+  c = [1, "hello", :symbol, nil, true]
+  result_mixed = c.deconstruct
+  assert_equal([1, "hello", :symbol, nil, true], result_mixed)
+  assert_true(result_mixed.equal?(c))
+
+  # Nested arrays
+  d = [[1, 2], [3, 4], [5]]
+  result_nested = d.deconstruct
+  assert_equal([[1, 2], [3, 4], [5]], result_nested)
+  assert_true(result_nested.equal?(d))
+end
+
+assert("Array#find") do
+  # Basic find
+  assert_equal 3, [1, 2, 3, 4, 5].find { |x| x > 2 }
+  assert_equal 1, [1, 2, 3, 4, 5].find { |x| x < 2 }
+
+  # No match returns nil
+  assert_nil [1, 2, 3].find { |x| x > 10 }
+
+  # Empty array
+  assert_nil [].find { |x| x > 0 }
+
+  # With ifnone callable
+  assert_equal 0, [1, 2, 3].find(->{ 0 }) { |x| x > 10 }
+  assert_equal "default", [1, 2, 3].find(->{ "default" }) { |x| x > 10 }
+
+  # ifnone not called when match found
+  called = false
+  [1, 2, 3].find(->{ called = true; 0 }) { |x| x == 2 }
+  assert_false called
+
+  # Returns first match
+  assert_equal 2, [1, 2, 2, 3].find { |x| x == 2 }
+
+  # Works with different types
+  assert_equal "b", ["a", "b", "c"].find { |x| x == "b" }
+  assert_equal :bar, [:foo, :bar, :baz].find { |x| x == :bar }
+end
+
+assert("Array#rfind") do
+  # Basic rfind - finds from end (first match scanning backwards)
+  assert_equal 5, [1, 2, 3, 4, 5].rfind { |x| x > 2 }  # 5 is first match from end
+  assert_equal 5, [1, 2, 3, 4, 5].rfind { |x| x > 0 }  # 5 is first match from end
+
+  # Returns last occurrence when duplicates exist
+  a = [1, 2, 3, 2, 1]
+  assert_equal 2, a.rfind { |x| x == 2 }  # finds the 2 at index 3
+
+  # No match returns nil
+  assert_nil [1, 2, 3].rfind { |x| x > 10 }
+
+  # Empty array
+  assert_nil [].rfind { |x| x > 0 }
+
+  # With ifnone callable
+  assert_equal 0, [1, 2, 3].rfind(->{ 0 }) { |x| x > 10 }
+  assert_equal "default", [1, 2, 3].rfind(->{ "default" }) { |x| x > 10 }
+
+  # ifnone not called when match found
+  called = false
+  [1, 2, 3].rfind(->{ called = true; 0 }) { |x| x == 2 }
+  assert_false called
+
+  # Compare find vs rfind - same result for unique match
+  arr = [1, 2, 3, 4, 3, 2, 1]
+  assert_equal 3, arr.find { |x| x == 3 }   # first 3 (index 2)
+  assert_equal 3, arr.rfind { |x| x == 3 }  # last 3 (index 4), same value
+
+  # Different results with inequality - rfind scans from end
+  assert_equal 3, arr.find { |x| x >= 3 }   # first >= 3 is 3 (at index 2)
+  assert_equal 3, arr.rfind { |x| x >= 3 }  # scanning from end: 1,2,3 - 3 matches first
+
+  # Works with different types
+  assert_equal "b", ["a", "b", "c", "b", "a"].rfind { |x| x > "a" }  # scanning from end: a,b - b matches
+end
+
+assert('Array#uniq over an array of duplicates keeps the arena') do
+  # Every turn of the walk protects the element it reads, so every turn has to
+  # give the arena slot back. The restore sat inside the branch an element not
+  # seen before takes, so a duplicate left its slot behind, and a hundred of
+  # them filled a fixed arena and raised where the answer was one comparison
+  # away. A build whose arena grows never noticed.
+  a = Array.new(300) { "x" }
+  assert_equal ["x"], a.uniq
+  assert_equal ["x"], a.dup.uniq!
+
+  b = Array.new(300) { |i| (i % 3).to_s }
+  assert_equal ["0", "1", "2"], b.uniq
+end
+
+assert('mrb_ary_unshift respects a frozen receiver') do
+  # An array that has been shifted keeps the room in front of it and carries
+  # its storage as shared. mrb_ary_unshift() used to take that room without
+  # asking whether the array may be written to, so a frozen array was quietly
+  # changed; the same call on an array that is not shared raised.
+  a = Array.new(16) { |i| i }
+  a.shift(4)
+  a.freeze
+  assert_raise(FrozenError) { a.__unshift_from_c(99) }
+  assert_equal (4..15).to_a, a
+
+  b = [1, 2, 3].freeze
+  assert_raise(FrozenError) { b.__unshift_from_c(0) }
+  assert_equal [1, 2, 3], b
+
+  # and the two paths still answer where the receiver may be written to
+  c = Array.new(16) { |i| i }
+  c.shift(4)
+  assert_equal 99, c.__unshift_from_c(99)[0]
+  assert_equal 13, c.size
+  d = [1, 2]
+  assert_equal [0, 1, 2], d.__unshift_from_c(0)
+end
+
+assert('Array set operations compare with eql? on both sides of the hash threshold') do
+  # What the block is about is a pair that `==` calls equal and `eql?` does
+  # not, which is `1` and `1.0`. Under MRB_NO_FLOAT there is no such pair:
+  # every literal below reads as an Integer, `pad.map { |i| i + 0.0 }` is
+  # `pad` itself, and the rows stop asking what they were written to ask.
+  skip unless Object.const_defined?(:Float)
+  # Each of these operations has two implementations, picked by a length
+  # threshold of 8: a hash path whose equality callback is eql?, and a linear
+  # walk that used to compare with ==. 1 == 1.0 is true where 1.eql?(1.0) is
+  # false, so the same pair of elements was one element or two depending only
+  # on how long the array was. The linear walks now compare with eql? too.
+  pad = (2..40).to_a  # enough to carry any of these arrays past the threshold
+  long_receiver = [1] + pad
+  long_floats = pad.map { |i| i + 0.0 } + [1.0]
+
+  # uniq/uniq! take the threshold from the receiver
+  assert_equal [1, 1.0], [1, 1.0].uniq
+  assert_equal [1, 1.0] + pad, ([1, 1.0] + pad).uniq
+  # nothing to remove any more, so uniq! reports no change on either path
+  assert_nil [1, 1.0].uniq!
+  big = [1, 1.0] + pad
+  assert_nil big.uniq!
+  # and it still reports a change, and removes the right element, when the
+  # duplicate really is eql?
+  small_dup = [1, 1.0, 1]
+  assert_equal [1, 1.0], small_dup.uniq!
+
+  # `-` takes the set only when both sides are long enough to pay for it, so
+  # it needs a row for each way of being short as well as one for neither
+  assert_equal [1], [1] - [1.0]
+  assert_equal [1] + pad, long_receiver - [1.0]
+  assert_equal [1], [1] - [1.0, 2.0]
+  assert_equal [1], [1] - long_floats
+  assert_equal [1] + pad, long_receiver - long_floats
+
+  assert_equal [], [1] & [1.0]
+  assert_equal [], long_receiver & [1.0]
+  assert_equal [], [1] & long_floats
+  # the result dedup inside `&` is the same comparison
+  assert_equal [1, 1.0], ([1, 1.0] & [1, 1.0])
+
+  # intersect? takes it from the shorter of the two
+  assert_false [1].intersect?([1.0])
+  assert_false long_receiver.intersect?([1.0])
+  assert_false long_floats.intersect?([1])
+
+  # `|` already compared with eql? on both paths, and so did the block form of
+  # uniq, which is written over a Hash; they have to keep agreeing with the
+  # operations above rather than contradicting them
+  assert_equal [1, 1.0], [1] | [1.0]
+  assert_equal [1] + pad + [1.0], long_receiver | [1.0]
+  assert_equal [1, 1.0], [1, 1.0].uniq { |x| x }
+
+  # and elements that really are eql? still collapse on the linear paths
+  assert_equal [1.0], [1.0, 1.0].uniq
+  assert_equal [], [1.0] - [1.0]
+  assert_equal [1.0], [1.0] & [1.0]
+  assert_true [1.0].intersect?([1.0])
+end
+
+assert('Array#max, #min - the walk made in C') do
+  # Without a block the walk is made in C rather than through Enumerable#max,
+  # so every answer the Ruby walk gave has to survive the move.
+  assert_nil [].max
+  assert_nil [].min
+  assert_equal 5, [5].max          # one element is never compared
+  assert_equal 5, [5].min
+  assert_equal 3, [3, 1, 2].max
+  assert_equal 1, [3, 1, 2].min
+  assert_equal "b", ["a", "b"].max
+  assert_equal "a", ["a", "b"].min
+
+  # a tie is answered by the element that came first, as `cmp > 0` decided.
+  # Under MRB_NO_FLOAT the literal below is Integer 0, not a tie at all.
+  if Object.const_defined?(:Float)
+    a = [1, 1.0]
+    assert_true 1.eql?(a.max) && 1.eql?(a.min)
+  end
+
+  # the block form is still Enumerable#max, reached through super
+  assert_equal 1, [3, 1, 2].max {|x, y| y <=> x }
+  assert_equal 3, [3, 1, 2].min {|x, y| y <=> x }
+
+  # a pair that stands in no order is refused the same way either side
+  assert_raise(ArgumentError) { [1, "a"].max }
+  assert_raise(ArgumentError) { [1, "a"].min }
+  assert_raise(ArgumentError) { [1, "a"].max {|x, y| x <=> y } }
+  if Object.const_defined?(:Float)
+    assert_raise(ArgumentError) { [1.0, Float::NAN, 2.0].max }
+    assert_raise(ArgumentError) { [1.0, Float::NAN, 2.0].min }
+  end
+end
+
+assert('Array#max, #min - a comparison that runs Ruby') do
+  # `<=>` can run Ruby, which can empty the array being walked or grow it.
+  # The C walk reads the length and the element afresh each time round.
+  cls = Class.new do
+    include Comparable
+    def initialize(v, a); @v = v; @a = a; end
+    attr_reader :v
+    def <=>(o); @a.clear; @v <=> o.v; end
+  end
+  a = []
+  3.times {|i| a << cls.new(i, a) }
+  assert_kind_of cls, a.max
+  assert_equal 0, a.size
+end
+
+assert('Array#include?, #member? - the walk made in C') do
+  # `Enumerable#include?` reaches an element through a call to `each`, a block
+  # call and a `__svalue` send, then compares it with `==`. An Array is walked
+  # in place instead, and the pair is compared with `mrb_equal()`, which is
+  # what `Array#index` and `#delete` search with.
+  assert_false [].include?(1)
+  assert_true [1, 2, 3].include?(1)      # the first element is reached
+  assert_true [1, 2, 3].include?(3)      # and so is the last
+  assert_false [1, 2, 3].include?(4)
+  assert_true [1, 2, 3].member?(2)
+  assert_false [1, 2, 3].member?(4)
+
+  assert_true ["a", "b"].include?("a")   # found by what it is equal to
+  assert_true [nil].include?(nil)
+  assert_true [false].include?(false)
+  assert_false [nil].include?(false)
+
+  # an element is taken for equal to itself before `==` is asked anything,
+  # which is how `#index` reads a pair
+  never = Class.new { def ==(other); false; end }.new
+  assert_true [never].include?(never)
+  assert_equal 0, [never].index(never)
+end
+
+assert('Array#include? - a comparison that runs Ruby') do
+  # `==` can run Ruby, which can empty the array being walked. The C walk
+  # reads the length and the pointer afresh each time round.
+  cls = Class.new do
+    def initialize(a); @a = a; end
+    def ==(o); @a.clear; false; end
+  end
+  a = [1, 2]
+  a << cls.new(a)
+  assert_false a.include?(:missing)
+  assert_equal 0, a.size
+end
+
+assert('Array#intersection narrows by every argument, not by their union') do
+  # The hash path used to pour every argument into one set and then keep the
+  # elements of `self` found in it, which answers `self & (a | b | ...)`: an
+  # element missing from one argument survived because another one carried it.
+  # The linear path always looped over the arguments and got this right, so
+  # the answer depended on whether the arguments totalled more than 32.
+  a = [1, 2]
+  b = (1..20).to_a    # holds 1 and 2
+  c = (10..30).to_a   # holds neither; 41 elements in all, so the hash path
+  assert_equal [], a.intersection(b, c)
+
+  # the same shape below the threshold, which was already correct
+  assert_equal [], a.intersection([1, 2, 3], [10, 11])
+
+  # a narrowing that keeps something; each pair below is the same question
+  # asked once above and once below the threshold, so both must answer alike
+  d = [1, 2, 3, 4]
+  assert_equal [2, 3, 4], d.intersection((1..20).to_a, (2..30).to_a)
+  assert_equal [2, 3, 4], d.intersection([1, 2, 3, 4], [2, 3, 4])
+
+  # duplicates in the receiver still collapse to one, on both paths
+  assert_equal [2, 5], [2, 2, 5].intersection((1..20).to_a, (2..30).to_a)
+  assert_equal [2, 5], [2, 2, 5].intersection([2, 5], [2, 5])
+
+  # an argument holding nothing empties the answer whatever the others hold
+  assert_equal [], [1, 2, 3].intersection((1..40).to_a, [])
+  assert_equal [], [1, 2, 3].intersection([1, 2, 3], [])
+
+  # three arguments narrow in turn, and the receiver still decides the order
+  assert_equal [3, 1], [3, 1, 2, 1].intersection((1..40).to_a, (1..40).to_a, [1, 3])
+  assert_equal [3, 1], [3, 1, 2, 1].intersection([1, 2, 3], [1, 2, 3], [1, 3])
+
+  # a single argument is the `&` case and must not regress
+  assert_equal [1, 2], a.intersection((1..40).to_a)
+  assert_equal [1, 2], a.intersection([1, 2, 3])
+end
+
+assert('Array#intersection with no argument copies the receiver') do
+  # Nothing to narrow by, so every element survives. An empty Array was
+  # answered instead, which is what narrowing by nothing at all would give.
+  a = [1, 2, 2, 3]
+  r = a.intersection
+  assert_equal [1, 2, 2, 3], r      # duplicates are kept: no argument took them
+  assert_false r.equal?(a)          # and it is a copy, not the receiver
+  assert_equal [], [].intersection
+
+  # a frozen receiver still answers, the copy being a new Array
+  assert_equal [1, 2], [1, 2].freeze.intersection
+
+  # an argument narrows as before, on both sides of the length threshold
+  assert_equal [2, 3], [1, 2, 3].intersection([2, 3])
+  assert_equal [1, 2, 3], [1, 2, 3].intersection((1..40).to_a)
+end

@@ -13,9 +13,15 @@ exception 33
 false 6
 float 28
 gc 18
+gem_array 82
+gem_enum 38
 gem_enumerator 52
 gem_fiber 21
 gem_fiber2 4
+gem_hash 27
+gem_numeric 1
+gem_range 4
+gem_string 64
 hash 44
 indexerror 1
 integer 40
@@ -33,7 +39,7 @@ numeric 58
 object 2
 platform 2
 proc 15
-range 22
+range 21
 rangeerror 1
 regexperror 0
 runtimeerror 1

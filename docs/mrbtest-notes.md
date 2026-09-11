@@ -34,11 +34,18 @@ Categories:
 | version | 1 skip | build | `MRUBY_REVISION` is `"HEAD"` in SabiRuby, and the test skips itself for a build without a revision. The reference binary carries the commit hash and passes. |
 | vformat | 1 crash | C fixture | `TestVFormat` of `mruby-test/vformat.c` (`mrb_vformat`). Reference `mruby` crashes too. |
 | regexperror | 0 assertions | gem | The file defines no assertion unless mruby-regexp is present; the reference reports 0 too. |
+| range | 1 crash | reference too | `Range#last`: `assert_nil (1..).last` in the core test, but mruby-range-ext's Ruby `last` raises RangeError for an endless range. The reference `mruby` (default gembox) crashes on the same assertion (21/22); the two only agree in a build without the gem. |
+| gem_array | 1 KO (4 assertions) | deviation | `Array#uniq, Array#- and Array#include? with a NaN`: the reference treats every NaN made as its own object (identity), SabiRuby's Floats are immediates. |
+| gem_enum | 1 KO (2 assertions) | deviation | `Array#count with a NaN`: same NaN identity. |
+| gem_string | 9 skip | build | `swapcase`/`casecmp?` Unicode and the six `scrub` tests skip themselves without `MRB_UTF8_STRING` (`UNICODECASE` false); the reference build is a byte-string build too. |
 | gem_fiber2 | (all pass) | — | Needs the six natives of `mruby-fiber/test/fibertest.c`; SabiRuby provides them in `src/mrbtest.rs`. The reference `mruby` command lacks them and crashes on all 4. |
+| gem_array | (C helper) | — | `__unshift_from_c` of `mruby-array-ext/test/array.c` is provided by `src/mrbtest.rs`. |
 
-Summary (2026-09-11): 910 assertions, 883 pass. Not passing: 11 crashes (all C fixtures),
-7 KO (5 GC arena, 2 deliberate deviations), 9 skips (bigint 3, regexp 1, backtrace 2,
-Float defined 1, revision 1, plus the empty `regexperror`), 0 warnings (one was a bug, see below).
+Summary (2026-09-11, after the *-ext gems): 1137 assertions, 1098 pass. Not passing:
+12 crashes (11 C fixtures, 1 core-test-vs-gem conflict the reference shares), 9 KO (5 GC arena,
+4 deliberate deviations, all NaN identity or the pattern-matching guard), 18 skips (bigint 3,
+regexp 1, backtrace 2, Float defined 1, revision 1, UTF-8 9, plus the empty `regexperror`),
+0 warnings (one was a bug, see below).
 
 ## Warnings
 

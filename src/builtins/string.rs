@@ -74,7 +74,7 @@ fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     hay[from..].windows(needle.len()).position(|w| w == needle).map(|p| p + from)
 }
 
-fn to_i(b: &[u8], base: u32) -> i64 {
+pub(crate) fn to_i(b: &[u8], base: u32) -> i64 {
     let s = String::from_utf8_lossy(b);
     let s = s.trim_start();
     let mut end = 0;
@@ -325,28 +325,50 @@ fn str_sub(vm: &mut Vm, s: Value, a: &[Value], blk: Value, global: bool) -> VmRe
 }
 
 pub fn str_succ(b: &[u8]) -> Vec<u8> {
+    // mruby-string-ext `str_succ_bang` for a byte string: the rightmost
+    // alphanumeric steps; one that wraps ('9', 'z', 'Z') carries into the
+    // alphanumeric before it across anything that is not one, except that a
+    // letter never carries into a digit nor a digit into a letter across such
+    // a gap ("1.9" -> "2.0", "a-z" -> "b-a", "1-z" -> "1-aa"). With no
+    // alphanumeric the last byte steps (0xFF wraps to 0x00 with a carry).
     if b.is_empty() { return vec![]; }
     let mut v = b.to_vec();
-    let has_alnum = v.iter().any(|c| c.is_ascii_alphanumeric());
-    let mut i = v.len();
-    loop {
-        if i == 0 {
-            // carry out of the leftmost position
-            let first = *b.iter().find(|c| !has_alnum || c.is_ascii_alphanumeric()).unwrap_or(&b[0]);
-            let ins = if first.is_ascii_digit() { b'1' } else if first.is_ascii_lowercase() { b'a' } else if first.is_ascii_uppercase() { b'A' } else { 1 };
-            let pos = if has_alnum { v.iter().position(|c| c.is_ascii_alphanumeric()).unwrap_or(0) } else { 0 };
-            v.insert(pos, ins);
-            return v;
+    let mut carry = 1u8;
+    let mut carry_pos = 0usize;
+    let mut last_alnum: Option<usize> = None;
+    let mut found_alnum = false;
+    // SUCC_NOT_CHAR = 0, FOUND = 1, WRAPPED = 2
+    let mut step = 1u8;
+    let mut p = v.len();
+    while p > 0 {
+        p -= 1;
+        if step == 0 {
+            if let Some(la) = last_alnum {
+                let c = v[la];
+                let stop = if c.is_ascii_alphabetic() { v[p].is_ascii_digit() } else if c.is_ascii_digit() { v[p].is_ascii_alphabetic() } else { false };
+                if stop { break; }
+            }
         }
-        i -= 1;
-        let c = v[i];
-        if has_alnum && !c.is_ascii_alphanumeric() { continue; }
+        let c = v[p];
+        if !c.is_ascii_alphanumeric() { step = 0; continue; }
         match c {
-            b'z' => v[i] = b'a',
-            b'Z' => v[i] = b'A',
-            b'9' => v[i] = b'0',
-            0xff => v[i] = 0,
-            _ => { v[i] = c + 1; return v; }
+            b'9' => { v[p] = b'0'; carry = b'1'; }
+            b'z' => { v[p] = b'a'; carry = b'a'; }
+            b'Z' => { v[p] = b'A'; carry = b'A'; }
+            _ => { v[p] = c + 1; return v; }
+        }
+        step = 2;
+        last_alnum = Some(p);
+        found_alnum = true;
+        carry_pos = p;
+    }
+    if !found_alnum {
+        let mut p = v.len();
+        while p > 0 {
+            p -= 1;
+            if v[p] == 0xFF { v[p] = 0; carry_pos = p; carry = 1; } else { v[p] += 1; return v; }
         }
     }
+    v.insert(carry_pos, carry);
+    v
 }
