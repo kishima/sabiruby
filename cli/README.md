@@ -5,16 +5,28 @@ The `sabiruby` command: runs Ruby source and mruby 4.1 bytecode on the
 compiler ([`sabiruby-compiler`](https://crates.io/crates/sabiruby-compiler), built as C, so a C
 compiler is needed to install it).
 
+The switches follow the reference `mruby` command (`sabiruby -h` lists them), and `compile` is
+`mrbc`:
+
 ```
 cargo install sabiruby-cli
 
-sabiruby run foo.rb [args...]         # compile and run (a .mrb file runs as is)
-sabiruby -e 'p [1, 2].sum'            # code on the command line
-sabiruby compile foo.rb -o foo.mrb    # like mrbc: -g, --remove-lv, --no-ext-ops, --no-optimize
+sabiruby foo.rb [arguments...]        # Ruby source or a .mrb file; the arguments go to ARGV
+sabiruby -e 'p [1, 2].sum'            # one line of script (-e may be repeated)
+echo 'puts 1' | sabiruby              # no program file: read it from standard input
+sabiruby -c foo.rb                    # check syntax only ("Syntax OK")
+sabiruby -v foo.rb                    # version, then the instruction listing, then run
+sabiruby -b foo.mrb                   # bytecode only (refuse source)
+sabiruby -d foo.rb                    # $DEBUG = true
+sabiruby --stats foo.rb               # instructions, time and GC statistics to stderr
+sabiruby compile foo.rb -o foo.mrb    # like mrbc: -g, -c, --remove-lv, --no-ext-ops, --no-optimize
 sabiruby dump foo.rb                  # instruction listing (.rb or .mrb)
-sabiruby run --stats foo.rb           # instructions, time and GC statistics to stderr
-sabiruby --version
+sabiruby --version / --copyright
 ```
+
+`sabiruby run foo.rb` still works. A subcommand name wins over a file of the same name: for a
+program called `compile`, run `./compile` or `sabiruby run compile`. `-r` (require) is not
+implemented yet and reports that.
 
 The bytecode is byte-identical to what the reference `mrbc` (mruby 4.1.0-rc) writes; compile
 errors are printed as `FILE:LINE:COL: message`, as `mrbc` does. `SABIRUBY_GC_STRESS=1` makes

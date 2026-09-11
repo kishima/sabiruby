@@ -85,9 +85,12 @@ the embedded compiler agrees with it.
 
 ## CLI (crate `sabiruby-cli`, `cli/`)
 
-* `sabiruby run FILE`: a file starting with `RITE` runs as before; anything else is compiled
-  with `filename` = FILE and `debug_info` (DBG is not read by the VM, but the LVAR section is
-  needed by `local_variables` and `Proc#parameters`, and the reference only writes it with `-g`).
+* `sabiruby FILE [args]` (also `sabiruby run FILE`): a file starting with `RITE` runs as
+  bytecode; anything else is compiled with `filename` = FILE and `debug_info` (DBG is not read by
+  the VM, but the LVAR section is needed by `local_variables` and `Proc#parameters`, and the
+  reference only writes it with `-g`). The switches are the reference `mruby` command's
+  (`-b`, `-c`, `-d`, `-e`, `-r`, `-v`, `--verbose`, `--version`, `--copyright`), parsed with clap;
+  `-r` (require) is not implemented yet. With no program file the source comes from stdin.
 * `sabiruby -e 'CODE' [args]`: file name `-e`, as `mruby -e`.
 * `sabiruby compile FILE [-o OUT] [-g] [--remove-lv] [--no-ext-ops] [--no-optimize]`: `mrbc`'s
   options. The default output replaces the extension with `.mrb`; unlike `mrbc`, a name

@@ -1,8 +1,11 @@
-//! `sabiruby` command line (crate `sabiruby-cli`): run, compile or dump Ruby scripts and mruby
-//! RITE binaries (.mrb). Ruby source is compiled by the reference compiler (crate
-//! `sabiruby-compiler`), the bytecode runs on the SabiRuby VM (crate `sabiruby`).
-use std::io::Write;
+//! `sabiruby` command line (crate `sabiruby-cli`): the switches of the reference `mruby`
+//! command over the SabiRuby VM, plus `compile` (as `mrbc`), `dump` and `mrbtest`.
+//! Ruby source is compiled by the reference compiler (crate `sabiruby-compiler`).
+
+use std::io::{Read, Write};
 use std::process::ExitCode;
+
+use clap::{Parser, Subcommand};
 
 /// `SABIRUBY_GC_STRESS=1`: collect at every instruction boundary after an allocation.
 fn gc_stress() -> bool {
@@ -15,75 +18,166 @@ fn clock_ns() -> u64 {
     T0.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
 }
 
-fn usage() -> ExitCode {
-    eprintln!("usage: sabiruby run [--stats] <file> [args...]   run a script: Ruby source or a RITE binary (.mrb)");
-    eprintln!("                                      (--stats: instructions, time and GC to stderr)");
-    eprintln!("       sabiruby -e '<code>' [args...]  run Ruby code given on the command line");
-    eprintln!("       sabiruby compile <file.rb> [-o <out.mrb>] [-g] [--remove-lv] [--no-ext-ops] [--no-optimize]");
-    eprintln!("                                      compile like mrbc (default output: <file>.mrb)");
-    eprintln!("       sabiruby dump <file>           print the instruction sequence (.rb or .mrb)");
-    eprintln!("       sabiruby mrbtest [-v] <assert.mrb> <test.mrb>...");
-    eprintln!("                                      run mruby's test suite, print a Markdown report");
-    eprintln!("       sabiruby --version");
-    eprintln!("SABIRUBY_GC_STRESS=1: collect at every instruction boundary after an allocation");
-    ExitCode::from(2)
+const COPYRIGHT: &str = "sabiruby - Copyright (c) 2026 kishima, MIT\n\
+                         mruby - Copyright (c) 2010- mruby developers (the compiler and mrblib)";
+
+#[derive(Parser)]
+#[command(
+    name = "sabiruby",
+    about = "Run Ruby on the SabiRuby VM (mruby 4.1 bytecode)",
+    long_about = "Runs Ruby source or mruby bytecode (.mrb) on the SabiRuby VM.\n\
+                  The switches follow the reference `mruby` command; `compile` is `mrbc`.\n\
+                  With no program file and no -e, the program is read from standard input.\n\
+                  SABIRUBY_GC_STRESS=1 collects at every instruction boundary after an allocation.",
+    disable_version_flag = true,
+    args_conflicts_with_subcommands = true,
+    subcommand_negates_reqs = true
+)]
+struct Cli {
+    /// load and execute RiteBinary (mrb) file
+    #[arg(short = 'b')]
+    bytecode: bool,
+    /// check syntax only
+    #[arg(short = 'c')]
+    check: bool,
+    /// set debugging flags (set $DEBUG to true)
+    #[arg(short = 'd')]
+    debug: bool,
+    /// one line of script (may be given more than once)
+    #[arg(short = 'e', value_name = "command")]
+    commands: Vec<String>,
+    /// load the library before executing your script (not implemented)
+    #[arg(short = 'r', value_name = "library")]
+    requires: Vec<String>,
+    /// print version number, then run in verbose mode
+    #[arg(short = 'v')]
+    version_verbose: bool,
+    /// run in verbose mode (print the instruction listing before running)
+    #[arg(long)]
+    verbose: bool,
+    /// print the version
+    #[arg(long)]
+    version: bool,
+    /// print the copyright
+    #[arg(long)]
+    copyright: bool,
+    /// print instructions, time and GC statistics to stderr
+    #[arg(long)]
+    stats: bool,
+    #[arg(value_name = "programfile")]
+    program: Option<String>,
+    /// arguments for the program (ARGV)
+    #[arg(value_name = "arguments", trailing_var_arg = true, allow_hyphen_values = true)]
+    args: Vec<String>,
+    #[command(subcommand)]
+    command: Option<Command>,
 }
 
-/// Compiles Ruby source with the reference compiler (crate `sabiruby-compiler`).
-/// Errors are printed as `FILE:LINE:COL: message`, like mrbc.
+#[derive(Subcommand)]
+enum Command {
+    /// Run a program (`sabiruby run foo.rb` = `sabiruby foo.rb`)
+    Run {
+        #[arg(long)]
+        stats: bool,
+        programfile: String,
+        #[arg(trailing_var_arg = true, allow_hyphen_values = true)]
+        args: Vec<String>,
+    },
+    /// Compile Ruby source to a RITE binary, as `mrbc`
+    Compile {
+        /// place the output into `<outfile>` ("-" for standard output)
+        #[arg(short = 'o', value_name = "outfile")]
+        output: Option<String>,
+        /// produce debugging information (line numbers, local variable names)
+        #[arg(short = 'g')]
+        debug_info: bool,
+        /// check syntax only
+        #[arg(short = 'c')]
+        check: bool,
+        /// remove local variables
+        #[arg(long)]
+        remove_lv: bool,
+        /// prohibit using OP_EXTs
+        #[arg(long)]
+        no_ext_ops: bool,
+        /// disable peephole optimization
+        #[arg(long)]
+        no_optimize: bool,
+        programfile: String,
+    },
+    /// Print the instruction listing of a program (.rb or .mrb)
+    Dump { programfile: String },
+    /// Run mruby's test suite and print a Markdown report
+    Mrbtest {
+        /// print the message of every assertion
+        #[arg(short = 'v')]
+        verbose: bool,
+        #[arg(required = true, num_args = 2..)]
+        files: Vec<String>,
+    },
+}
+
+fn version_line() -> String {
+    format!("sabiruby {} (mruby 4.1 bytecode, RITE 0400), compiler: {}", env!("CARGO_PKG_VERSION"), sabiruby_compiler::version())
+}
+
+/// Compiles Ruby source with the reference compiler; errors print as `FILE:LINE:COL: message`.
 fn compile_source(src: &[u8], opts: &sabiruby_compiler::Options) -> Result<Vec<u8>, ExitCode> {
     sabiruby_compiler::compile(src, opts).map_err(|e| { eprintln!("{e}"); ExitCode::from(1) })
 }
 
-/// A program file: a RITE binary as is, anything else compiled as Ruby source
-/// (`debug_info` keeps line numbers and local variable names, as `mrbc -g`).
-fn load_program(path: &str, debug_info: bool) -> Result<Vec<u8>, ExitCode> {
-    let bytes = std::fs::read(path).map_err(|e| { eprintln!("{path}: {e}"); ExitCode::from(1) })?;
-    if bytes.starts_with(b"RITE") { return Ok(bytes); }
-    compile_source(&bytes, &sabiruby_compiler::Options { filename: path.to_string(), debug_info, ..Default::default() })
+fn read_file(path: &str) -> Result<Vec<u8>, ExitCode> {
+    std::fs::read(path).map_err(|_| { eprintln!("sabiruby: Cannot open program file: {path}"); ExitCode::from(1) })
 }
 
-/// `sabiruby compile FILE [-o OUT] [-g] [--remove-lv] [--no-ext-ops] [--no-optimize]`.
-fn compile_cmd(args: &[String]) -> ExitCode {
-    let mut opts = sabiruby_compiler::Options::default();
-    let (mut input, mut output) = (None, None);
-    let mut it = args.iter();
-    while let Some(a) = it.next() {
-        match a.as_str() {
-            "-o" => match it.next() { Some(o) => output = Some(o.clone()), None => return usage() },
-            "-g" => opts.debug_info = true,
-            "--remove-lv" => opts.remove_lv = true,
-            "--no-ext-ops" => opts.no_ext_ops = true,
-            "--no-optimize" => opts.no_optimize = true,
-            f if !f.starts_with('-') && input.is_none() => input = Some(f.to_string()),
-            _ => return usage(),
-        }
-    }
-    let Some(input) = input else { return usage() };
-    // mrbc replaces the extension; a name without one gets `.mrb` added here
-    // (mrbc would reuse the input name and overwrite the source)
-    let output = output.unwrap_or_else(|| std::path::Path::new(&input).with_extension("mrb").to_string_lossy().into_owned());
-    let src = match std::fs::read(&input) { Ok(b) => b, Err(e) => { eprintln!("{input}: {e}"); return ExitCode::from(1); } };
-    opts.filename = input;
+/// A program: a RITE binary as is, anything else compiled as Ruby source (with the debug
+/// information, which `local_variables` and `Proc#parameters` need).
+fn load_program(path: &str, bytecode_only: bool) -> Result<Vec<u8>, ExitCode> {
+    let bytes = read_file(path)?;
+    if bytes.starts_with(b"RITE") { return Ok(bytes); }
+    if bytecode_only { eprintln!("sabiruby: Cannot load RiteBinary: {path}"); return Err(ExitCode::from(1)); }
+    compile_source(&bytes, &sabiruby_compiler::Options { filename: path.to_string(), debug_info: true, ..Default::default() })
+}
+
+fn compile_cmd(programfile: String, output: Option<String>, debug_info: bool, check: bool,
+               remove_lv: bool, no_ext_ops: bool, no_optimize: bool) -> ExitCode {
+    let src = match read_file(&programfile) { Ok(b) => b, Err(code) => return code };
+    let opts = sabiruby_compiler::Options { filename: programfile.clone(), debug_info, remove_lv, no_ext_ops, no_optimize };
     let bin = match compile_source(&src, &opts) { Ok(b) => b, Err(code) => return code };
+    if check {
+        println!("Syntax OK");
+        return ExitCode::SUCCESS;
+    }
+    // as mrbc: the extension is replaced; a name without one gets `.mrb` added here (mrbc
+    // would reuse the input name and overwrite the source)
+    let output = output.unwrap_or_else(|| std::path::Path::new(&programfile).with_extension("mrb").to_string_lossy().into_owned());
     let written = if output == "-" { std::io::stdout().write_all(&bin) } else { std::fs::write(&output, &bin) };
     match written {
         Ok(()) => ExitCode::SUCCESS,
-        Err(e) => { eprintln!("{output}: {e}"); ExitCode::from(1) }
+        Err(e) => { eprintln!("sabiruby: cannot write {output}: {e}"); ExitCode::from(1) }
     }
 }
 
-/// Runs a RITE binary with `ARGV` = `argv`.
-fn run(bin: &[u8], argv: &[String], stats: bool) -> ExitCode {
+fn dump(bin: &[u8]) -> ExitCode {
+    match sabiruby::rite::parse(bin) {
+        Ok(rite) => { print!("{}", sabiruby::vm::dump(&rite)); ExitCode::SUCCESS }
+        Err(e) => { eprintln!("{e}"); ExitCode::from(1) }
+    }
+}
+
+/// Runs a RITE binary with `ARGV` = `argv` and `$DEBUG` = `debug`.
+fn run(bin: &[u8], argv: &[String], stats: bool, debug: bool) -> ExitCode {
     let mut vm = sabiruby::Vm::new();
     vm.set_gc_stress(gc_stress());
     if stats { vm.gc_clock = Some(clock_ns); }
     if let Err(e) = vm.load_mrblib() { eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e)); return ExitCode::from(1); }
-    // like the `mruby` command: ARGV holds the arguments after the script
+    // like the `mruby` command: ARGV holds the arguments after the program file
     let argv: Vec<sabiruby::Value> = argv.iter().map(|a| vm.str_new(a.as_bytes())).collect();
     let argv = vm.ary_new(argv);
     let n = vm.intern("ARGV");
     vm.heap.class_mut(vm.core.object).consts.insert(n, sabiruby::value::Slot::from(argv));
+    let d = vm.intern("$DEBUG");
+    vm.globals.insert(d, sabiruby::value::Slot::from(sabiruby::Value::bool(debug)));
     let (gc0, gct0) = (vm.gc_count, vm.gc_time_ns);
     let started = std::time::Instant::now();
     let result = vm.load_and_run(bin);
@@ -106,15 +200,52 @@ fn run(bin: &[u8], argv: &[String], stats: bool) -> ExitCode {
     }
 }
 
+/// `sabiruby [switches] [programfile] [arguments]`, as the reference `mruby` command.
+fn program(cli: Cli) -> ExitCode {
+    if cli.copyright {
+        println!("{COPYRIGHT}");
+        return ExitCode::SUCCESS;
+    }
+    if cli.version || cli.version_verbose {
+        println!("{}", version_line());
+        if cli.version { return ExitCode::SUCCESS; }
+    }
+    if let Some(lib) = cli.requires.first() {
+        eprintln!("sabiruby: -r is not implemented yet (require {lib}); see docs/eval-require-plan.md");
+        return ExitCode::from(1);
+    }
+    // -e wins over a program file, which then becomes the first argument (as mruby)
+    let (bin, argv) = if !cli.commands.is_empty() {
+        let src = cli.commands.join("\n");
+        let opts = sabiruby_compiler::Options { filename: "-e".into(), debug_info: true, ..Default::default() };
+        let argv: Vec<String> = cli.program.into_iter().chain(cli.args).collect();
+        match compile_source(src.as_bytes(), &opts) { Ok(bin) => (bin, argv), Err(code) => return code }
+    } else if let Some(path) = cli.program.clone() {
+        match load_program(&path, cli.bytecode) { Ok(bin) => (bin, cli.args), Err(code) => return code }
+    } else {
+        // no program file: read it from standard input, as mruby does
+        let mut src = Vec::new();
+        if let Err(e) = std::io::stdin().read_to_end(&mut src) { eprintln!("sabiruby: cannot read standard input: {e}"); return ExitCode::from(1); }
+        if src.starts_with(b"RITE") { (src, cli.args) } else {
+            let opts = sabiruby_compiler::Options { filename: "-".into(), debug_info: true, ..Default::default() };
+            match compile_source(&src, &opts) { Ok(bin) => (bin, cli.args), Err(code) => return code }
+        }
+    };
+    if cli.check {
+        println!("Syntax OK");
+        return ExitCode::SUCCESS;
+    }
+    if cli.verbose || cli.version_verbose {
+        let code = dump(&bin);
+        if code != ExitCode::SUCCESS { return code; }
+    }
+    run(&bin, &argv, cli.stats, cli.debug)
+}
+
 /// `sabiruby mrbtest [-v] assert.mrb t/*.mrb`: one fresh VM per file, a
 /// Markdown table of the `report` counts, and the opcodes never executed.
-fn mrbtest(args: &[String]) -> ExitCode {
-    let verbose = args.first().map(|a| a == "-v").unwrap_or(false);
-    let files: Vec<&String> = args.iter().filter(|a| *a != "-v").collect();
-    if files.len() < 2 {
-        return usage();
-    }
-    let assert_mrb = match std::fs::read(files[0]) { Ok(b) => b, Err(e) => { eprintln!("{}: {}", files[0], e); return ExitCode::from(1); } };
+fn mrbtest(verbose: bool, files: &[String]) -> ExitCode {
+    let assert_mrb = match std::fs::read(&files[0]) { Ok(b) => b, Err(e) => { eprintln!("{}: {}", files[0], e); return ExitCode::from(1); } };
     let cap: u64 = 300_000_000;
     let mut rows = Vec::new();
     let mut counts = vec![0u64; sabiruby::opcode::OP_COUNT];
@@ -158,38 +289,17 @@ fn main() -> ExitCode {
 }
 
 fn real_main() -> ExitCode {
-    let mut args: Vec<String> = std::env::args().collect();
-    match args.get(1).map(String::as_str) {
-        Some("mrbtest") => return mrbtest(&args[2..]),
-        Some("compile") => return compile_cmd(&args[2..]),
-        Some("--version" | "-v") => {
-            println!("sabiruby {}", env!("CARGO_PKG_VERSION"));
-            println!("compiler: {}", sabiruby_compiler::version());
-            return ExitCode::SUCCESS;
+    let cli = Cli::parse();
+    match cli.command {
+        None => program(cli),
+        Some(Command::Run { stats, programfile, args }) => {
+            match load_program(&programfile, false) { Ok(bin) => run(&bin, &args, stats, false), Err(code) => code }
         }
-        _ => {}
-    }
-    let stats = args.iter().any(|a| a == "--stats");
-    args.retain(|a| a != "--stats");
-    if args.len() < 3 {
-        return usage();
-    }
-    match args[1].as_str() {
-        "-e" => {
-            let opts = sabiruby_compiler::Options { filename: "-e".into(), debug_info: true, ..Default::default() };
-            match compile_source(args[2].as_bytes(), &opts) { Ok(bin) => run(&bin, &args[3..], stats), Err(code) => code }
+        Some(Command::Compile { output, debug_info, check, remove_lv, no_ext_ops, no_optimize, programfile }) =>
+            compile_cmd(programfile, output, debug_info, check, remove_lv, no_ext_ops, no_optimize),
+        Some(Command::Dump { programfile }) => {
+            match load_program(&programfile, false) { Ok(bin) => dump(&bin), Err(code) => code }
         }
-        "run" => match load_program(&args[2], true) {
-            Ok(bin) => run(&bin, &args[3..], stats),
-            Err(code) => code,
-        },
-        "dump" => {
-            let bin = match load_program(&args[2], false) { Ok(b) => b, Err(code) => return code };
-            match sabiruby::rite::parse(&bin) {
-                Ok(rite) => { print!("{}", sabiruby::vm::dump(&rite)); ExitCode::SUCCESS }
-                Err(e) => { eprintln!("{e}"); ExitCode::from(1) }
-            }
-        }
-        _ => usage(),
+        Some(Command::Mrbtest { verbose, files }) => mrbtest(verbose, &files),
     }
 }
