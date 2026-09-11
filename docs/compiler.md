@@ -36,9 +36,10 @@ read, and `prism_xallocator.h` allocates with libc. `build.rs` uses the same con
 has `MRC_DEBUG` instead, which adds assertions, poisons freed ireps and keeps Prism's AST
 printer; the golden tests compare with the `mrbc` of the Docker image), no `MRC_TARGET_*`, no `MRC_NO_STDIO`, no `MRC_INT32` (so `MRB_INT64`, like SabiRuby).
 
-The standalone compiler still links against two mruby functions, `mrb_intern` and
-`mrb_sym_name`; the reference `mrbc.c` defines dummies for them at its end, and so does the
-shim.
+The reference `mrbc.c` ends with dummy definitions of `mrb_intern` and `mrb_sym_name`. The
+shim does not copy them: every call to them in `mruby-compiler` is inside
+`#if defined(MRC_TARGET_MRUBY)`, so the standalone build does not reference them (`nm` shows no
+undefined symbol), and defining them would clash with a real mruby linked into the same program.
 
 ## The shim
 

@@ -25,21 +25,10 @@
 #define SHIM_DUMP_ERROR    2
 #define SHIM_NO_MEMORY     3
 
-/* The standalone compiler still references these two mruby functions; the
-   reference mrbc defines the same dummies (end of mrbc.c). */
-mrc_sym
-mrb_intern(mrb_state *mrb, const char *str, size_t len)
-{
-  (void)mrb; (void)str; (void)len;
-  return 0;
-}
-
-const char*
-mrb_sym_name(mrb_state *mrb, mrc_sym sym)
-{
-  (void)mrb; (void)sym;
-  return NULL;
-}
+/* The reference mrbc.c also defines dummy mrb_intern / mrb_sym_name. Every call
+   to them in mruby-compiler is under MRC_TARGET_MRUBY, so the standalone build does
+   not reference them (checked with nm), and defining them here would clash with a
+   real mruby linked into the same program. */
 
 /* Growable text buffer for the diagnostics. */
 typedef struct { char *p; size_t len, cap; int oom; } sbuf;
