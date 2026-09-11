@@ -139,6 +139,8 @@ Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github
 Compiler: [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md) (the plan: [`docs/compiler-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler-plan.md)).
 GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc-plan.md)).
 eval / require (not implemented; design notes, with PicoRuby's approach as the reference): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
+Looking inside the VM (snapshots, the trace of events, the DBG line numbers; what the playground's
+debugger reads): [`docs/inspect.md`](https://github.com/kishima/sabiruby/blob/main/docs/inspect.md).
 UTF-8 strings (not implemented; plan): [`docs/utf8-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8-plan.md). Remaining gems and their order: [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md).
 
 ## Usage

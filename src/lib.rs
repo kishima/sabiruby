@@ -64,6 +64,7 @@ pub mod rite;
 pub mod symbol;
 pub mod value;
 pub mod vm;
+pub mod inspect;
 #[doc(hidden)]
 pub mod builtins;
 /// Runner for mruby's own test suite (used by `sabiruby mrbtest` and the crate's tests).

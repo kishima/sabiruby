@@ -131,10 +131,15 @@ fn compile_matches_the_reference_mrbc() {
 
 #[test]
 fn dump_reads_source_and_bytecode() {
+    // from source the CLI compiles with -g, so the listing has the line column; the committed
+    // .mrb was made without it. The instructions themselves must be the same.
     let a = out(&sabiruby(&["dump", "tests/fixtures/hello.rb"]));
     let b = out(&sabiruby(&["dump", "tests/fixtures/hello.mrb"]));
-    assert_eq!(a, b);
+    let strip = |s: &str| s.lines().map(|l| l.get(6..).unwrap_or(l).to_string()).collect::<Vec<_>>().join("\n");
+    assert_eq!(strip(&a), strip(&b));
     assert!(a.starts_with("irep 0 nregs="), "{a}");
+    assert!(a.contains("    1 000 STRING"), "no line numbers from -g:\n{a}");
+    assert!(b.contains("      000 STRING"), "unexpected line numbers without -g:\n{b}");
 }
 
 #[test]

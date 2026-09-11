@@ -4,7 +4,7 @@
 //! - binary header: `"RITE" "0400" size:u32 compiler_name[4] compiler_version[4]`
 //! - sections: `ident[4] size:u32 ...` repeated until `"END\0"`
 //!   - `"IREP"`: `rite_version[4]` then one irep record tree
-//!   - `"DBG\0"`: line numbers (parsed minimally), `"LVAR"`: local variable names
+//!   - `"DBG\0"`: line numbers (`Irep::lines`), `"LVAR"`: local variable names
 //! - irep record: `size:u32 nlocals:u16 nregs:u16 rlen:u16 clen:u16 ilen:u32`
 //!   `iseq[ilen] catch[clen*13] plen:u16 pool... slen:u16 syms...` then `rlen` child records
 
@@ -54,6 +54,11 @@ pub struct Irep {
     pub reps: Vec<usize>,
     /// Local variable names for R1.. (from the LVAR section), if present.
     pub lv: Vec<Option<Vec<u8>>>,
+    /// `(start_pc, line)` in ascending `start_pc`, from the DBG section (`mrbc -g`).
+    /// A line covers the instructions from its `start_pc` to the next entry.
+    pub lines: Vec<(u32, u32)>,
+    /// File name of the first debug entry of this irep, if the DBG section has one.
+    pub filename: Option<Vec<u8>>,
 }
 
 #[derive(Clone, Debug)]
@@ -145,7 +150,12 @@ pub fn parse(bin: &[u8]) -> VmResult<Rite> {
                 let r = read_record(&mut sub, &mut ireps)?;
                 root = Some(r);
             }
-            b"DBG\0" => { /* line numbers: not used yet */ }
+            b"DBG\0" => {
+                if let Some(r) = root {
+                    let mut sub = Cur { b: &bin[..end], p: c.p };
+                    read_debug(&mut sub, &mut ireps, r).ok(); // best effort, as LVAR
+                }
+            }
             b"LVAR" => {
                 if let Some(r) = root {
                     let mut sub = Cur { b: &bin[..end], p: c.p };
@@ -229,13 +239,86 @@ fn read_record(c: &mut Cur, out: &mut Vec<Irep>) -> VmResult<usize> {
         syms.push(Some(s));
     }
     let idx = out.len();
-    out.push(Irep { nlocals, nregs, iseq, catch, pool, syms, reps: Vec::new(), lv: Vec::new() });
+    out.push(Irep { nlocals, nregs, iseq, catch, pool, syms, reps: Vec::new(), lv: Vec::new(), lines: Vec::new(), filename: None });
     let mut reps = Vec::with_capacity(rlen as usize);
     for _ in 0..rlen {
         reps.push(read_record(c, out)?);
     }
     out[idx].reps = reps;
     Ok(idx)
+}
+
+/// `"DBG\0"` (mruby `read_section_debug` / `read_debug_record`): the file name table, then one
+/// record per irep in pre-order. Only the first file of a record is kept: `mrbc` writes one
+/// file per irep unless a program is built from several sources.
+fn read_debug(c: &mut Cur, ireps: &mut [Irep], root: usize) -> VmResult<()> {
+    let flen = c.u16()? as usize;
+    let mut filenames = Vec::with_capacity(flen);
+    for _ in 0..flen {
+        let n = c.u16()? as usize;
+        filenames.push(c.bytes(n)?.to_vec());
+    }
+    fn rec(c: &mut Cur, ireps: &mut [Irep], i: usize, filenames: &[Vec<u8>]) -> VmResult<()> {
+        let _record_size = c.u32()?;
+        let files = c.u16()?;
+        for f in 0..files {
+            let _start_pos = c.u32()?;
+            let filename_idx = c.u16()? as usize;
+            let entries = c.u32()? as usize;
+            let line_type = c.u8()?;
+            let mut lines: Vec<(u32, u32)> = Vec::new();
+            match line_type {
+                // mrb_debug_line_ary: one line per instruction byte
+                0 => for pc in 0..entries {
+                    let line = c.u16()? as u32;
+                    if lines.last().map(|e| e.1) != Some(line) { lines.push((pc as u32, line)); }
+                }
+                // mrb_debug_line_flat_map: (start_pos, line) pairs
+                1 => for _ in 0..entries {
+                    let start = c.u32()?;
+                    let line = c.u16()? as u32;
+                    lines.push((start, line));
+                }
+                // mrb_debug_line_packed_map: variable-length (pos_diff, line_diff) pairs
+                2 => {
+                    let bytes = c.bytes(entries)?.to_vec();
+                    // the writer encodes the differences as wrapping u32 (mruby
+                    // `mrc_debug_info_append_file`), so a line that goes backwards comes
+                    // back as a large value: add the same way
+                    let (mut at, mut pos, mut line) = (0usize, 0u32, 0u32);
+                    while at < bytes.len() {
+                        pos = pos.wrapping_add(packed_int(&bytes, &mut at));
+                        line = line.wrapping_add(packed_int(&bytes, &mut at));
+                        lines.push((pos, line));
+                    }
+                }
+                other => return Err(VmError::Rite(format!("unknown debug line type {other}"))),
+            }
+            if f == 0 {
+                ireps[i].lines = lines;
+                ireps[i].filename = filenames.get(filename_idx).cloned();
+            }
+        }
+        let reps = ireps[i].reps.clone();
+        for r in reps {
+            rec(c, ireps, r, filenames)?;
+        }
+        Ok(())
+    }
+    rec(c, ireps, root, &filenames)
+}
+
+/// `mrb_packed_int_decode`: 7 bits per byte, the top bit says "more follow".
+fn packed_int(b: &[u8], at: &mut usize) -> u32 {
+    let (mut n, mut shift) = (0u32, 0u32);
+    while *at < b.len() {
+        let byte = b[*at];
+        *at += 1;
+        n |= ((byte & 0x7f) as u32) << shift;
+        shift += 7;
+        if byte & 0x80 == 0 || shift >= 32 { break; }
+    }
+    n
 }
 
 fn read_lvar(c: &mut Cur, ireps: &mut [Irep], root: usize) -> VmResult<()> {
@@ -269,6 +352,16 @@ fn read_lvar(c: &mut Cur, ireps: &mut [Irep], root: usize) -> VmResult<()> {
 }
 
 impl Irep {
+    /// The source line of the instruction at `pc` (mruby `mrb_debug_get_line`): the line of the
+    /// last entry whose `start_pc` is at or before `pc`. `None` without a DBG section.
+    pub fn line_of(&self, pc: usize) -> Option<u32> {
+        let pc = pc as u32;
+        match self.lines.partition_point(|(start, _)| *start <= pc) {
+            0 => None,
+            i => Some(self.lines[i - 1].1),
+        }
+    }
+
     /// Decodes the instruction at `pc` for dumping/debugging: returns
     /// (opcode, a, b, c, next_pc). Handles EXT1..EXT3 like `mrbc --verbose`.
     pub fn decode(&self, pc: usize) -> Option<(crate::opcode::Op, u32, u32, u32, usize)> {

@@ -10,6 +10,7 @@ use hashbrown::HashMap;
 
 use crate::error::{VmError, VmResult};
 use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, ObjKind, ProcData, Vis, GC_MIN_INTERVAL};
+use crate::inspect::{CatchHandlerInfo, DetachReason, SwitchKind, TraceEvent, UnwindBy};
 use crate::opcode::{Op, Operands};
 use crate::rite::{self, CatchType, Pool};
 use crate::symbol::{Interner, Sym};
@@ -24,6 +25,21 @@ pub struct VmIrep {
     pub syms: Vec<Sym>,
     pub reps: Vec<IrepId>,
     pub lv: Vec<Option<Sym>>,
+    /// `(start_pc, line)` from the DBG section (`mrbc -g`); empty without it.
+    pub lines: Vec<(u32, u32)>,
+    /// Source file name from the DBG section.
+    pub filename: Option<String>,
+}
+
+impl VmIrep {
+    /// The source line of `pc` (mruby `mrb_debug_get_line`).
+    pub fn line_of(&self, pc: usize) -> Option<u32> {
+        let pc = pc as u32;
+        match self.lines.partition_point(|(start, _)| *start <= pc) {
+            0 => None,
+            i => Some(self.lines[i - 1].1),
+        }
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -242,6 +258,9 @@ pub struct Vm {
     pub gc_time_ns: u64,
     /// Monotonic clock in nanoseconds (the library is no_std; the CLI supplies one).
     pub gc_clock: Option<fn() -> u64>,
+    /// Recording of what the interpreter does, for debuggers (`Vm::set_trace`, `src/inspect.rs`).
+    /// `None` (the default) means nothing is recorded.
+    pub trace: Option<Vec<crate::inspect::TraceEvent>>,
     /// All contexts (fibers); `contexts[cur]` is the running one (its stack/ci are in `stack`/`ci`).
     #[doc(hidden)]
     pub contexts: Vec<Context>,
@@ -376,11 +395,11 @@ impl Vm {
             attached: syms.intern_str("__attached__"),
         };
         let top_self = heap.alloc(object, ObjKind::Object);
-        let call_irep = VmIrep { nlocals: 1, nregs: 4, iseq: vec![Op::Call as u8], catch: vec![], pool: vec![], syms: vec![], reps: vec![], lv: vec![] };
+        let call_irep = VmIrep { nlocals: 1, nregs: 4, iseq: vec![Op::Call as u8], catch: vec![], pool: vec![], syms: vec![], reps: vec![], lv: vec![], lines: vec![], filename: None };
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
         };
         // Constants for the core classes, Object includes Kernel.
@@ -907,6 +926,8 @@ impl Vm {
                 syms,
                 reps: ir.reps.iter().map(|r| r + offset).collect(),
                 lv,
+                lines: ir.lines.clone(),
+                filename: ir.filename.as_ref().map(|f| String::from_utf8_lossy(f).into_owned()),
             });
         }
         Ok(rite.root + offset)
@@ -1192,9 +1213,10 @@ impl Vm {
     }
 
     /// Makes `to` the running context (`fiber_switch_context`).
-    fn switch_context(&mut self, to: usize) {
+    fn switch_context(&mut self, to: usize, kind: SwitchKind) {
         let from = self.cur;
         if from == to { return; }
+        if self.trace.is_some() { self.record(TraceEvent::FiberSwitch { from, to, kind }); }
         core::mem::swap(&mut self.stack, &mut self.contexts[from].stack);
         core::mem::swap(&mut self.ci, &mut self.contexts[from].ci);
         core::mem::swap(&mut self.stack, &mut self.contexts[to].stack);
@@ -1209,7 +1231,7 @@ impl Vm {
             self.ci.clear();
             self.stack.clear();
             self.contexts[self.cur].status = FiberState::Terminated;
-            self.switch_context(ROOT);
+            self.switch_context(ROOT, SwitchKind::Reset);
         }
         self.ci.clear();
         self.stack.clear();
@@ -1224,7 +1246,7 @@ impl Vm {
         let vmexec = core::mem::take(&mut self.contexts[c].vmexec);
         self.contexts[c].status = FiberState::Terminated;
         let prev = self.contexts[c].prev.take();
-        self.switch_context(prev.unwrap_or(ROOT));
+        self.switch_context(prev.unwrap_or(ROOT), SwitchKind::Terminate);
         self.contexts[c].stack = Vec::new();
         self.contexts[c].ci = Vec::new();
         vmexec
@@ -1307,7 +1329,7 @@ impl Vm {
             self.contexts[c].prev = None;
         }
         if vmexec { self.contexts[c].vmexec = true; } else { self.contexts[old].pending_reg = Some(self.native_ret_reg); }
-        self.switch_context(c);
+        self.switch_context(c, SwitchKind::Resume);
         let value;
         if status == FiberState::Created {
             let p = match self.contexts[c].proc_ { Some(p) => p, None => return Err(self.raise(self.core.fiber_error, "double resume (current)")) };
@@ -1349,7 +1371,7 @@ impl Vm {
         self.contexts[c].pending_reg = Some(self.native_ret_reg);
         self.contexts[c].prev = None;
         let vmexec = core::mem::take(&mut self.contexts[c].vmexec);
-        self.switch_context(prev);
+        self.switch_context(prev, SwitchKind::Yield);
         if vmexec { self.loop_exit = Some(value); }
         Ok(value)
     }
@@ -1372,11 +1394,17 @@ impl Vm {
             if cur == ROOT { return Ok(value); }
             self.contexts[cur].status = FiberState::Transferred;
             self.contexts[cur].pending_reg = Some(self.native_ret_reg);
-            self.switch_context(ROOT);
+            self.switch_context(ROOT, SwitchKind::Reset);
             return Ok(value);
         }
         if c == self.cur { return Ok(self.fiber_result(args)); }
         self.fiber_switch(fib, args, false, false)
+    }
+
+    /// Source line of the instruction the innermost frame is at (`None` without debug info).
+    pub fn current_line(&self) -> Option<u32> {
+        let ci = self.ci.last()?;
+        self.ireps[ci.irep].line_of(ci.pc)
     }
 
     // ------------------------------------------------------------------ garbage collection
@@ -1394,6 +1422,23 @@ impl Vm {
     pub fn set_gc_stress(&mut self, on: bool) {
         self.gc_stress = on;
         self.heap.alloc_threshold = if on { 1 } else { GC_MIN_INTERVAL.max(self.heap.allocated_since_gc + 1) };
+    }
+
+    /// Records that the innermost frame is being removed while unwinding.
+    #[inline]
+    fn unwound(&mut self, by: UnwindBy) {
+        if self.trace.is_some() {
+            let i = self.ci.len() - 1;
+            let mid = self.ci[i].mid;
+            self.record(TraceEvent::FrameUnwound { frame: i, mid, by });
+        }
+    }
+
+    /// Appends an event while `set_trace(true)` (the caller checks `trace.is_some()` first,
+    /// so nothing is built when recording is off).
+    #[inline]
+    fn record(&mut self, e: TraceEvent) {
+        if let Some(t) = &mut self.trace { t.push(e); }
     }
 
     /// The due collection, at an instruction boundary. Postponed (it stays due)
@@ -1443,6 +1488,7 @@ impl Vm {
         // block captured there) take their values off the stack first (mruby
         // `mrb_env_detach_all` in the sweep), then the stack and frames go.
         // The index is not reused.
+        let mut detached: Vec<(ObjId, usize)> = Vec::new();
         for c in 0..self.contexts.len() {
             if ctx_marked[c] { continue; }
             let ctx = &self.contexts[c];
@@ -1457,11 +1503,17 @@ impl Vm {
                 let ed = self.heap.env_mut(e);
                 ed.values = vals;
                 ed.attached = false;
+                detached.push((e, len));
             }
             self.contexts[c] = Context::new(FiberState::Terminated);
         }
-        self.heap.sweep();
+        if self.trace.is_some() {
+            for (env, len) in detached { self.record(TraceEvent::EnvDetach { env, len, reason: DetachReason::ContextSwept }); }
+        }
+        let (before_live, allocated_since) = (self.heap.live_count(), self.heap.allocated_since_gc);
+        let swept = self.heap.sweep();
         let live = self.heap.live_count();
+        if self.trace.is_some() { self.record(TraceEvent::GcCollect { before_live, after_live: live, swept, allocated_since }); }
         self.live_after_gc = live;
         self.heap.allocated_since_gc = 0;
         self.heap.malloc_increase = 0;
@@ -1574,6 +1626,10 @@ impl Vm {
             vis: ci.vis, modfunc: ci.modfunc, vis_break: ci.vis_break,
         }));
         self.ci[i].env = Some(e);
+        if self.trace.is_some() {
+            let (ctx, base, mid) = (self.cur, self.ci[i].base, self.ci[i].mid);
+            self.record(TraceEvent::EnvCreate { env: e, ctx, frame: i, base, len, mid });
+        }
         e
     }
     /// Pops the current frame, detaching its environment (`cipop`).
@@ -1597,6 +1653,7 @@ impl Vm {
             let ed = self.heap.env_mut(e);
             ed.values = vals;
             ed.attached = false;
+            if self.trace.is_some() { self.record(TraceEvent::EnvDetach { env: e, len, reason: DetachReason::FrameReturn }); }
         }
         // Orphan blocks whose env belonged to this frame? (`MRB_PROC_ORPHAN`) — not tracked yet.
         ci
@@ -1675,7 +1732,7 @@ impl Vm {
         let (tag, idx, value) = match self.heap.get(brk).kind { ObjKind::Break { tag, ci_index, value } => (tag, ci_index, value), _ => return Err(VmError::Internal("not a break object".into())) };
         self.exc = Some(Value::Obj(brk));
         match tag {
-            BreakTag::Break => self.unwind_return(idx, value, stop_depth, lc),
+            BreakTag::Break => self.unwind_return(idx, value, stop_depth, lc, UnwindBy::Return),
             BreakTag::Jump => { let target = match value { Value::Int(t) => t as usize, _ => 0 }; self.jmpuw(target); Ok(None) }
         }
     }
@@ -1699,7 +1756,7 @@ impl Vm {
     /// Unwinds to frame `return_idx` (running ensure bodies on the way, mruby
     /// `L_RETURN`/`UNWIND_ENSURE`) and returns `v` from it. `Ok(Some(v))` means
     /// the interpreter loop must hand `v` to its native caller.
-    fn unwind_return(&mut self, return_idx: usize, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
+    fn unwind_return(&mut self, return_idx: usize, v: Value, stop_depth: usize, lc: usize, by: UnwindBy) -> VmResult<Option<Value>> {
         loop {
             let top = self.ci.len() - 1;
             let (irep, pc) = { let ci = &self.ci[top]; (ci.irep, ci.pc) };
@@ -1709,6 +1766,7 @@ impl Vm {
                 return Ok(None);
             }
             if top == return_idx { break; }
+            self.unwound(by);
             let popped = self.pop_frame();
             if popped.cci == Cci::Skip || (self.cur == lc && top <= stop_depth) {
                 // crossing a native frame: let the native caller propagate it
@@ -1737,9 +1795,22 @@ impl Vm {
     /// Finds a rescue/ensure handler for `exc`; on success sets pc and `exc`
     /// and returns true. Otherwise pops frames down to `stop_depth` and returns false.
     fn handle_raise(&mut self, exc: Value, stop_depth: usize, lc: usize) -> bool {
+        if self.trace.is_some() {
+            let i = self.ci.len() - 1;
+            let (irep, pc) = { let ci = &self.ci[i]; (ci.irep, ci.pc) };
+            let class = self.class_name(self.real_class_of(exc));
+            let line = self.ireps[irep].line_of(pc);
+            self.record(TraceEvent::Raise { exc: exc.obj(), class, frame: i, irep, pc, line });
+        }
         loop {
             let i = self.ci.len() - 1;
             let (irep, pc) = { let ci = &self.ci[i]; (ci.irep, ci.pc) };
+            if self.trace.is_some() {
+                let matched = self.catch_find(irep, pc, false).map(|h| CatchHandlerInfo {
+                    ensure: h.kind == CatchType::Ensure, begin: h.begin, end: h.end, target: h.target });
+                let line = self.ireps[irep].line_of(pc);
+                self.record(TraceEvent::CatchLook { frame: i, irep, pc, line, matched });
+            }
             if let Some(h) = self.catch_find(irep, pc, false) {
                 self.ci[i].pc = h.target as usize;
                 let nregs = self.ireps[irep].nregs;
@@ -1758,9 +1829,11 @@ impl Vm {
                 continue;
             }
             if self.cur == lc && i <= stop_depth {
+                self.unwound(UnwindBy::Raise);
                 self.pop_frame();
                 return false;
             }
+            self.unwound(UnwindBy::Raise);
             self.pop_frame();
         }
     }
@@ -2768,7 +2841,7 @@ impl Vm {
     /// Returns `Some(value)` when the loop should return to its caller.
     fn op_return(&mut self, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
         let top = self.ci.len() - 1;
-        self.unwind_return(top, v, stop_depth, lc)
+        self.unwind_return(top, v, stop_depth, lc, UnwindBy::Return)
     }
 
     fn op_return_blk(&mut self, v: Value, stop_depth: usize, lc: usize) -> VmResult<Option<Value>> {
@@ -2798,7 +2871,7 @@ impl Vm {
             if self.ci[i].env.is_some() && self.ci[i].env == target_env { idx = Some(i); break; }
         }
         match idx {
-            Some(i) => self.unwind_return(i, v, stop_depth, lc),
+            Some(i) => self.unwind_return(i, v, stop_depth, lc, UnwindBy::Return),
             None => Err(self.raise(self.core.local_jump_error, "unexpected return")),
         }
     }
@@ -2815,7 +2888,7 @@ impl Vm {
             if self.ci[i - 1].proc_ == dst { idx = Some(i); break; }
         }
         match idx {
-            Some(i) => self.unwind_return(i, v, stop_depth, lc),
+            Some(i) => self.unwind_return(i, v, stop_depth, lc, UnwindBy::Break),
             None => Err(self.raise(self.core.local_jump_error, "break from proc-closure")),
         }
     }
@@ -2930,7 +3003,8 @@ pub fn dump(rite: &rite::Rite) -> String {
         while pc < ir.iseq.len() {
             match ir.decode(pc) {
                 Some((op, a, b, c, next)) => {
-                    let mut line = format!("  {:03} {}", pc, op.name());
+                    let lineno = match ir.line_of(pc) { Some(l) => format!("{l:5} "), None => "      ".into() };
+                    let mut line = format!("{lineno}{:03} {}", pc, op.name());
                     match op.operands() {
                         Operands::Z => {}
                         Operands::B | Operands::S | Operands::W => line.push_str(&format!("\t{a}")),

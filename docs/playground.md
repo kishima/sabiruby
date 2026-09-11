@@ -33,18 +33,57 @@ browser main thread                    Web Worker
   | `sabi_dump(len_out) -> ptr` | `sabiruby::vm::dump` of the compiled binary |
   | `sabi_ast(src, len, len_out) -> ptr` | Prism's pretty-printed syntax tree (`sabiruby-compiler`, feature `ast`) |
   | `sabi_stats(insns, live, gc)` | three u64 out-parameters |
+  | `sabi_trace(on)` | `Vm::set_trace`: record the events of `inspect.rs` |
+  | `sabi_step_until(mode, budget) -> status` | 0 one instruction, 1 to the next line, 2 to the next call or return, 3 `budget` instructions (what Run uses). The loop is on the Rust side |
+  | `sabi_state(regs_frames, len_out) -> ptr` | `Vm::snapshot` as JSON |
+  | `sabi_take_trace(len_out) -> ptr` | the events since the last call, as JSON |
+  | `sabi_gc_collect()` / `sabi_gc_stress(on)` | collect now; collect after every allocation |
+  | `sabi_op_counts(len_out) -> ptr` | `[{"op":"MOVE","count":n}, ..]` |
+  | `sabi_dump_json(len_out) -> ptr` | the listing as data: ireps, catch tables, and every instruction with its pc, line, opcode and operands |
   | `sabi_alloc` / `sabi_free`, `sabi_version` | buffers for JS; a NUL-terminated version string |
 
   Status: 0 ok, 1 compile error, 2 runtime error, 3 internal. Returned buffers stay valid until
   the next call that returns one.
 * The page shows four panes in the order of the pipeline: code, AST (Prism's tree, as in the
-  book's chapter 5), bytecode, result. AST and bytecode follow the editor (400 ms after the last
-  change) and can be hidden.
+  book's chapter 5), bytecode, result, plus a fifth, "VM の状態", while debugging. AST and
+  bytecode follow the editor (400 ms after the last change) and can be hidden.
 * The worker runs `sabi_step(1_000_000)` in a loop and posts the output after each step.
   `Vm::step` pauses only at instruction boundaries of the top-level program and resumes where it
   stopped, fibers included (`fibers.md`), so the budget does not change the program's behaviour.
   **Stop** is `worker.terminate()`, which also stops a step in the middle; the page then starts a
   new worker from the same compiled `WebAssembly.Module` (no second download or compile).
+
+## Debugging: the VM visualizer
+
+The point of the playground is what the reference `mruby` on wasm cannot show: the VM between two
+instructions. **デバッグ** compiles the program and stops before the first instruction; then
+**1 命令** (F11), **1 行** (F10), **呼び出し／戻り**, **続行** (F5), **最初から** and
+**デバッグ終了**. The editor is read-only while a session runs.
+
+* Worker messages, next to the existing `run`/`inspect`: `debug-start {src}` (reset, compile,
+  start, recording on, returns the listing and the first state), `debug-step {mode, budget}`
+  (`sabi_step_until`, returns the state, the events since the last step and the stats),
+  `debug-gc {collect | stress}`, `debug-stop`, `op-counts`. **続行** streams output and progress
+  the way Run does, so an endless loop still stops with the worker.
+* The bytecode pane is built from `sabi_dump_json` as rows (`web/debug.js`): the running
+  instruction gets `.current`, the frames below it `.caller`, and the pane scrolls to follow. When
+  the VM is inside mrblib or a gem — an irep loaded before the program — the pane says so instead
+  of highlighting the wrong row. The editor marks the current line (from the DBG section).
+* The "VM の状態" pane has six tabs, all drawn from the snapshot and the trace
+  ([`inspect.md`](inspect.md)): **フレーム** (the call stack and the registers of the selected
+  frame, named from `lv`), **環境** (the environments, attached or moved to the heap, and the
+  `EnvCreate`/`EnvDetach` log), **例外** (the catch table lookups of the last raise, and
+  break/return), **Fiber** (one card per context), **GC** (the heap counters, collect now, stress,
+  and the history of collections), **命令** (the histogram of executed opcodes).
+* Hovering an opcode — in the listing or in the histogram — shows its definition, operand format
+  and summary from `web/opcodes.json`, extracted by `tools/opcodes.sh` from the mruby porting
+  kit's `dataset/opcodes.jsonl` (MIT, 119 records, 32 KB). This works outside a debug session too.
+* Some samples carry a "見どころ" note (`web/samples/index.json`), shown as a toast when the
+  session starts: `vm_closure.rb` for the environment tab, `cg_rescue.rb` for exceptions,
+  `vm_fiber*.rb` for fibers, `gc_churn.rb` (this repository's own sample) for the GC tab.
+
+The whole debugger adds 70,599 bytes to the module (16,789 gzipped): the JSON writer, the
+snapshot and the DBG reader. The plan's budget was 100 KB.
 
 ## Building the compiler for wasm
 
@@ -65,7 +104,8 @@ wasi-sdk's clang (see `compiler.md`):
   until `SystemStackError` (`NATIVE_DEPTH_MAX`) and 250 nested literals (Prism's depth limit is
   256), already pass with the default 1 MB.
 
-Module as deployed: 1,169,017 bytes after `wasm-opt -Oz`, 421,881 over gzip (Pages compresses it).
+Module as deployed: 1,304,581 bytes after `wasm-opt -Oz`, 438,274 over gzip (Pages compresses it;
+1,169,017 / 421,881 before the AST pane and the debugger).
 Page ready (navigation start to the Run button enabled: fonts, CodeMirror, the module, the worker,
 the VM with mrblib) on the deployed site in a fresh headless Chromium: 0.43–1.46 s over three runs
 on 2026-09-12; about 0.37 s from a local server. Instantiating the module and creating the VM:
@@ -78,7 +118,7 @@ What a browser downloads (the gzip column; Pages and npm CDNs serve wasm compres
 | module | contents | bytes | gzip -9 |
 |---|---|---:|---:|
 | `picoruby.wasm`, npm `@picoruby/wasm-wasi` 4.0.3 (as published) | mruby VM (C), compiler, many gems, JavaScript bridge | 2,104,568 | 871,069 |
-| this playground's `sabiruby.wasm` (VM + compiler + AST, local build) | SabiRuby, reference compiler (C), `pm_prettyprint` | 1,233,982 | 421,485 |
+| this playground's `sabiruby.wasm` (VM + compiler + AST + debugger, local build) | SabiRuby, reference compiler (C), `pm_prettyprint`, `inspect.rs` and the JSON writer | 1,304,581 | 438,274 |
 | SabiRuby VM only (probe below) | `sabiruby` 0.2.0 incl. the embedded mrblib | 783,729 | 281,054 |
 | mruby/edge VM only (probe below) | `mrubyedge` 1.1.12, default features (`wasi`, `mrubyedge-debug`) | 562,560 | 185,343 |
 | `mrbc.wasm`, npm `@picoruby/mrbc` 4.0.3 (as published) | compiler only | 519,224 | 157,505 |
@@ -109,11 +149,15 @@ Three suites in the playground repository, run by its CI before every deploy:
 * `test/fixtures.mjs` (Node, the same `sabi.js` and browser_wasi_shim as the page): SabiRuby's 17
   fixtures compiled and run in wasm, stdout compared with the reference mruby's `.out`: all 17
   byte-identical.
-* `test/api.mjs`: 14 checks of the paths the page depends on (compile and generator errors,
+* `test/api.mjs`: 23 checks of the paths the page depends on (compile and generator errors,
   uncaught exceptions, fibers across step budgets, an endless loop pausing, deep recursion, GC,
-  dump, invalid UTF-8 output).
+  dump, invalid UTF-8 output, and the debugger's: the shape of `sabi_state`, stepping by
+  instruction / line / call, the trace of a closure and of a raise, `sabi_gc_collect`, the line
+  numbers in `sabi_dump_json`, the opcode counts).
 * `test/browser.mjs` (Playwright, headless Chromium): the page's own buttons; all 17 fixtures
-  through **Compare with mruby**, Stop, the bytecode pane, share links, no console errors.
+  through **Compare with mruby**, Stop, the bytecode pane, share links, and the debugger
+  (stepping moves the current instruction, the frame table, the opcode tooltip, a detached
+  environment after running a closure, the GC and histogram tabs); no console errors.
 
 The verification baseline of SabiRuby itself does not move: `tools/*.sh` and the golden tests
 keep using the reference `mrbc` in Docker. The playground shows that the same VM and the same
@@ -139,6 +183,28 @@ compiler give the same results as wasm.
   book's example scripts (`overview_*`, `vm_*`, `corelib_*`, `gc_*`, `cg_*`).
 * The bytecode pane shows `sabiruby dump`, modelled on `mrbc --verbose` but not identical
   (string literals appear as byte arrays); the page says so.
+
+From `visualizer-plan.md` (the VM visualizer, 2026-09-12):
+
+* The page's debugger lives in **`web/debug.js`**, not in `main.js` as the plan wrote: the panes
+  and the listing are about 400 lines of drawing, and `main.js` keeps the editor, the worker and
+  the samples. `main.js` owns the state and the messages.
+* In the JSON a register carries its value **inline** (`{index, name, text, class, id}`) instead
+  of a nested `value` object: it is the largest array in a snapshot, and the page reads it as one
+  row. Environments keep the nested form.
+* Trace events are tagged `kind` in `snake_case` (`env_create`, `catch_look`, …) rather than the
+  Rust variant names.
+* `GETUPVAR`/`SETUPVAR` show **how many levels** the instruction walks and which register it
+  reaches, as a note on the environment tab; the plan asked for the walk itself, which the
+  snapshot cannot show because `ProcView` carries only one `upper` link, not the chain.
+* The bytecode pane is built from `sabi_dump_json` **always**, not only while debugging, so the
+  opcode tooltip works everywhere; `inspect` therefore returns the structured listing next to the
+  text one (its behaviour is unchanged otherwise).
+* An extra worker message `op-counts` (the plan folded the histogram into the step reply, but it
+  is only needed when the tab is open or a run has finished).
+* `gc_churn.rb` is kept in this repository (`tools/samples/`) and copied by `tools/samples.sh`,
+  because the porting kit has no such sample; the "見どころ" notes are a table in the same script,
+  so `web/samples/index.json` stays generated.
 
 ## Limits
 

@@ -11,3 +11,19 @@ Docker image on the same machine (so the numbers are a ratio, not an absolute). 
 | bm_so_lists | 240 | 3817.435 | 15.90x | 57014500 | 67.0 |
 | bm_so_mandelbrot | 884 | 1700.850 | 1.92x | 341835903 | 5.0 |
 | vm_optimization_bench | 3345 | fail: uninitialized constant Time (NameError) | | | |
+
+## Re-measured after the inspection hooks (2026-09-12)
+
+`src/inspect.rs` added event recording to `frame_env`, `pop_frame`, `handle_raise`,
+`unwind_return`, `switch_context` and `gc_collect`. The instruction loop (`exec_frames`) is
+unchanged; with recording off (the default) the cost is one `Option` test at those places.
+Same machine, same procedure, recording off:
+
+| benchmark | before ms | after ms | change |
+|---|---:|---:|---:|
+| bm_fib | 6093.638 | 6165.897 | +1.2% |
+| bm_so_lists | 3767.137 | 3781.102 | +0.4% |
+| bm_so_mandelbrot | 1697.848 | 1611.633 | −5.1% |
+
+All within the ±3% the plan asked for, apart from mandelbrot getting *faster*, which is the
+run-to-run noise of this machine. See [`inspect.md`](inspect.md).

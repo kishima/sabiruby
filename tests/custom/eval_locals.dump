@@ -1,0 +1,58 @@
+irep 0x57d23ce86130 nregs=5 nlocals=2 pools=2 syms=9 reps=1 ilen=89
+local variable names:
+  R1:e
+catch type: rescue   begin: 0043 end: 0050 target: 0053
+file: /w/eval_locals.rb
+    9 000 TDEF		R2	:f	I[0]
+   16 004 SSEND0	R3	:f
+   16 007 SSEND		R2	:p	n=1
+   17 011 LOADNIL	R2	(nil)
+   17 013 LOADNIL	R3	(nil)
+   17 015 CLASS		R2	:K
+   17 018 LOADNIL	R2	(nil)
+   18 020 GETCONST	R2	K
+   18 023 STRING	R3	L[0]	; def hi; :hi; end
+   18 026 SEND		R2	:class_eval	n=1
+   19 030 GETCONST	R3	K
+   19 033 SEND0		R3	:new
+   19 036 SEND0		R3	:hi
+   19 039 SSEND		R2	:p	n=1
+   21 043 STRING	R3	L[1]	; 1 +
+   21 046 SSEND		R2	:eval	n=1
+   21 050 JMP		086
+   21 053 EXCEPT	R2	
+   22 055 GETCONST	R3	SyntaxError
+   22 058 RESCUE	R2	R3
+   22 061 JMPIF		R3	068
+   22 065 JMP		084
+   22 068 MOVE		R1	R2	; R1:e
+   23 071 MOVE		R3	R1	; R1:e
+   23 074 SEND0		R3	:class
+   23 077 SSEND		R2	:p	n=1
+   23 081 JMP		086
+   23 084 RAISEIF	R2	
+   23 086 RETURN	R2	
+   23 088 STOP
+
+irep 0x57d23ce87860 nregs=9 nlocals=4 pools=3 syms=3 reps=0 ilen=51
+local variable names:
+  R2:a
+  R3:b
+file: /w/eval_locals.rb
+    9 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   10 004 LOADI8	R2	10	; R2:a
+   11 007 STRING	R5	L[0]	; a += 1
+   11 010 SSEND		R4	:eval	n=1
+   12 014 STRING	R5	L[1]	; lambda { a * 2 }.call
+   12 017 SSEND		R4	:eval	n=1
+   12 021 MOVE		R3	R4	; R3:b
+   13 024 STRING	R5	L[2]	; c = 1
+   13 027 SSEND		R4	:eval	n=1
+   14 031 MOVE		R4	R2	; R2:a
+   14 034 MOVE		R5	R3	; R3:b
+   14 037 LOADSELF	R6	(R0)
+   14 039 LOADSYM	R7	:c
+   14 042 SSEND		R6	:__defined_method?	n=1
+   14 046 ARRAY		R4	3
+   14 049 RETURN	R4	
+
