@@ -71,6 +71,37 @@ the VM with mrblib) on the deployed site in a fresh headless Chromium: 0.43–1.
 on 2026-09-12; about 0.37 s from a local server. Instantiating the module and creating the VM:
 15 ms in Node.
 
+## Size compared with other Ruby VMs on wasm (2026-09-12)
+
+What a browser downloads (the gzip column; Pages and npm CDNs serve wasm compressed):
+
+| module | contents | bytes | gzip -9 |
+|---|---|---:|---:|
+| `picoruby.wasm`, npm `@picoruby/wasm-wasi` 4.0.3 (as published) | mruby VM (C), compiler, many gems, JavaScript bridge | 2,104,568 | 871,069 |
+| this playground's `sabiruby.wasm` (VM + compiler + AST, local build) | SabiRuby, reference compiler (C), `pm_prettyprint` | 1,233,982 | 421,485 |
+| SabiRuby VM only (probe below) | `sabiruby` 0.2.0 incl. the embedded mrblib | 783,729 | 281,054 |
+| mruby/edge VM only (probe below) | `mrubyedge` 1.1.12, default features (`wasi`, `mrubyedge-debug`) | 562,560 | 185,343 |
+| `mrbc.wasm`, npm `@picoruby/mrbc` 4.0.3 (as published) | compiler only | 519,224 | 157,505 |
+
+* The two VM-only rows are probes built the same way for `wasm32-unknown-unknown` (release,
+  `lto = true`, `codegen-units = 1`, `panic = "abort"`, `strip = true`, then
+  `wasm-opt -Oz`, binaryen 132): a cdylib exporting one function that loads a RITE binary from
+  memory and runs it, so the whole VM is kept and nothing else is added:
+
+  ```rust
+  // mruby/edge
+  let mut rite = mrubyedge::rite::load(data)?; mrubyedge::yamrb::vm::VM::open(&mut rite).run()?;
+  // SabiRuby
+  let mut vm = sabiruby::Vm::with_mrblib()?; vm.load_and_run(data)?;
+  ```
+* The compiler's share of the playground is about 140 KB gzipped (421 − 281), close to
+  PicoRuby's stand-alone `mrbc.wasm` (158 KB): both are the Prism-based mruby compiler.
+* mruby/edge is smaller mostly because it has no compiler (Ruby is compiled to bytecode ahead of
+  time and embedded). VM against VM, SabiRuby is about 96 KB (gzip) larger; where that comes from
+  (core library coverage, GC, fibers, …) was not measured. The embedded mrblib is 47,448 bytes
+  (16,272 gzipped), not the main part.
+* These compare download size only, not features or speed.
+
 ## Verification
 
 Three suites in the playground repository, run by its CI before every deploy:
