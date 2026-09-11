@@ -30,6 +30,14 @@ pub fn install(vm: &mut Vm) {
     vm.heap.class_mut(m).consts.insert(tol, Value::Float(1e-10));
     let sc = vm.singleton_class(Value::Obj(m)).expect("module singleton");
     vm.define_method(sc, "nofree_cstr?", |_vm, _s, _a, _b| Ok(Value::True));
+    // notimplement.c: a method that raises through mrb_notimplement()
+    let tni = vm.define_class("TestNotImplement", vm.core.object);
+    fn gone(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Value> { Err(vm.raise(vm.core.not_implemented_error, "gone() function is unimplemented on this machine")) }
+    vm.define_method(tni, "gone", gone);
+    let tsc = vm.singleton_class(Value::Obj(tni)).expect("singleton");
+    vm.define_method(tsc, "gone", gone);
+    let nameless = vm.exc_new(vm.core.not_implemented_error, "function is unimplemented on this machine");
+    for (k, v) in [("NAMELESS_RAISED", Value::True), ("NAMELESS_RESULT", nameless)] { let n = vm.intern(k); vm.heap.class_mut(tni).consts.insert(n, v); }
 }
 
 /// Port of `str_match_p` in `mrbgems/mruby-test/driver.c`: `*`, `?`, `[...]`,

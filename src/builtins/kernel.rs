@@ -23,6 +23,8 @@ pub fn init(vm: &mut Vm) {
         ("lambda", |vm, _s, _a, b| make_proc(vm, b, true)),
         ("proc", |vm, _s, _a, b| make_proc(vm, b, false)),
         ("__method__", |vm, _s, _a, _b| { let m = vm.ci.iter().rev().find_map(|c| c.mid); Ok(m.map(Value::Sym).unwrap_or(Value::Nil)) }),
+        ("__id__", |vm, s, a, _b| { argc!(vm, a, 0); Ok(super::object::object_id(s)) }),
+        ("object_id", |vm, s, a, _b| { argc!(vm, a, 0); Ok(super::object::object_id(s)) }),
         ("iterator?", block_given),
         ("global_variables", |vm, _s, _a, _b| { let l: Vec<Value> = vm.globals.keys().map(|k| Value::Sym(*k)).collect(); Ok(vm.ary_new(l)) }),
         ("local_variables", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),
@@ -56,6 +58,15 @@ pub fn init(vm: &mut Vm) {
         ("__printstr__", |vm, _s, a, _b| { for v in a { let b = vm.as_string(*v)?; vm.write_out(&b); } Ok(Value::Nil) }),
         ("!~", |vm, s, a, _b| { argc!(vm, a, 1); let m = vm.intern("=~"); let r = vm.funcall(s, m, &[a[0]], Value::Nil)?; Ok(Value::bool(!r.truthy())) }),
     ]);
+    // module functions: callable as Kernel.raise, private as instance methods (kernel.c MRB_MT_PRIVATE)
+    let ksc = vm.singleton_class(Value::Obj(k)).unwrap();
+    for name in ["raise", "block_given?", "iterator?", "p", "print", "puts", "lambda", "proc", "Integer", "Float", "String", "Array", "__printstr__"] {
+        let n = vm.intern(name);
+        if let Some((m, _)) = vm.find_method(k, n) {
+            vm.def_method_raw(ksc, n, m);
+            let _ = vm.set_visibility(k, n, crate::object::Vis::Private);
+        }
+    }
 }
 
 fn puts_value(vm: &mut Vm, v: Value, depth: usize) -> VmResult<()> {
@@ -108,6 +119,7 @@ fn block_given(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Valu
     }
     let p = match p { Some(p) => p, None => return Ok(Value::False) };
     let blk = if let Some(e) = e {
+        if vm.heap.env(e).mid.is_none() { return Ok(Value::False); } // top level / class body
         let bidx = vm.heap.env(e).bidx;
         if bidx >= vm.heap.env(e).len && !vm.heap.env(e).attached { return Ok(Value::False); }
         vm.env_value(e, bidx)

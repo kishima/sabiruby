@@ -7,6 +7,15 @@ use crate::object::ObjKind;
 use crate::value::Value;
 use crate::vm::Vm;
 
+/// `Proc#dup`: a copy that is an orphan (`break` inside it has no home).
+fn proc_dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
+    let o = s.obj().unwrap();
+    let (irep, upper, env, tc, strict, scope) = { let p = vm.heap.proc_data(o); (p.irep, p.upper, p.env, p.target_class, p.strict, p.scope) };
+    let cls = vm.heap.get(o).class;
+    let np = vm.heap.alloc(cls, ObjKind::Proc(crate::object::ProcData { irep, upper, env, target_class: tc, strict, scope, orphan: true }));
+    Ok(Value::Obj(np))
+}
+
 fn proc_call(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     vm.call_block(s, a)
 }
@@ -27,6 +36,8 @@ pub fn init(vm: &mut Vm) {
         ("lambda?", |vm, s, _a, _b| Ok(Value::bool(s.obj().map(|o| vm.heap.proc_data(o).strict).unwrap_or(false)))),
         ("arity", |vm, s, _a, _b| { let o = s.obj().unwrap(); let pd = vm.heap.proc_data(o); let irep = &vm.ireps[pd.irep]; Ok(Value::Int(arity_of(irep, pd.strict))) }),
         ("initialize", |_vm, s, _a, _b| Ok(s)),
+        ("dup", proc_dup),
+        ("clone", proc_dup),
         ("parameters", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),
         ("inspect", |vm, s, _a, _b| { let t = super::object::any_to_s(vm, s); Ok(vm.str_from(t)) }),
         ("to_s", |vm, s, _a, _b| { let t = super::object::any_to_s(vm, s); Ok(vm.str_from(t)) }),

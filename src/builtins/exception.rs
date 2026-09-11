@@ -24,7 +24,7 @@ pub fn init(vm: &mut Vm) {
         ("to_s", exc_to_s),
         ("message", |vm, s, _a, _b| { let to_s = vm.s.to_s; vm.funcall(s, to_s, &[], Value::Nil) }),
         ("inspect", |vm, s, _a, _b| { let c = vm.real_class_of(s); let cn = vm.class_name(c); let m = vm.heap.ivar_get(s.obj().unwrap(), vm.s.mesg); let mb = if m.is_nil() { Vec::new() } else { vm.as_string(m)? }; if mb.is_empty() { return Ok(vm.str_from(cn)); } let ms = String::from_utf8_lossy(&mb).into_owned(); Ok(vm.str_from(format!("#<{cn}: {ms}>"))) }),
-        ("backtrace", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("backtrace", |vm, s, _a, _b| { let k = vm.intern("@__raised"); if vm.heap.ivar_get(s.obj().unwrap(), k).truthy() { Ok(vm.ary_new(vec![])) } else { Ok(Value::Nil) } }),
         ("set_backtrace", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
         ("full_message", |vm, s, _a, _b| { let insp = vm.inspect_str(s)?; Ok(vm.str_from(insp)) }),
         ("==", |vm, s, a, _b| { argc!(vm, a, 1); if s == a[0] { return Ok(Value::True); } if vm.real_class_of(s) != vm.real_class_of(a[0]) { return Ok(Value::False); } let (x, y) = (exc_to_s(vm, s, &[], Value::Nil)?, exc_to_s(vm, a[0], &[], Value::Nil)?); vm.equal(x, y).map(Value::bool) }),

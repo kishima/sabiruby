@@ -156,6 +156,8 @@ pub struct Vm {
     pub eq_guard: Vec<(ObjId, ObjId)>,
     /// `GC.disable` state (no collector yet; the interface is kept).
     pub gc_disabled: bool,
+    pub gc_step_limit: i64,
+    pub gc_malloc_threshold: i64,
 }
 
 /// Result of [`Vm::step`].
@@ -272,7 +274,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, gc_step_limit: 0, gc_malloc_threshold: 16777216, call_proc,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -340,6 +342,18 @@ impl Vm {
         let o = self.heap.alloc(self.core.range, ObjKind::Range { begin, end, excl });
         self.heap.get_mut(o).frozen = true;
         Value::Obj(o)
+    }
+    /// `range_ptr_replace`: both ends must be comparable (`<=>` not nil).
+    pub fn check_range_ends(&mut self, x: Value, y: Value) -> VmResult<()> {
+        if x.is_nil() || y.is_nil() { return Ok(()); }
+        let ok = match (x, y) {
+            (Value::Int(_), Value::Int(_)) => true,
+            (Value::Int(p), Value::Float(q)) => crate::builtins::numeric::int_float_cmp(p, q).is_some(),
+            (Value::Float(p), Value::Int(q)) => crate::builtins::numeric::int_float_cmp(q, p).is_some(),
+            (Value::Float(p), Value::Float(q)) => p.partial_cmp(&q).is_some(),
+            _ => { let cmp = self.intern("<=>"); !self.funcall(x, cmp, &[y], Value::Nil)?.is_nil() }
+        };
+        if ok { Ok(()) } else { Err(self.raise_arg("bad value for range")) }
     }
     pub fn exc_new(&mut self, class: ObjId, msg: &str) -> Value {
         let e = self.heap.alloc(class, ObjKind::Exception);
@@ -554,7 +568,7 @@ impl Vm {
             if self.heap.class(x).iclass_of == Some(module) { return Ok(()); }
             c = self.heap.class(x).superclass;
         }
-        if module == class { return Err(self.raise_arg("cyclic prepend detected")); }
+        if module == class || self.module_chain_contains(module, class) { return Err(self.raise_arg("cyclic prepend detected")); }
         let sup = self.heap.class(class).superclass;
         let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(module), ..Default::default() }));
         self.heap.class_mut(class).superclass = Some(ic);
@@ -568,18 +582,32 @@ impl Vm {
     }
     /// Inserts an include class for `module` right above `class` in the chain.
     pub fn include_module(&mut self, class: ObjId, module: ObjId) {
-        // Already included?
-        let mut c = self.heap.class(class).superclass;
+        // the module and everything in its own chain (prepended and included modules), nearest first
+        let mut mods: Vec<ObjId> = vec![];
+        let mut c = Some(module);
         while let Some(x) = c {
-            if self.heap.class(x).iclass_of == Some(module) {
-                return;
-            }
-            c = self.heap.class(x).superclass;
+            let cd = self.heap.class(x);
+            if let Some(m) = cd.iclass_of { mods.push(m); } else if cd.origin_of.is_some() { mods.push(cd.origin_of.unwrap()); } else if x == module && cd.origin.is_none() { mods.push(x); }
+            c = cd.superclass;
         }
-        let at = self.def_target(class); // below the origin when modules are prepended
-        let sup = self.heap.class(at).superclass;
-        let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(module), ..Default::default() }));
-        self.heap.class_mut(at).superclass = Some(ic);
+        let mut at = self.def_target(class); // below the origin when modules are prepended
+        for m in mods {
+            // already in the chain?
+            let mut c = self.heap.class(class).superclass;
+            let mut present = false;
+            while let Some(x) = c { if self.heap.class(x).iclass_of == Some(m) { present = true; break; } c = self.heap.class(x).superclass; }
+            if present { continue; }
+            let sup = self.heap.class(at).superclass;
+            let ic = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { superclass: sup, iclass_of: Some(m), ..Default::default() }));
+            self.heap.class_mut(at).superclass = Some(ic);
+            at = ic;
+        }
+    }
+    /// True when `class` appears in `module`'s chain (would make a cycle).
+    pub fn module_chain_contains(&self, module: ObjId, class: ObjId) -> bool {
+        let mut c = Some(module);
+        while let Some(x) = c { let cd = self.heap.class(x); if x == class || cd.iclass_of == Some(class) { return true; } c = cd.superclass; }
+        false
     }
     /// The singleton class of `v`, created on demand (`prepare_singleton_class`).
     pub fn singleton_class(&mut self, v: Value) -> VmResult<ObjId> {
@@ -907,6 +935,17 @@ impl Vm {
     /// Pops the current frame, detaching its environment (`cipop`).
     fn pop_frame(&mut self) -> CallInfo {
         let ci = self.ci.pop().expect("pop on empty callinfo");
+        // A block created by the caller and passed to this frame loses its home
+        // when the frame returns (mruby `cipop`: MRB_PROC_ORPHAN).
+        let bidx = ci.base + Self::frame_bidx(&ci);
+        if let Some(Value::Obj(b)) = self.stack.get(bidx).copied() {
+            if let ObjKind::Proc(pd) = &self.heap.get(b).kind {
+                let caller_env = self.ci.last().and_then(|c| c.env);
+                if !pd.strict && pd.env.is_some() && pd.env == caller_env {
+                    if let ObjKind::Proc(pd) = &mut self.heap.get_mut(b).kind { pd.orphan = true; }
+                }
+            }
+        }
         if let Some(e) = ci.env {
             let (base, len) = { let ed = self.heap.env(e); (ed.base, ed.len) };
             let end = (base + len).min(self.stack.len());
@@ -929,6 +968,7 @@ impl Vm {
             match r {
                 Ok(v) => return Ok(v),
                 Err(VmError::Raise(exc)) => {
+                    if let Value::Obj(o) = exc { if matches!(self.heap.get(o).kind, ObjKind::Exception) { let k = self.intern("@__raised"); self.heap.ivar_set(o, k, Value::True); } }
                     // Unwind: look for a catch handler in frames >= stop_depth.
                     if self.handle_raise(exc, stop_depth) {
                         continue;
@@ -1176,8 +1216,7 @@ impl Vm {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = reg!(a);
                     let cls = self.cvar_class(ci.proc_);
-                    if self.heap.get(cls).frozen { return Err(self.frozen_error(Value::Obj(cls))); }
-                    self.cvar_set(cls, s, v);
+                    self.cvar_set(cls, s, v)?;
                 }
                 Op::Getconst => {
                     let s = self.ireps[ci.irep].syms[b];
@@ -1237,6 +1276,7 @@ impl Vm {
                 Op::Setidx => {
                     let recv = reg!(a); let idx = reg!(a + 1); let val = reg!(a + 2);
                     self.funcall(recv, self.s.aset, &[idx, val], Value::Nil)?;
+                    reg!(a) = val; // the value of an index assignment is the assigned value
                 }
                 Op::Jmp => { self.ci[top].pc = jump(pc, a); }
                 Op::Jmpif => { if reg!(a).truthy() { self.ci[top].pc = jump(pc, b); } }
@@ -1331,8 +1371,13 @@ impl Vm {
                 Op::Div => { self.op_arith(base, a, self.s.div)?; }
                 Op::Addi => { reg!(a + 1) = Value::Int(b as i64); self.op_arith(base, a, self.s.plus)?; }
                 Op::Subi => { reg!(a + 1) = Value::Int(b as i64); self.op_arith(base, a, self.s.minus)?; }
-                Op::Addilv => { reg!(b) = reg!(a); reg!(b + 1) = Value::Int(c as i64); self.op_arith(base, b, self.s.plus)?; let v = reg!(b); reg!(a) = v; }
-                Op::Subilv => { reg!(b) = reg!(a); reg!(b + 1) = Value::Int(c as i64); self.op_arith(base, b, self.s.minus)?; let v = reg!(b); reg!(a) = v; }
+                Op::Addilv | Op::Subilv => {
+                    let mid = if matches!(op, Op::Addilv) { self.s.plus } else { self.s.minus };
+                    match reg!(a) {
+                        Value::Int(_) | Value::Float(_) => { reg!(b) = reg!(a); reg!(b + 1) = Value::Int(c as i64); self.op_arith(base, b, mid)?; let v = reg!(b); reg!(a) = v; }
+                        recv => { let r = self.funcall(recv, mid, &[Value::Int(c as i64)], Value::Nil)?; reg!(a) = r; }
+                    }
+                }
                 Op::Eq => { self.op_compare(base, a, self.s.eq)?; }
                 Op::Lt => { self.op_compare(base, a, self.s.lt)?; }
                 Op::Le => { self.op_compare(base, a, self.s.le)?; }
@@ -1419,8 +1464,11 @@ impl Vm {
                     }));
                     reg!(a) = Value::Obj(p);
                 }
-                Op::RangeInc => { let (x, y) = (reg!(a), reg!(a + 1)); reg!(a) = self.range_new(x, y, false); }
-                Op::RangeExc => { let (x, y) = (reg!(a), reg!(a + 1)); reg!(a) = self.range_new(x, y, true); }
+                Op::RangeInc | Op::RangeExc => {
+                    let (x, y) = (reg!(a), reg!(a + 1));
+                    self.check_range_ends(x, y)?;
+                    reg!(a) = self.range_new(x, y, matches!(op, Op::RangeExc));
+                }
                 Op::Oclass => { reg!(a) = Value::Obj(self.core.object); }
                 Op::Class | Op::Module => {
                     let s = self.ireps[ci.irep].syms[b];
@@ -1565,22 +1613,34 @@ impl Vm {
         self.funcall(Value::Obj(sup), inh, &[Value::Obj(sub)], Value::Nil)?;
         Ok(())
     }
+    /// `mrb_mod_cv_get`: walks the whole chain and the *last* table that has the
+    /// variable wins (an included module's value shadows the class's own).
     fn cvar_get(&self, class: ObjId, s: Sym) -> Option<Value> {
+        let mut found = None;
         let mut c = Some(class);
         while let Some(x) = c {
             let cd = self.heap.class(x);
-            if let Some(v) = cd.cvars.get(&s) { return Some(*v); }
+            let owner = cd.iclass_of.unwrap_or(x);
+            if let Some(v) = self.heap.class(owner).cvars.get(&s) { found = Some(*v); }
             c = cd.superclass;
         }
-        None
+        found
     }
-    fn cvar_set(&mut self, class: ObjId, s: Sym, v: Value) {
+    /// `mrb_mod_cv_set`: the first table (from the class up) that has the variable, else the class itself.
+    fn cvar_set(&mut self, class: ObjId, s: Sym, v: Value) -> VmResult<()> {
         let mut c = Some(class);
         while let Some(x) = c {
-            if self.heap.class(x).cvars.contains_key(&s) { self.heap.class_mut(x).cvars.insert(s, v); return; }
+            let owner = self.heap.class(x).iclass_of.unwrap_or(x);
+            if self.heap.class(owner).cvars.contains_key(&s) {
+                if self.heap.get(owner).frozen { return Err(self.frozen_error(Value::Obj(owner))); }
+                self.heap.class_mut(owner).cvars.insert(s, v);
+                return Ok(());
+            }
             c = self.heap.class(x).superclass;
         }
+        if self.heap.get(class).frozen { return Err(self.frozen_error(Value::Obj(class))); }
         self.heap.class_mut(class).cvars.insert(s, v);
+        Ok(())
     }
 
     /// `mrb_ary_splat`: Array as is; `to_a` if it answers (nil means "no conversion");
@@ -1626,6 +1686,7 @@ impl Vm {
     }
     pub fn hash_set(&mut self, h: Value, k: Value, v: Value) -> VmResult<()> {
         let o = match h.obj() { Some(o) => o, None => return Err(self.raise_type("not a hash")) };
+        if self.heap.get(o).frozen { return Err(self.frozen_error(h)); }
         // an unfrozen String key is copied and the copy frozen; a frozen key is used as is
         let k = match k { Value::Obj(ko) if self.heap.string(ko).is_some() && !self.heap.get(ko).frozen => { let b = self.heap.string(ko).unwrap().to_vec(); let nk = self.str_new(&b); if let Some(no) = nk.obj() { self.heap.get_mut(no).frozen = true; } nk } _ => k };
         let pos = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.entries.iter().position(|(ek, _)| self.eql(*ek, k)), _ => return Err(self.raise_type("not a hash")) };
@@ -1665,11 +1726,15 @@ impl Vm {
         let num = |p: f64, q: f64| -> Value {
             Value::bool(if mid == s.eq { p == q } else if mid == s.lt { p < q } else if mid == s.le { p <= q } else if mid == s.gt { p > q } else { p >= q })
         };
+        let ord = |o: Option<core::cmp::Ordering>| -> Value {
+            Value::bool(match o { None => false, Some(o) => if mid == s.eq { o.is_eq() } else if mid == s.lt { o.is_lt() } else if mid == s.le { o.is_le() } else if mid == s.gt { o.is_gt() } else { o.is_ge() } })
+        };
+        let _ = &num;
         let r = match (x, y) {
             (Value::Int(p), Value::Int(q)) => Some(Value::bool(if mid == s.eq { p == q } else if mid == s.lt { p < q } else if mid == s.le { p <= q } else if mid == s.gt { p > q } else { p >= q })),
-            (Value::Int(p), Value::Float(q)) => Some(num(p as f64, q)),
-            (Value::Float(p), Value::Int(q)) => Some(num(p, q as f64)),
-            (Value::Float(p), Value::Float(q)) => Some(num(p, q)),
+            (Value::Int(p), Value::Float(q)) => Some(ord(crate::builtins::numeric::int_float_cmp(p, q))),
+            (Value::Float(p), Value::Int(q)) => Some(ord(crate::builtins::numeric::int_float_cmp(q, p).map(|o| o.reverse()))),
+            (Value::Float(p), Value::Float(q)) => Some(ord(p.partial_cmp(&q))),
             _ if mid == s.eq => {
                 // fast path: identical immediates / same object
                 if x == y && !matches!(x, Value::Obj(_)) { Some(Value::True) } else { None }
@@ -1753,15 +1818,11 @@ impl Vm {
                 (m, owner)
             }
             None => {
-                if is_super {
-                    let name = self.sym_name(mid);
-                    let desc = self.describe_for_error(recv);
-                    return Err(self.raise(self.core.no_method_error, &format!("no superclass method '{name}' for {desc}")));
-                }
-                // method_missing?
+                // method_missing (user-defined) takes the call; the basic one reports the error
                 let mm = self.s.method_missing;
-                if let Some((m, owner)) = self.find_method(start_class, mm) {
-                    if !matches!(m, Method::Native(_)) || self.class_of(recv) != self.core.basic_object {
+                let mm_class = if is_super { self.class_of(recv) } else { start_class };
+                if let Some((m, owner)) = self.find_method(mm_class, mm) {
+                    if !matches!(m, Method::Native(_)) {
                         // insert the method name as the first argument
                         let (args, _) = self.native_args(base + a, argc, kw);
                         let mut nargs = vec![Value::Sym(mid)];
@@ -1774,7 +1835,8 @@ impl Vm {
                 let name = self.sym_name(mid);
                 let desc = self.describe_for_error(recv);
                 let args = self.native_args(base + a, argc, kw).0;
-                let e = self.no_method_error(mid, recv, &format!("undefined method '{name}' for {desc}"));
+                let msg = if is_super { format!("no superclass method '{name}' for {desc}") } else { format!("undefined method '{name}' for {desc}") };
+                let e = self.no_method_error(mid, recv, &msg);
                 if let VmError::Raise(Value::Obj(o)) = e { let av = self.ary_new(args); let k = self.intern("@args"); self.heap.ivar_set(o, k, av); }
                 return Err(e);
             }
