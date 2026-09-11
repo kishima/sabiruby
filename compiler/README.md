@@ -45,12 +45,20 @@ Compilations are serialised by a lock: `mrc_presym.c` writes a global on every p
 
 ## Platforms
 
-Needs a C compiler (C99) at build time. Built and tested on Linux (gcc) and macOS (clang)
+Needs a C compiler (`gnu99`, as the reference build) at build time. Built and tested on Linux (gcc) and macOS (clang)
 in CI; Windows (MSVC) is expected to work, as Prism and mruby support it, but is not tested.
 A clean build of the C part takes about 2 s (debug) and 7 s (release, one core).
 
-**`wasm32` is not supported**: the C sources would need clang with a wasm sysroot
-(wasi-sdk or emscripten) and the build script would have to select it. That is left for later.
+**wasm32-wasip1** works with [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) (checked with
+wasi-sdk 34, clang 23): set `CC_wasm32_wasip1=<wasi-sdk>/bin/clang` and
+`AR_wasm32_wasip1=<wasi-sdk>/bin/llvm-ar` and build for `--target wasm32-wasip1`. The build
+script then adds what the target needs: the compiler's `MRC_TRY`/`MRC_THROW` (code generator
+errors) are `setjmp`/`longjmp`, which wasi-libc implements with WebAssembly exception handling,
+so the C is compiled with `-mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=true` and
+wasi-sdk's `libsetjmp.a` is linked (copied into `OUT_DIR` under its own name, so that `-lc`
+still resolves to rustc's wasi libc). The resulting module needs an engine with Wasm exception
+handling, legacy encoding: Chrome 95+, Firefox 100+, Safari 15.2+, Node 22. It is what the
+browser playground runs. `wasm32-unknown-unknown` (no libc) is not supported.
 
 ## Verification
 

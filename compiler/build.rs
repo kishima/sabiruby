@@ -22,7 +22,9 @@ fn main() {
     files.extend(c_files("vendor/prism/src/util"));
     files.extend(c_files("vendor/prism/generated/src"));
     assert!(Path::new("vendor/prism/generated/include/prism/ast.h").exists(), "vendor/ is incomplete: run tools/vendor_compiler.sh");
-    cc::Build::new()
+    let wasi = std::env::var("CARGO_CFG_TARGET_OS").as_deref() == Ok("wasi");
+    let mut build = cc::Build::new();
+    build
         .files(&files)
         .file("csrc/shim.c")
         .include("vendor/mruby-compiler/include")
@@ -34,7 +36,29 @@ fn main() {
         .define("PRISM_XALLOCATOR", None)
         .define("PRISM_DEPTH_MAXIMUM", "256")
         .define("PRISM_BUILD_MINIMAL", None)
-        .std("c99")
-        .warnings(false)
-        .compile("sabiruby_mrc");
+        // as the reference build (`-std=gnu99`); strict c99 hides POSIX declarations such as
+        // memccpy (used by compile.c) in wasi-libc
+        .std("gnu99")
+        .warnings(false);
+    if wasi {
+        // MRC_TRY/MRC_THROW (codegen errors) are setjmp/longjmp, which wasi-libc implements
+        // with WebAssembly exception handling. The legacy encoding runs on every current
+        // browser engine and on Node 22.
+        build.flag("-mllvm").flag("-wasm-enable-sjlj").flag("-mllvm").flag("-wasm-use-legacy-eh=true");
+    }
+    build.compile("sabiruby_mrc");
+    if wasi {
+        // ... and libsetjmp.a of the same sysroot (wasi-sdk; rustc's own wasi sysroot has none).
+        let mut cmd = build.get_compiler().to_command();
+        let out = cmd.arg("--print-file-name=libsetjmp.a").output().expect("run the C compiler");
+        let lib = std::path::PathBuf::from(String::from_utf8_lossy(&out.stdout).trim());
+        assert!(lib.is_absolute() && lib.exists(),
+                "libsetjmp.a not found for wasm32-wasip1: build with wasi-sdk's clang (CC_wasm32_wasip1=<wasi-sdk>/bin/clang)");
+        // Copied into OUT_DIR under its own name: putting wasi-sdk's lib directory on the search
+        // path would also make `-lc` pick wasi-sdk's libc instead of rustc's (a crt mismatch).
+        let out_dir = std::path::PathBuf::from(std::env::var("OUT_DIR").unwrap());
+        std::fs::copy(&lib, out_dir.join("libsabiruby_setjmp.a")).expect("copy libsetjmp.a");
+        println!("cargo:rustc-link-search=native={}", out_dir.display());
+        println!("cargo:rustc-link-lib=static=sabiruby_setjmp");
+    }
 }

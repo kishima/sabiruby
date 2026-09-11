@@ -15,7 +15,8 @@
 //! assert_eq!(err.diagnostics[0].kind, sabiruby_compiler::Kind::ParserError);
 //! ```
 //!
-//! Needs a C compiler at build time (the `cc` crate). Not available for `wasm32`.
+//! Needs a C compiler at build time (the `cc` crate). For `wasm32-wasip1`, use wasi-sdk's clang
+//! (`CC_wasm32_wasip1`); the module then needs WebAssembly exception handling (see the README).
 //! The vendored sources and their licences are listed in `vendor/VENDOR.md`.
 
 use std::ffi::CString;

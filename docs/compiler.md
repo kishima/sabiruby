@@ -18,7 +18,8 @@ that the bytecode is exactly the reference's. The plan this follows is
 * `compiler/vendor/`: unmodified copies of `mruby-compiler`, Prism, Prism's generated sources
   and `mrbconf.h` (origin, versions, licences and the update procedure in
   [`compiler/vendor/VENDOR.md`](../compiler/vendor/VENDOR.md); `tools/vendor_compiler.sh`).
-* `compiler/build.rs`: compiles them with `cc` as C99.
+* `compiler/build.rs`: compiles them with `cc` as `gnu99`, the reference build's `-std` (strict
+  `c99` hides POSIX declarations such as `memccpy`, which wasi-libc then refuses).
 * `compiler/csrc/shim.c`: the only C written here (below).
 * `compiler/src/ffi.rs`: three `extern "C"` functions, the crate's only `unsafe`.
 * `compiler/src/lib.rs`: `compile(src, &Options) -> Result<Vec<u8>, CompileError>`,
@@ -96,9 +97,18 @@ the embedded compiler agrees with it.
 A clean build of the C part: about 2 s (debug, `-O0`) and 7 s (release), on one core
 (`cc` compiles the 35 files, 34 vendored plus the shim, one after another). The
 `sabiruby-compiler` package is 2.9 MiB (394 KiB compressed). CI builds and tests on Linux and macOS; Windows (MSVC) should work but is
-not tested. **wasm32 is not supported** (the C side would need clang with a wasm sysroot, i.e.
-wasi-sdk or emscripten, chosen by the build script); the VM library itself builds for
-`wasm32-unknown-unknown`.
+not tested. The VM library itself builds for `wasm32-unknown-unknown`.
+
+**wasm32-wasip1** works with [wasi-sdk](https://github.com/WebAssembly/wasi-sdk) (checked with
+wasi-sdk 34, clang 23): set `CC_wasm32_wasip1=<wasi-sdk>/bin/clang` and
+`AR_wasm32_wasip1=<wasi-sdk>/bin/llvm-ar` and build for `--target wasm32-wasip1`. The build
+script then adds what the target needs: the compiler's `MRC_TRY`/`MRC_THROW` (code generator
+errors) are `setjmp`/`longjmp`, which wasi-libc implements with WebAssembly exception handling,
+so the C is compiled with `-mllvm -wasm-enable-sjlj -mllvm -wasm-use-legacy-eh=true` and
+wasi-sdk's `libsetjmp.a` is linked (copied into `OUT_DIR` under its own name, so that `-lc`
+still resolves to rustc's wasi libc). The resulting module needs an engine with Wasm exception
+handling, legacy encoding: Chrome 95+, Firefox 100+, Safari 15.2+, Node 22. It is what the
+browser playground runs. `wasm32-unknown-unknown` (no libc) is not supported.
 
 ## Publishing
 
