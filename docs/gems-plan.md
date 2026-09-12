@@ -110,9 +110,12 @@ eval より小さい。eval はコンパイラ側の C パッチを伴うので�
 
 ### 3.4 mruby-bigint（著者判断）
 
-* `MRB_USE_BIGINT` は Integer の溢れの意味を変える（RangeError → bigint に昇格）。参照イメージは bigint 無しで、
-  本家テストの `skip: needs mruby-bigint` はそのままの方が一致する。**入れるなら UTF-8 と同じく別の参照イメージ
-  （`4.1.0-rc-bigint`）と別の baseline を持つ**（`docs/utf8-plan.md` の方式）。著者に確認してから着手。
+* `MRB_USE_BIGINT` は Integer の溢れの意味を変える（RangeError → bigint に昇格）。**参照イメージには bigint が入っている**
+  （2026-09-12 確認: `2**63` が `9223372036854775808`、`2**64 * 2**64` も答える）。つまり SabiRuby が今
+  RangeError にしている溢れは参照イメージとの差異であり、本家テストの `skip: needs mruby-bigint`（array、gc、integer、
+  literals の 4 件）は SabiRuby 側の skip。リテラル `9223372036854775808` は RITE の pool 型 `IREP_TT_BIGINT`（7）で来て、
+  `src/rite.rs` は `Pool::BigInt(raw)` として読むが復号していない（`bad pool type` は型番の読み違いではなく、
+  型 7 の後の長さ／基数ヘッダの扱いを見直す）。入れるかどうかは著者判断。
 * 入れる場合の形: `Value::Int` の溢れを `ObjKind::Object` + 隠し ivar ではなく **`ObjKind::BigInt(Vec<u32>)`** にする
   （演算のたびに ivar を読むのは遅すぎる）。`core/` の多倍長演算（6409 行）は写す。
 
