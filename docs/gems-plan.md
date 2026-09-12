@@ -3,8 +3,8 @@
 > **実装状況**（2026-09-12）: bigint、rational、complex、cmath 済み（数の塔が揃った。
 > `src/bigint.rs`、`src/builtins/ext_rational.rs`／`ext_complex.rs`／`ext_cmath.rs`、
 > `numeric.rs` の分岐。本家テストは 1778 件中 1738 件、4 gem のテストは全件通過。
-> 詳細と本家との差異は `docs/gems.md`）。次は pack → eval／binding／proc-binding →
-> UTF-8 → regexp → task。
+> 詳細と本家との差異は `docs/gems.md`）。pack も済み（2026-09-12。本家テスト 50 件中 49 件、
+> 落ちる 1 件は NaN の同一性の既存差異）。次は eval／binding／proc-binding → UTF-8 → regexp → task。
 
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に残りの本家 gem を移植できること。
 作業前に `README.md`（Rules、Verification）、`docs/gems.md`（手順と、移植済み gem が教えたこと）、
@@ -15,13 +15,13 @@
 
 * 本家は mruby 4.1.0-rc（`../../ref/mruby`）。参照バイナリは Docker イメージ `kishima/mruby:4.1.0-rc`
   （バイト列ビルド、bigint 無し）。本家テストは `tools/mrbtest.sh` で走らせ、`docs/mrbtest.md` に表を書く。
-  現在 **1778 件中 1738 件**（数の塔の移植後）。落ちる 40 件の理由は `docs/mrbtest-notes.md` と
+  現在 **1828 件中 1787 件**（数の塔と pack の移植後）。落ちる 41 件の理由は `docs/mrbtest-notes.md` と
   `tests/mrbtest/notes.tsv`。
 * 移植済み: `default.gembox` の 33 gem のうち 31（fiber、enumerator、*-ext 5 種、sprintf、metaprog、proc-ext、
   method、compar-ext、toplevel-ext、enum-chain、enum-lazy、object-ext、symbol-ext、kernel-ext、class-ext、
   numeric-ext、catch、objectspace、math、random、struct、data、set、time、bigint、rational、complex）と
-  gembox 外の cmath。
-* 残り: eval、binding、proc-binding（順序 4）、pack（順序 5）、
+  gembox 外の cmath、pack。
+* 残り: eval、binding、proc-binding（順序 4）、
   UTF-8 文字列（ビルド構成のマイルストーン、`docs/utf8-plan.md`）、regexp（順序 6）、task（順序 7）。
   io／socket／errno／dir／env／signal／process は POSIX 依存で対象外（著者決定）。
 * 本家テストを 1 件でも落とす gem を「移植済み」と呼ばない。落ちる件は理由を `notes.tsv` に書き、
@@ -63,7 +63,7 @@ eval はコンパイラ側の C パッチを伴うので独立した節にする
 
 ## 3. 各 gem の指示
 
-### 3.1 mruby-pack（2133 C / 0 Ruby / 278 test）
+### 3.1 mruby-pack（2133 C / 0 Ruby / 278 test）— **済み（2026-09-12）**
 
 * 入口は 3 つ: `Array#pack(fmt)`、`String#unpack(fmt)`、`String#unpack1(fmt)`（`src/pack.c` 末尾）。
 * `src/pack.c` の指示子の表（`a A Z b B h H c C s S l L q Q j J n N v V U w m M u f d e E g G x X @` と

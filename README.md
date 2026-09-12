@@ -42,8 +42,8 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 * Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
   [`docs/fibers.md`](https://github.com/kishima/sabiruby/blob/main/docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
   -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method, and the
-  rest of the reference's `default.gembox` except `eval`, `pack`, `regexp` and the POSIX ones
-  — 31 gems, plus mruby-cmath from outside it. The numeric tower is complete: **mruby-bigint**
+  rest of the reference's `default.gembox` except `eval` and `regexp` and the POSIX ones
+  — 32 gems, plus mruby-cmath from outside it. The numeric tower is complete: **mruby-bigint**
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
@@ -63,7 +63,7 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 
 Not yet: the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
 `rescue => e`), `eval`/`require` (design notes below), the remaining mrbgems (`io`, `time`,
-`pack`, `regexp`, …), encodings. Native code may re-enter the VM
+`regexp`, …), encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
@@ -88,7 +88,7 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 17 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`).
 
 mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
-gems (`gem_*`, 945 assertions) passes 1738 of 1778 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
+gems (`gem_*`, 995 assertions) passes 1787 of 1828 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
 reasons for the rest in [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
 assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
 ones skip.
@@ -198,6 +198,7 @@ loop {
 | `src/vm.rs` | interpreter loop, frames, environments, unwinding |
 | `src/bigint.rs` | integers wider than 64 bits (mruby-bigint's `mpz_*`) |
 | `src/builtins/ext_rational.rs`, `ext_complex.rs`, `ext_cmath.rs` | the rest of the numeric tower |
+| `src/builtins/ext_pack.rs` | `Array#pack` / `String#unpack` |
 | `src/object.rs` | heap objects (classes, procs, envs, strings, arrays, hashes), mark & sweep |
 | `src/builtins/` | native methods per class |
 | `src/mrblib.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |

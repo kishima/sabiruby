@@ -57,7 +57,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
 ## Deviations kept
 
 * NaN identity: every NaN is one immediate here, the reference allocates one object per NaN
-  (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`).
+  (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`, two `"…".unpack1("E")` of a NaN).
 * `String#slice!`, `tr` and friends work on bytes; the multibyte tests skip themselves.
 * Wide integers (mruby-bigint): five answers of the reference are slips of its own bigint code,
   not decisions, and SabiRuby keeps the meaning the same at both widths
@@ -310,6 +310,20 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   round trips `sin(asin z)`, `cosh(acosh z)`, …) and `CMath.log(-8, -2)`, whose expected
   value the test spells out.
 
+* **mruby-pack** (`ext_pack.rs`) — `Array#pack`, `String#unpack`, `String#unpack1`. The
+  template parser and all the directives (`a A Z b B h H c C s S l L q Q j J n N v V U w m M u
+  f d e E g G x X @`, the modifiers `_ ! < >`, `*` and counts) are the reference's, byte for
+  byte, including its own choices: `i`/`I` and `j`/`J` are decided by the size of C's `int`
+  and `intptr_t` (4 and 8 here, so `j` is `q`), a modifier after anything but `sSiIlLqQ` is an
+  ArgumentError, `#` is a comment to the end of the line, `p`/`P`/`%` are refused, and an
+  unsigned 64-bit value that does not fit an Integer is `RangeError: cannot unpack to Integer`
+  — the reference tests `MRB_INT_MAX` there even in a build that has mruby-bigint, so a wide
+  integer never comes out of `unpack("Q")`, and `[2**63].pack("Q")` is a RangeError from the
+  argument conversion. Base64, quoted-printable, uuencode, BER and UTF-8 are written out here
+  (no dependency added). Checked directive by directive against the reference image: two
+  scripts of 60 and 40 lines (every directive, every modifier, the counts, the error cases)
+  answer identically.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -325,16 +339,16 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 ## Remaining gems (plan as of 2026-09-12)
 
-Order and instructions for the rest: `docs/gems-plan.md`. Order 5's numeric tower is done —
-bigint, then rational and complex together (they branch in the same places of `numeric.rs`),
-then cmath. What is left of it is mruby-pack.
+Order and instructions for the rest: `docs/gems-plan.md`. Order 5 is done: the numeric tower
+(bigint, then rational and complex together, then cmath) and mruby-pack. Next is order 4
+(eval, binding, proc-binding), then UTF-8, regexp and task.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
 class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint,
-rational, complex (31), plus mruby-cmath from outside the gembox.
+rational, complex, pack (32), plus mruby-cmath from outside the gembox.
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
@@ -342,7 +356,6 @@ Sizes are lines of the reference C / mrblib Ruby / test.
 | 4 | mruby-eval | 417 / 0 / 333 | binding, compiler | `docs/eval-require-plan.md`; `tests/custom` cases wait for it |
 | 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |
 | 4 | mruby-proc-binding | 75 / 0 / 22 | binding, proc-ext | `Proc#binding` |
-| 5 | mruby-pack | 2133 / 0 / 278 | – | `Array#pack`/`String#unpack`; large but self-contained |
 | 6 | mruby-regexp | 10940 / 42 / 10213 | enumerator, symbol-ext, string-ext | the NFA engine (4.0.0); the largest single piece, its own milestone |
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |

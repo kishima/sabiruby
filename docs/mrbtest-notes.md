@@ -34,6 +34,7 @@ Categories:
 | gem_enum | 1 KO (2 assertions) | deviation | `Array#count with a NaN`: same NaN identity. |
 | gem_enum_chain | 1 KO | reference too | `Enumerator::Chain#size`: `[1,2,3].chain(3..4).size` is 5 once mruby-range-ext gives `Range#size`, and the test expects nil. The reference `mruby` (default gembox) fails the same assertion (6/7). |
 | gem_set | 1 KO | deviation | `Set#include? with an element that changes the Set`: the reference raises RuntimeError from the khash rebuild guard (GHSA-4jw6-mq65-g3c8); the Hash-shaped Set here has no such state and finishes the lookup. |
+| gem_pack | 1 KO | deviation | `unpack a NaN that signals`: two unpacked NaNs are the same immediate here, so `equal?` is true. Same NaN identity as `float`. |
 | gem_string | 9 skip | build | `swapcase`/`casecmp?` Unicode and the six `scrub` tests skip themselves without `MRB_UTF8_STRING` (`UNICODECASE` false); the reference build is a byte-string build too. |
 | gem_fiber2 | (all pass) | — | Needs the six natives of `mruby-fiber/test/fibertest.c`; SabiRuby provides them in `src/mrbtest.rs`. The reference `mruby` command lacks them and crashes on all 4. |
 | gem_array | (C helper) | — | `__unshift_from_c` of `mruby-array-ext/test/array.c` is provided by `src/mrbtest.rs`. |
@@ -42,15 +43,14 @@ Categories:
 | gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
 | gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |
 
-Summary (2026-09-12, after the numeric tower — bigint, rational, complex, cmath): 1778
-assertions, 1738 pass.
-Not passing: 14 crashes (13 C fixtures, 1 core-test-vs-gem conflict the reference shares), 6 KO
-(deliberate deviations: NaN identity ×4, the pattern-matching guard, the Set rebuild guard),
+Summary (2026-09-12, after the numeric tower and mruby-pack): 1828 assertions, 1787 pass.
+Not passing: 14 crashes (13 C fixtures, 1 core-test-vs-gem conflict the reference shares), 7 KO
+(deliberate deviations: NaN identity ×5, the pattern-matching guard, the Set rebuild guard),
 20 skips (regexp 1, backtrace 2, Float defined 1, revision 1, UTF-8/encoding 12, DBG-dependent
 `source_location` 3, plus the empty `regexperror`), 0 warnings (one was a bug, see below).
 The four assertions that skipped for want of mruby-bigint (`array`, `gc`, `integer`,
 `literals`) run now; the four gems' own test files add 244 (bigint 29, rational 134,
-complex 8 + 81, cmath 21), all passing.
+complex 8 + 81, cmath 21), all passing, and mruby-pack 50 (one KO, the NaN above).
 
 The five `... does not retain ... in the GC arena` assertions of `gc` (`OP_GETIDX`, `OP_GETIDX0` twice each,
 `OP_SETIDX`) failed until the collector (`docs/gc.md`): they compare `GC.stat[:live]` around 20000 operations after a

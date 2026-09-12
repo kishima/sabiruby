@@ -18,6 +18,7 @@ pub mod ext_cmath;
 pub mod ext_complex;
 pub mod ext_numeric;
 pub mod ext_objectspace;
+pub mod ext_pack;
 pub mod ext_catch;
 pub mod ext_math;
 pub mod ext_random;
@@ -73,6 +74,7 @@ pub fn init(vm: &mut Vm) {
     ext_class::init(vm);
     ext_numeric::init(vm);
     ext_objectspace::init(vm);
+    ext_pack::init(vm);
     ext_catch::init(vm);
     ext_math::init(vm);
     ext_rational::init(vm);
