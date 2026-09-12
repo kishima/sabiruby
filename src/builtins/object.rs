@@ -232,18 +232,7 @@ pub fn init(vm: &mut Vm) {
         ("|", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
         ("^", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
     ]);
-    // Comparable / Enumerable bodies come from mrblib; `clamp` is mruby-compar-ext (a gem), added natively.
-    vm.define_method(c.comparable, "clamp", |vm, s, a, _b| {
-        argc!(vm, a, 2);
-        let cmp = vm.intern("<=>");
-        let lo = vm.funcall(a[0], cmp, &[a[1]], Value::Nil)?;
-        if matches!(lo, Value::Int(i) if i > 0) { return Err(vm.raise_arg("min argument must be less than or equal to max argument")); }
-        let c1 = vm.funcall(s, cmp, &[a[0]], Value::Nil)?;
-        if matches!(c1, Value::Int(i) if i < 0) { return Ok(a[0]); }
-        let c2 = vm.funcall(s, cmp, &[a[1]], Value::Nil)?;
-        if matches!(c2, Value::Int(i) if i > 0) { return Ok(a[1]); }
-        Ok(s)
-    });
+    // Comparable / Enumerable bodies come from mrblib (`clamp` is mruby-compar-ext's Ruby).
 }
 
 /// `equal?`: identity; Floats compare bit for bit (mruby reads the boxed representation).
@@ -395,7 +384,7 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             ObjKind::String(b) => ObjKind::String(b.clone()),
             ObjKind::Array(v) => ObjKind::Array(v.clone()),
             ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), hashes: hd.hashes.clone(), default: hd.default }),
-            ObjKind::Range { begin, end, excl } => ObjKind::Range { begin: *begin, end: *end, excl: *excl },
+            ObjKind::Range { .. } => ObjKind::Object, // `initialize_copy` fills the copy in, as the reference's `range_initialize_copy` does
             ObjKind::Exception => ObjKind::Exception,
             ObjKind::Class(cd) => {
                 let (hc, data, is_module, ivars) = (h.class, crate::object::ClassData { name: None, superclass: cd.superclass, methods: cd.methods.clone(), vis: cd.vis.clone(), consts: cd.consts.clone(), cvars: cd.cvars.clone(), is_module: cd.is_module, instance_kind: cd.instance_kind, outer: None, ..Default::default() }, cd.is_module, h.ivars.clone());

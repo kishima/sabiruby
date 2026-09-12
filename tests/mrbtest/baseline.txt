@@ -14,11 +14,14 @@ false 6
 float 28
 gc 23
 gem_array 82
+gem_compar 3
 gem_enum 38
+gem_enum_chain 6
 gem_enumerator 52
 gem_fiber 21
 gem_fiber2 4
 gem_hash 27
+gem_lazy 10
 gem_metaprog 33
 gem_method 30
 gem_numeric 1
@@ -26,6 +29,7 @@ gem_proc 9
 gem_range 4
 gem_sprintf 10
 gem_string 64
+gem_toplevel 1
 hash 44
 indexerror 1
 integer 40

@@ -158,7 +158,6 @@ pub fn init(vm: &mut Vm) {
         (">=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_ge())) }),
         ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
         ("between?", |vm, s, a, _b| { argc!(vm, a, 2); match cmp_or_fail(vm, s, &a[..1])? { Some(l) if l.is_lt() => return Ok(Value::False), Some(_) => {} None => return Err(unordered(vm, s, a[0])) } match cmp_or_fail(vm, s, &a[1..])? { Some(h) => Ok(Value::bool(h.is_le())), None => Err(unordered(vm, s, a[1])) } }),
-        ("clamp", |vm, s, a, _b| { argc!(vm, a, 2); match cmp_or_fail(vm, s, &a[..1])? { Some(o) if o.is_lt() => return Ok(a[0]), Some(_) => {} None => return Err(unordered(vm, s, a[0])) } match cmp_or_fail(vm, s, &a[1..])? { Some(o) if o.is_gt() => Ok(a[1]), Some(_) => Ok(s), None => Err(unordered(vm, s, a[1])) } }),
         ("abs", |_vm, s, _a, _b| Ok(match s { Value::Int(i) => Value::Int(i.wrapping_abs()), Value::Float(f) => Value::Float(f.abs()), v => v })),
         ("to_int", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Int(f as i64), v => v })),
         ("nan?", |_vm, s, _a, _b| Ok(Value::bool(matches!(s, Value::Float(f) if f.is_nan())))),

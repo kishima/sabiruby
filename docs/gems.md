@@ -88,6 +88,19 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   function). Native arity comes from a small table keyed by function (`Vm::native_arity`),
   `-1` otherwise, because SabiRuby natives carry no `MRB_ARGS_*` spec.
 
+* **mruby-compar-ext**, **mruby-toplevel-ext**, **mruby-enum-lazy** — pure Ruby, loaded as is. The
+  core stage had a native `clamp` on Comparable and on Integer; in the reference the only `clamp` is
+  this gem's Ruby method, so both natives went (rule 4: the native took two arguments and shadowed the
+  one-argument range form).
+* **mruby-enum-chain** — pure Ruby. Its `rewind` test defines a singleton method on a Range literal,
+  which uncovered a deviation: SabiRuby marked every Range **frozen** and used that flag as the
+  reference's `RANGE_INITIALIZED` flag (`'initialize' called twice`). In the reference `(1..2).frozen?`
+  is false, and since the singleton class of a frozen object is frozen too (`sc->frozen = o->frozen`),
+  `define_method` on the range's singleton class raised FrozenError here. Now an uninitialised Range is
+  a plain object until `initialize`/`initialize_copy` gives it its ends, and no Range is frozen.
+  `Enumerator::Chain#size` with a Range fails on the reference as well (mruby-range-ext defines
+  `Range#size`, the test expects nil).
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` compiles the test files with `mrbc -g`, which keeps the LVAR section:
@@ -100,15 +113,12 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
-enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method
-(11). Sizes are lines of the reference C / mrblib Ruby / test.
+enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
+compar-ext, toplevel-ext, enum-chain, enum-lazy (15). Sizes are lines of the
+reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
-| 1 | mruby-compar-ext | 0 / 79 / 47 | – | pure Ruby (`clamp`) |
-| 1 | mruby-toplevel-ext | 0 / 24 / 23 | – | pure Ruby (`include`/`private`/`public` at top level) |
-| 1 | mruby-enum-chain | 0 / 149 / 108 | enumerator | pure Ruby |
-| 1 | mruby-enum-lazy | 0 / 384 / 84 | enumerator, enum-ext | pure Ruby |
 | 2 | mruby-object-ext | 127 / 33 / 83 | – | `instance_exec`, `Object#tap`, `NilClass#to_a` |
 | 2 | mruby-symbol-ext | 111 / 72 / 101 | – | `Symbol#length`, `to_proc` is Ruby |
 | 2 | mruby-kernel-ext | 333 / 0 / 151 | – | `Integer()`, `Float()`, `String()`, `Array()`, `Hash()`, `__method__`, `fail` |
@@ -134,7 +144,7 @@ enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
-Order: 1 (pure Ruby, an afternoon) → 2 (small natives) → 3 (data structures and host
+Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives) → 3 (data structures and host
 clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
 (`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
 6 (regexp, on top of UTF-8) → 7 (task). regexp is by far the heaviest and can be moved after task.

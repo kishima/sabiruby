@@ -18,3 +18,4 @@ gem_string	9 skips: Unicode case mapping and `scrub` need MRB_UTF8_STRING (the r
 gem_sprintf	3 skips: encoding / UTF-8 tests (`__ENCODING__` is ASCII-8BIT here and on the reference build)
 gem_proc	2 crashes: `ProcExtTest` is the C fixture of mruby-proc-ext (`mrb_proc_new_cfunc_with_env`); skip: `source_location` needs DBG
 gem_method	2 skips: `source_location` needs the DBG section (not read)
+gem_enum_chain	ko: `[1,2,3].chain(3..4).size` is 5, not nil, with mruby-range-ext loaded (`Range#size`); the reference `mruby` fails the same assertion (6/7)

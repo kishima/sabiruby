@@ -439,7 +439,7 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_METHOD_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
         Ok(())
@@ -479,8 +479,8 @@ impl Vm {
         Value::Obj(self.heap.alloc(self.core.hash, ObjKind::Hash(Default::default())))
     }
     pub fn range_new(&mut self, begin: Value, end: Value, excl: bool) -> Value {
+        // not frozen: the reference's Range is immutable through its API only (`(1..2).frozen?` is false)
         let o = self.heap.alloc(self.core.range, ObjKind::Range { begin: Slot::from(begin), end: Slot::from(end), excl });
-        self.heap.get_mut(o).frozen = true;
         Value::Obj(o)
     }
     /// `range_ptr_replace`: both ends must be comparable (`<=>` not nil).

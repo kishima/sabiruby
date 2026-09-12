@@ -89,3 +89,7 @@ pub const MRBLIB_HASH_EXT_MRB: &[u8] = include_bytes!("mrblib_hash-ext.mrb");
 pub const MRBLIB_RANGE_EXT_MRB: &[u8] = include_bytes!("mrblib_range-ext.mrb");
 pub const MRBLIB_PROC_EXT_MRB: &[u8] = include_bytes!("mrblib_proc-ext.mrb");
 pub const MRBLIB_METHOD_MRB: &[u8] = include_bytes!("mrblib_method.mrb");
+pub const MRBLIB_COMPAR_EXT_MRB: &[u8] = include_bytes!("mrblib_compar-ext.mrb");
+pub const MRBLIB_ENUM_LAZY_MRB: &[u8] = include_bytes!("mrblib_enum-lazy.mrb");
+pub const MRBLIB_ENUM_CHAIN_MRB: &[u8] = include_bytes!("mrblib_enum-chain.mrb");
+pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib_toplevel-ext.mrb");
