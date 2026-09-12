@@ -44,6 +44,7 @@ gem_string 64
 gem_string_ext_range 4
 gem_struct 41
 gem_symbol 11
+gem_time 43
 gem_toplevel 1
 hash 44
 indexerror 1

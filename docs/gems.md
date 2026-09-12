@@ -179,6 +179,15 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   one failing assertion) do not exist here, the lookup simply finishes. `Set#hash` is the
   reference's xor fold over 32-bit element hashes.
 
+* **mruby-time** (`ext_time.rs`) — `sec`/`nsec`/zone in hidden instance variables (`__sec`,
+  `__nsec`, `__utc`); the calendar (`gmtime`, `timegm`) is computed in the VM (days-from-civil
+  and back). There is no `localtime`: the local zone is UTC with the offset `+0000` (no zone
+  database in a no_std VM), so `Time.local` and `Time.utc` differ only in `utc?`, `zone` and the
+  `to_s` suffix; `utc_offset` is 0 and `dst?` false. `Time.now` reads the host's `Vm::wall_clock`
+  (the CLI sets it from `SystemTime`); without one it is the epoch. Checked against the reference:
+  negative times, leap years, day overflow (`Time.gm(2024, 2, 30)`), the float/usec rounding of
+  `Time.at`, `-` between Times.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -198,12 +207,11 @@ The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ex
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
-class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set (27). Sizes
-are lines of the reference C / mrblib Ruby / test.
+class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time (28).
+Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
-| 3 | mruby-time | 1738 / 0 / 313 | – | `Time`: needs a clock from the host (no_std: a `Host` hook, like the compiler); `localtime` is POSIX, use UTC only and record the deviation |
 | 4 | mruby-eval | 417 / 0 / 333 | binding, compiler | `docs/eval-require-plan.md`; `tests/custom` cases wait for it |
 | 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |
 | 4 | mruby-proc-binding | 75 / 0 / 22 | binding, proc-ext | `Proc#binding` |
@@ -217,7 +225,7 @@ are lines of the reference C / mrblib Ruby / test.
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
 Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives, done 2026-09-12) → 3 (data structures and host
-clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
+clocks, done 2026-09-12) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
 (`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
 6 (regexp, on top of UTF-8) → 7 (task). regexp is by far the heaviest and can be moved after task.
 Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib_<gem>.mrb`,

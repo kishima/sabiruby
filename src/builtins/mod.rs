@@ -22,6 +22,7 @@ pub mod ext_random;
 pub mod ext_struct;
 pub mod ext_data;
 pub mod ext_set;
+pub mod ext_time;
 pub mod ext_method;
 pub mod ext_proc;
 pub mod ext_range;
@@ -75,6 +76,7 @@ pub fn init(vm: &mut Vm) {
     ext_struct::init(vm);
     ext_data::init(vm);
     ext_set::init(vm);
+    ext_time::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers
