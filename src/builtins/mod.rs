@@ -10,6 +10,7 @@ pub mod exception;
 pub mod ext_array;
 pub mod ext_eval;
 pub mod ext_require;
+pub mod ext_task;
 pub mod ext_hash;
 pub mod ext_metaprog;
 pub mod ext_object;
@@ -79,6 +80,7 @@ pub fn init(vm: &mut Vm) {
     ext_binding::init(vm);
     ext_eval::init(vm);
     ext_require::init(vm);
+    ext_task::init(vm);
     ext_class::init(vm);
     ext_numeric::init(vm);
     ext_objectspace::init(vm);

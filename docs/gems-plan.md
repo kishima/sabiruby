@@ -272,7 +272,14 @@ rational、pack の照合も bigint がある前提の方が楽。
    後方参照・先読み・アトミックは仕様の差になる。mruby/edge は同じ選択で表面を最小にしている」と書く（`extension.re` の
    「mruby-regexp は NFA エンジン」は本家の説明なので変えない）。
 
-### 3.7 mruby-task（2390 C / 46 Ruby / 860 test、`default.gembox` 外）
+### 3.7 mruby-task（2390 C / 46 Ruby / 860 test、`default.gembox` 外）— **済み（2026-09-13）**
+
+実装は `src/builtins/ext_task.rs`（スケジューラの状態は `Vm::task`）、Ruby 側は本家の `mrblib/queue.rb` を
+`src/mrblib_task.mrb` に、C のテスト補助（`test/tasktest.c`）は `src/mrbtest.rs` に。
+本家テストは `task` 43/43、`queue` 23/23、`gc_task` 4/6（`GC.generational_mode` が常に false）、
+`proc_set_stack` は 0 件（`respond_to?` で自分を飛ばす）。詳細と差異は `docs/gems.md`。
+計画との違いは tick の出どころ: タイマー割り込みが無いので命令数で数える（`TaskState::tick_every`）。
+
 
 * 目的は rubevy の「毎フレーム少し進める」ループ。`Vm::step` と Fiber のコンテキストの上に、
   優先度付きの実行キュー、`Task.pass`／`sleep`／`join`／`Task::Queue`、tick による横取りを載せる。

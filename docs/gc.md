@@ -56,6 +56,7 @@ and heap pages are implementation choices of `src/gc.c` and are not copied (book
 | 6 | `Vm::core` (all classes), `top_self`, `call_proc` | |
 | 7 | `inspect_guard`, `eq_guard`, `pending_kw`, `loop_exit` | `loop_exit` = value a fiber yielded to a native resumer |
 | 8 | `Vm::gc_registered` | `Vm::gc_register` / `gc_unregister` (mruby `mrb_gc_register`) |
+| 9 | mruby-task's four queues and the running task | a task the program dropped every reference to is still going to run, so the scheduler's queues own their tasks (`mrb_task_mark_all`) |
 | – | `ireps` | not scanned: pool literals are Rust values (`Pool`), not objects |
 | – | symbols | never collected |
 
@@ -71,6 +72,7 @@ Edges from an object: `class`, `ivars`, and per kind:
 | `Env` | `values` (detached), `target_class`, the special variables the scope owns (`svar`, `$~` and `$_`, and `svar_fwd`, the env a returned nested-load frame sent them to — `docs/gems.md`, mruby-regexp); for an **attached** env, its window `stack[base..base+len]` of its context (mruby marks `e->stack[0..len]`); not the whole context or the Fiber |
 | `Regexp` | none (the compiled pattern holds no Ruby value) |
 | `MatchData` | `source` (the subject as it was), `regexp` |
+| `Task` | its name, its result, the task it joins, the queue it waits on, and its context (mruby-task) |
 | `Class` | `superclass`, `methods` (`Method::Ruby` only), `consts`, `cvars`, `attached`, `iclass_of`, `origin`, `origin_of`, `outer` |
 | `Break` | `value` |
 | `Fiber` | its context |

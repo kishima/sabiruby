@@ -469,6 +469,51 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     `unicode_case`/`unicode_ctype` assert opposite things about the same patterns, so each build
     runs one pair, as the gem's `spec.build_settings` says.
 
+* **mruby-task** (`src/builtins/ext_task.rs`, the scheduler state in `Vm::task`) — `Task`,
+  `Task::Queue`, `Task::Error` and the task-aware `sleep` family. Not in any gembox; it is here
+  because it is the shape a host loop needs (`Vm::task_run_once`).
+
+  * **A task is a context, as a Fiber is.** The scheduler hands one the CPU by resuming its
+    context exactly the way `Fiber#resume` does (`Vm::fiber_switch` with `vmexec`), and `sleep`,
+    `Task.pass`, `#join` and a blocking `Queue#pop` give it back the way `Fiber.yield` does. That
+    is also the reference's design (`mrb_task` embeds an `mrb_context` and `execute_task` swaps
+    `mrb->c`), so almost nothing new had to be built: the four priority queues, the statuses and
+    the wait reasons sit on top of the machinery the fibers already needed.
+  * **The tick is instructions, not milliseconds.** The reference's tick comes from a timer
+    interrupt (`mrb_tick` from `SIGALRM` or a multimedia timer, one HAL per platform). A `no_std`
+    VM has no timer and no thread to run one on, so the tick is counted in instructions
+    (`TaskState::tick_every`, 10,000 by default) and `Task.tick` reports that count in the
+    reference's tick unit. A timeslice is therefore a fixed amount of *work* rather than of time
+    — which is what a deterministic test suite wants — and a host with a clock can drive the tick
+    itself by setting `tick_every` to 0 and calling the scheduler when it pleases.
+  * **The idle jumps the clock.** Where nothing is ready and something is sleeping, the reference
+    idles the CPU until the timer fires; here the scheduler moves the tick straight to the
+    earliest deadline. Where nothing is ready and nothing has a deadline (every task suspended or
+    joining), the reference idles forever — `Task.run` returns instead, since nothing else in
+    this VM could ever make a task ready.
+  * **Preemption is one test at the instruction boundary.** `exec_frames` checks the switch flag
+    where the reference's `RETURN_IF_TASK_STOPPED` does, with the same three refusals: not on the
+    root context, not while an exception is in flight (the catch handler must consume it first,
+    or a rescued exception would be swallowed into the task's result), and not across a native
+    frame (`Vm::fiber_check_native`, which is `task_across_c_boundary`).
+  * **An unhandled exception is the task's result**, so the scheduler carries on and `Task#value`
+    answers the exception object (`mrb->task.exception_as_result`).
+  * **A task that is closed or terminated while suspended takes its environments with it.** Its
+    frames still hold the stack the escaped blocks read, so `Vm::detach_context_envs` copies the
+    values out before the context goes — the same thing the sweep does for a context nothing
+    reached (`mrb_env_detach_all`). Without it a closure written inside a task read freed memory
+    after `Task#close`, which is what three of the gem's tests are about.
+  * **`Task::Queue`** is the gem's own Ruby part (`mrblib/queue.rb`, loaded as
+    `src/mrblib_task.mrb`) over five natives; the items are an ivar Array rather than a `DATA_PTR`
+    struct. A blocking `pop` parks the task with reason `QUEUE` and answers the `WAIT_RETRY`
+    sentinel, which the Ruby loop retries once a push or a close made it ready again.
+  * **`GC.scheduler_driven`** turns the collector over to the scheduler's idle points, and
+    `GC.debt_limit` is kept as a value. Two of `gc_task.rb`'s six assertions ask for
+    `GC.generational_mode` to be on, which this collector never is (`docs/gc.md`).
+  * The C test helpers (`test/tasktest.c`) are in `src/mrbtest.rs`: the scheduler hook probes,
+    `run_once`, `reinit_context`, `run_sync`, and `block_then_raise`, whose busy-wait is replaced
+    by saying outright that the timeslice expired — the state the test is about.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -486,21 +531,21 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 Order and instructions for the rest: `docs/gems-plan.md`. Order 5 (the numeric tower and
 mruby-pack), order 4 (eval, binding, proc-binding), UTF-8 strings (`docs/utf8.md`) and order 6
-(regexp) are done, and so is `require` (`docs/eval-require-plan.md` §5). Next: task.
+(regexp) and 7 (task) are done, and so is `require` (`docs/eval-require-plan.md` §5). What is
+left of the plan is the POSIX gems, which are not planned.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
 class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint,
-rational, complex, pack, eval, binding, proc-binding, regexp (36), plus mruby-cmath from outside
-the gembox. Only the POSIX gems are left.
+rational, complex, pack, eval, binding, proc-binding, regexp (36), plus mruby-cmath and
+mruby-task from outside the gembox. Only the POSIX gems are left.
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
-| 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
 Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives, done 2026-09-12) → 3 (data structures and host
 clocks, done 2026-09-12) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings

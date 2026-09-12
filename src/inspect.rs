@@ -277,6 +277,7 @@ impl Vm {
                 if self.heap.is_free(o) { return format!("#<freed {}>", o.0); }
                 match &self.heap.get(o).kind {
                     ObjKind::Regexp(_) => format!("#<Regexp {}>", o.0),
+                    ObjKind::Task(t) => format!("#<Task {} ctx={}>", o.0, t.ctx),
                     ObjKind::MatchData { .. } => format!("#<MatchData {}>", o.0),
                     ObjKind::String(b) => render_string(b),
                     ObjKind::Array(a) => {

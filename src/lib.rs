@@ -114,5 +114,7 @@ pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib_toplevel-ext.m
 pub const MRBLIB_RATIONAL_MRB: &[u8] = include_bytes!("mrblib_rational.mrb");
 pub const MRBLIB_COMPLEX_MRB: &[u8] = include_bytes!("mrblib_complex.mrb");
 pub const MRBLIB_REGEXP_MRB: &[u8] = include_bytes!("mrblib_regexp.mrb");
+/// mruby-task's `Task::Queue#push`/`#pop` (`mrbgems/mruby-task/mrblib/queue.rb`).
+pub const MRBLIB_TASK_MRB: &[u8] = include_bytes!("mrblib_task.mrb");
 /// `require`/`load`, which the reference has no equivalent of (`src/mrblib_require.rb`).
 pub const MRBLIB_REQUIRE_MRB: &[u8] = include_bytes!("mrblib_require.mrb");

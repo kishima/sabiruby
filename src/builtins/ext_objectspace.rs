@@ -25,7 +25,8 @@ fn type_index(vm: &Vm, id: ObjId) -> usize {
         ObjKind::Exception => 10,
         // a Regexp and a MatchData are `T_CDATA` in the reference, which the table has no entry
         // for; they are counted as plain objects here (`docs/gems.md`)
-        ObjKind::Regexp(_) | ObjKind::MatchData { .. } => 0,
+        // a Task is `T_CDATA` too, and is counted the same way
+        ObjKind::Regexp(_) | ObjKind::MatchData { .. } | ObjKind::Task(_) => 0,
         ObjKind::Env(_) => 11,
         ObjKind::Fiber(_) => 12,
         ObjKind::Break { .. } => 13,

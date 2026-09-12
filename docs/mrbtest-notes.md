@@ -59,14 +59,17 @@ Categories:
 | gem_unicode_ctype | 4 KO, 1 crash | engine | A nested negated class and a `&&` of two unions compile here where the reference refuses them, `/i` over a negated POSIX bracket folds the other way round, and a byte-read subject is read as characters; the crash is a lookbehind. |
 | gem_ascii_case | 1 KO, 1 skip | engine | Byte-string build only (the gem's `spec.build_settings`): `/i` carries Rust's Unicode table in either build, where the reference has none without `MRB_UTF8_STRING`. |
 | gem_backtracking_stack | 0 assertions | — | The file carries the helper the other gem test files call; `tools/mrbtest.sh` extracts it into `prelude.rb` and loads it after `assert.rb` for every file, the reference's driver getting it by linking all the files into one program. |
+| gem_gc_task | 2 KO | deviation | `GC.scheduler_driven` is there and the scheduler collects from its idle points, but `GC.generational_mode` is always false (the collector marks and sweeps in one go, `docs/gc.md`) and both assertions turn on it being on. |
+| gem_proc_set_stack | 0 assertions | — | Both tests ask `TaskTest.respond_to?` first and skip themselves: they probe how mruby sizes a task's stack allocation, which a growable vector has no equivalent of. |
 
-Summary (2026-09-13, after mruby-regexp): 2412 assertions in the default build, 2243 pass
-(2357 and 2166 without the feature `utf8`).
+Summary (2026-09-13, after mruby-regexp and mruby-task): 2484 assertions in the default build,
+2313 pass (2429 and 2236 without the feature `utf8`). mruby-task's own files add 72, of which 70
+pass (`gem_task` 43/43, `gem_queue` 23/23, `gem_gc_task` 4/6).
 Not passing: 100 crashes and 50 KO, of which mruby-regexp's engine accounts for 82 crashes and
 39 KO; the rest are the 17 crashes (16 C fixtures, 1 core-test-vs-gem conflict the reference
 shares) and 11 KO (NaN identity ×5, the pattern-matching guard, the Set rebuild guard,
-`binding_in_c`, `Enumerator::Chain#size`, and `codegen`'s two assertions that hold only without
-a `Regexp` class) of the files above. 19 skips, 0 warnings (one was a bug, see below).
+`binding_in_c`, `Enumerator::Chain#size`, `codegen`'s two assertions that hold only without a
+`Regexp` class, and `gc_task`'s two) of the files above. 19 skips, 0 warnings (one was a bug, see below).
 The gem's own test files add 501 assertions (`gem_regexp*`, `gem_match_data`,
 `gem_string_regexp`, `gem_string_index`, `gem_symbol_regexp`, `gem_backref_scope`, the
 `unicode_*`/`ascii_*` pair for the build that owns it); `gem_backref_scope` (64, `$~` scoping),

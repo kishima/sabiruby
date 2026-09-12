@@ -217,7 +217,26 @@ pub fn init(vm: &mut Vm) {
         ("step_limit", |vm, _s, _a, _b| Ok(Value::Int(vm.gc_step_limit))),
         ("step_limit=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "limit")?; if r < 0 { return Err(vm.raise_arg("step_limit must be non-negative")); } vm.gc_step_limit = r; Ok(Value::Int(r)) }),
         ("generational_mode", |_vm, _s, _a, _b| Ok(Value::False)),
-        ("generational_mode=", |_vm, _s, a, _b| Ok(a.first().copied().unwrap_or(Value::Nil))),
+        ("generational_mode=", |vm, _s, a, _b| {
+            // mruby-task: a generational minor cycle is one atomic step, which would defeat a
+            // collector the scheduler drives (`gc_scheduler_driven_set`)
+            if vm.task.gc_driven && a.first().map(|v| v.truthy()).unwrap_or(false) {
+                return Err(vm.raise(vm.core.runtime_error, "generational mode cannot be enabled while GC is scheduler-driven"));
+            }
+            Ok(a.first().copied().unwrap_or(Value::Nil))
+        }),
+        // mruby-task's `GC.scheduler_driven` family (`mrbgems/mruby-task/src/gc.c`): the
+        // scheduler collects from its idle points instead of the allocation path
+        ("scheduler_driven", |vm, _s, _a, _b| Ok(Value::bool(vm.task.gc_driven))),
+        ("scheduler_driven=", |vm, _s, a, _b| {
+            argc!(vm, a, 1);
+            let on = a[0].truthy();
+            if on && vm.gc_disabled { return Err(vm.raise(vm.core.runtime_error, "cannot enable scheduler-driven GC while GC is disabled")); }
+            vm.task.gc_driven = on;
+            Ok(Value::bool(on))
+        }),
+        ("debt_limit", |vm, _s, _a, _b| Ok(Value::Int(vm.task.gc_debt_limit))),
+        ("debt_limit=", |vm, _s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "limit")?; if n < 0 { return Err(vm.raise_arg("debt_limit must be non-negative")); } vm.task.gc_debt_limit = n; Ok(Value::Int(n)) }),
         ("malloc_threshold", |vm, _s, _a, _b| Ok(Value::Int(vm.heap.malloc_threshold as i64))),
         ("malloc_threshold=", |vm, _s, a, _b| { argc!(vm, a, 1); let r = vm.expect_int(a[0], "threshold")?; if r < 0 { return Err(vm.raise_arg("malloc_threshold must be non-negative")); } vm.heap.malloc_threshold = r as usize; Ok(Value::Int(r)) }),
         ("stat", |vm, _s, _a, _b| { let h = vm.hash_new(); let live = vm.heap.live_count() as i64; let (mi, mt) = (vm.heap.malloc_increase as i64, vm.heap.malloc_threshold as i64); for (k, v) in [("live", live), ("debt", 0), ("state", 0), ("generational", 0), ("full", 0), ("step_limit", vm.gc_step_limit), ("malloc_increase", mi), ("malloc_threshold", mt), ("symbol_count", vm.syms.len() as i64), ("dynamic_symbol_count", 0)] { let ks = Value::Sym(vm.intern(k)); vm.hash_set(h, ks, Value::Int(v))?; } Ok(h) }),
@@ -424,7 +443,7 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
                 } else if !is_module { vm.singleton_class(Value::Obj(n))?; }
                 return Ok(Value::Obj(n));
             }
-            ObjKind::Proc(_) | ObjKind::Env(_) | ObjKind::Break { .. } | ObjKind::Fiber(_) => return Ok(s),
+            ObjKind::Proc(_) | ObjKind::Env(_) | ObjKind::Break { .. } | ObjKind::Fiber(_) | ObjKind::Task(_) => return Ok(s),
         };
         (vm.real_class_of(s), h.ivars.clone(), kind)
     };

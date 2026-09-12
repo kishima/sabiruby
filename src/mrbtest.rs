@@ -95,6 +95,67 @@ pub fn install(vm: &mut Vm) {
     let psc = vm.singleton_class(Value::Obj(vm.core.proc_)).expect("Proc singleton");
     vm.define_method(psc, "c_tunnel", |vm, _s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block(b, &[]) });
 
+    // mrbgems/mruby-task/test/tasktest.c: what only C can put to the scheduler. The hook state
+    // lives in globals of this VM rather than in C statics, so two VMs stay independent.
+    let tt = vm.define_module("TaskTest");
+    let ttsc = vm.singleton_class(Value::Obj(tt)).expect("TaskTest singleton");
+    vm.define_method(ttsc, "block_then_raise", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        // the point of the busy-wait there is that the running task's timeslice has expired by
+        // the time the raise unwinds; saying so outright is the same state without the clock
+        vm.task.switching = true;
+        Err(vm.raise(vm.core.runtime_error, "raised after blocking"))
+    });
+    vm.define_method(ttsc, "install_probe_hook", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let which = vm.expect_int(a[0], "which")?;
+        let n = vm.intern(if which == 0 { "$__tasktest_probe_a" } else { "$__tasktest_probe_b" });
+        vm.globals.insert(n, Slot::from(Value::Int(0)));
+        let h = vm.intern("$__tasktest_hook");
+        vm.globals.insert(h, Slot::from(Value::Int(if which == 0 { 1 } else { 2 })));
+        vm.task.hook = Some(tasktest_hook);
+        Ok(Value::Nil)
+    });
+    vm.define_method(ttsc, "probe_count", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let which = vm.expect_int(a[0], "which")?;
+        let n = vm.intern(if which == 0 { "$__tasktest_probe_a" } else { "$__tasktest_probe_b" });
+        Ok(vm.globals.get(&n).map(|s| s.get()).unwrap_or(Value::Int(0)))
+    });
+    vm.define_method(ttsc, "install_wake_hook", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let q = vm.intern("$__tasktest_wake_queue");
+        vm.globals.insert(q, Slot::from(a[0]));
+        let h = vm.intern("$__tasktest_hook");
+        vm.globals.insert(h, Slot::from(Value::Int(3)));
+        vm.task.hook = Some(tasktest_hook);
+        Ok(Value::Nil)
+    });
+    vm.define_method(ttsc, "clear_hook", |vm, _s, _a, _b| {
+        vm.task.hook = None;
+        let h = vm.intern("$__tasktest_hook");
+        vm.globals.insert(h, Slot::from(Value::Int(0)));
+        Ok(Value::Nil)
+    });
+    vm.define_method(ttsc, "reinit_context", |vm, _s, a, b| {
+        vm.check_argc(a, 1, 1)?;
+        let Some(t) = a[0].obj().filter(|o| matches!(vm.heap.get(*o).kind, crate::object::ObjKind::Task(_))) else {
+            return Err(vm.raise_type("not a Task"));
+        };
+        let Some(p) = b.obj().filter(|o| matches!(vm.heap.get(*o).kind, crate::object::ObjKind::Proc(_))) else {
+            return Err(vm.raise_arg("block required"));
+        };
+        crate::builtins::ext_task::reinit_context(vm, t, p);
+        Ok(Value::Nil)
+    });
+    vm.define_method(ttsc, "run_sync", |vm, _s, _a, b| {
+        let Some(p) = b.obj().filter(|o| matches!(vm.heap.get(*o).kind, crate::object::ObjKind::Proc(_))) else {
+            return Err(vm.raise_arg("block required"));
+        };
+        crate::builtins::ext_task::run_sync(vm, p)
+    });
+    vm.define_method(ttsc, "run_once", |vm, _s, _a, _b| vm.task_run_once());
+
     // mrbgems/mruby-regexp/test/backref_scope.c: what an embedding host does to `$~`. A native
     // pushes no frame here, so each of these lands on the calling Ruby scope the way the
     // reference's C frame does.
@@ -137,6 +198,31 @@ pub fn install(vm: &mut Vm) {
         let sym = vm.intern(name);
         Ok(Value::Sym(sym))
     });
+}
+
+/// The scheduler hook the `TaskTest` helpers install: which one is armed is a global of the VM
+/// (`tasktest_probe_hook` / `tasktest_wake_hook`).
+fn tasktest_hook(vm: &mut Vm) {
+    let h = vm.intern("$__tasktest_hook");
+    let which = match vm.globals.get(&h).map(|s| s.get()) { Some(Value::Int(i)) => i, _ => 0 };
+    match which {
+        1 | 2 => {
+            let n = vm.intern(if which == 1 { "$__tasktest_probe_a" } else { "$__tasktest_probe_b" });
+            let c = match vm.globals.get(&n).map(|s| s.get()) { Some(Value::Int(i)) => i, _ => 0 };
+            vm.globals.insert(n, Slot::from(Value::Int(c + 1)));
+        }
+        3 => {
+            // a one-shot: the first entry after arming pushes into the queue the test named
+            let q = vm.intern("$__tasktest_wake_queue");
+            let queue = vm.globals.get(&q).map(|s| s.get()).unwrap_or(Value::Nil);
+            if !queue.is_nil() {
+                vm.globals.insert(q, Slot::from(Value::Nil));
+                let push = vm.intern("push");
+                let _ = vm.funcall(queue, push, &[Value::Int(42)], Value::Nil);
+            }
+        }
+        _ => {}
+    }
 }
 
 /// Port of `str_match_p` in `mrbgems/mruby-test/driver.c`: `*`, `?`, `[...]`,

@@ -86,6 +86,47 @@ impl Context {
 /// Index of the root context in `Vm::contexts`.
 pub const ROOT: usize = 0;
 
+/// mruby-task's scheduler state (`mrb_task_state`). The queues hold the Task objects, which is
+/// what keeps a task the program dropped every other reference to alive.
+#[derive(Default)]
+pub struct TaskState {
+    /// dormant, ready, waiting, suspended — the ready one sorted by priority, FIFO within one
+    pub queues: [Vec<ObjId>; 4],
+    /// ticks since the scheduler started (`MRB_TICK_UNIT` milliseconds apiece)
+    pub tick: u32,
+    /// the earliest tick a waiting task asked to be woken at; `u32::MAX` where none did
+    pub wakeup_tick: u32,
+    /// a switch is due at the next instruction boundary (the timeslice ran out, or a task the
+    /// running one woke has a higher priority)
+    pub switching: bool,
+    /// `Task.run` is already running, so a nested one answers nil (`loop_running`)
+    pub loop_running: bool,
+    /// The task the scheduler handed the CPU to, which is the one a `sleep` or a `Task.pass`
+    /// from a task context belongs to.
+    pub running: Option<ObjId>,
+    /// Instructions between two ticks. The reference's tick comes from a timer interrupt, which
+    /// a `no_std` VM has none of; here it is the instruction count, so a timeslice is a fixed
+    /// amount of work rather than of time (`docs/gems.md`). 0 turns the counting off, which a
+    /// host driving `Vm::task_tick` itself wants.
+    pub tick_every: u64,
+    /// instructions left until the next tick
+    pub tick_left: u64,
+    /// `Task.current` in the root context: the task that stands for the program itself, made on
+    /// first use and in no queue (`mrb->task.main_task`)
+    pub main: Option<ObjId>,
+    /// what the scheduler runs at every entry, before it reads the ready queue
+    /// (`mrb_task_set_scheduler_hook`); only the test helpers install one
+    pub hook: Option<fn(&mut Vm)>,
+    /// the collector is the scheduler's to drive (`GC.scheduler_driven`)
+    pub gc_driven: bool,
+    /// what `GC.debt_limit` holds, the safety valve of a scheduler that never idles
+    pub gc_debt_limit: i64,
+}
+
+/// Instructions a tick lasts where nothing else drives one (`MRB_TICK_UNIT` has no meaning
+/// without a clock).
+pub const TASK_TICK_INSTRUCTIONS: u64 = 10_000;
+
 #[derive(Clone, Copy, Debug)]
 pub struct CallInfo {
     pub base: usize,
@@ -318,13 +359,15 @@ pub struct Vm {
     #[doc(hidden)]
     pub direct_send: bool,
     /// Absolute register the native call in progress writes its result to.
-    native_ret_reg: usize,
+    pub(crate) native_ret_reg: usize,
     /// Set by a fiber switch that must end the innermost run loop (yield or
     /// termination of a fiber resumed by native code): the loop returns this value.
-    loop_exit: Option<Value>,
+    pub(crate) loop_exit: Option<Value>,
     /// Arity of natives as the reference declares it (`MRB_ARGS_*`), for `Method#arity`.
     #[doc(hidden)]
     pub native_arity: Vec<(crate::object::NativeFn, i64)>,
+    /// mruby-task's scheduler (`src/builtins/ext_task.rs`).
+    pub task: TaskState,
 }
 
 /// Result of [`Vm::step`].
@@ -462,6 +505,7 @@ impl Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
+            task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, ..Default::default() },
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -500,7 +544,7 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB, crate::MRBLIB_REGEXP_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB, crate::MRBLIB_REGEXP_MRB, crate::MRBLIB_TASK_MRB] {
             vm.load_and_run(lib)?;
         }
         // mruby-regexp initialises after the core mrblib is loaded, as a gem does: it takes the
@@ -511,6 +555,14 @@ impl Vm {
         // `$LOADED_FEATURES` (`docs/eval-require-plan.md` 5)
         vm.load_and_run(crate::MRBLIB_REQUIRE_MRB)?;
         Ok(())
+    }
+
+    /// Runs one ready task of mruby-task's scheduler and comes back (`mrb_task_run_once`), which
+    /// is what a host loop wants where `Task.run` would block until every task is done: one call
+    /// per frame or per turn of an event loop. Answers the task's result where it finished, true
+    /// where one ran, and nil where nothing was ready.
+    pub fn task_run_once(&mut self) -> VmResult<Value> {
+        crate::builtins::ext_task::task_run_once(self)
     }
 
     /// Where `require` looks (`$LOAD_PATH`). The host decides: the `sabiruby` command uses the
@@ -1360,14 +1412,14 @@ impl Vm {
     }
 
     /// Writes `v` into the register the current context is suspended in.
-    fn deliver(&mut self, v: Value) {
+    pub(crate) fn deliver(&mut self, v: Value) {
         if let Some(reg) = self.contexts[self.cur].pending_reg.take() {
             if reg < self.stack.len() { self.stack[reg] = Slot::from(v); }
         }
     }
 
     /// Makes `to` the running context (`fiber_switch_context`).
-    fn switch_context(&mut self, to: usize, kind: SwitchKind) {
+    pub(crate) fn switch_context(&mut self, to: usize, kind: SwitchKind) {
         let from = self.cur;
         if from == to { return; }
         if self.trace.is_some() { self.record(TraceEvent::FiberSwitch { from, to, kind }); }
@@ -1449,7 +1501,7 @@ impl Vm {
     /// cannot be switched. The entry frame of a context (index 0: the fiber's
     /// block, or the top-level program of the root) does not count, like
     /// mruby's `cibase` in `task_across_c_boundary`.
-    fn fiber_check_native(&self, ctx: usize) -> bool {
+    pub(crate) fn fiber_check_native(&self, ctx: usize) -> bool {
         let ci = if ctx == self.cur { &self.ci } else { &self.contexts[ctx].ci };
         ci.iter().skip(1).any(|c| c.cci == Cci::Skip)
     }
@@ -1730,6 +1782,12 @@ impl Vm {
         for id in &self.inspect_guard { h.mark_id(*id, work); }
         for (x, y) in &self.eq_guard { h.mark_id(*x, work); h.mark_id(*y, work); }
         for id in &self.gc_registered { h.mark_id(*id, work); }
+        // the scheduler's queues own their tasks: one the program dropped is still going to run
+        // (`mrb_task_mark_all`)
+        for q in &self.task.queues {
+            for id in q { h.mark_id(*id, work); }
+        }
+        for t in [self.task.running, self.task.main].into_iter().flatten() { h.mark_id(t, work); }
     }
 
     /// Marks what a context holds: registers, frames, its Fiber and block.
@@ -1800,6 +1858,23 @@ impl Vm {
             if idx < e.values.len() { e.values[idx] = Slot::from(v); }
         }
     }
+    /// Takes the values of every environment of `ctx`'s frames off its stack, so the context can
+    /// be dropped while a block written in it lives on (`mrb_env_detach_all`, which the sweep of
+    /// an unreachable context does too). A task the scheduler closes or terminates goes this way.
+    pub(crate) fn detach_context_envs(&mut self, ctx: usize) {
+        if ctx == self.cur || ctx >= self.contexts.len() { return; }
+        let envs: Vec<ObjId> = self.contexts[ctx].ci.iter().filter_map(|f| f.env).collect();
+        for e in envs {
+            let (attached, base, len) = { let ed = self.heap.env(e); (ed.attached, ed.base, ed.len) };
+            if !attached { continue; }
+            let end = (base + len).min(self.contexts[ctx].stack.len());
+            let vals = if base < end { self.contexts[ctx].stack[base..end].to_vec() } else { Vec::new() };
+            let ed = self.heap.env_mut(e);
+            ed.values = vals;
+            ed.attached = false;
+        }
+    }
+
     /// Reads a slot of an environment whether it is still on the stack or detached.
     pub fn env_value(&self, env: ObjId, idx: usize) -> Value { self.env_get(env, idx) }
     pub fn cvar_class_of(&self, proc_: ObjId) -> ObjId { self.cvar_class(proc_) }
@@ -2072,7 +2147,7 @@ impl Vm {
     /// contexts the loop is switched into (non-native fiber resume/yield) never
     /// end the loop; only a fiber's base frame terminating does, and then the
     /// loop carries on in the previous context.
-    fn run_loop_ctx(&mut self, lc: usize, stop_depth: usize) -> VmResult<Value> {
+    pub(crate) fn run_loop_ctx(&mut self, lc: usize, stop_depth: usize) -> VmResult<Value> {
         let mut pending: Option<VmResult<Value>> = None;
         loop {
             let r = match pending.take() { Some(r) => r, None => self.exec_frames(stop_depth, lc) };
@@ -2264,6 +2339,26 @@ impl Vm {
     fn exec_frames(&mut self, stop_depth: usize, lc: usize) -> VmResult<Value> {
         let mut ext: u8 = 0;
         loop {
+            // mruby-task: the tick a timer interrupt gives the reference is the instruction
+            // count here, and a switch the tick asked for is taken at the next instruction
+            // boundary of a task's own frame (`RETURN_IF_TASK_STOPPED`)
+            if self.task.tick_every != 0 && self.task.running.is_some() {
+                self.task.tick_left = self.task.tick_left.saturating_sub(1);
+                if self.task.tick_left == 0 { crate::builtins::ext_task::tick(self); }
+            }
+            if self.task.switching && self.cur != ROOT && self.exc.is_none()
+                && !self.fiber_check_native(self.cur) && self.contexts[self.cur].vmexec
+            {
+                // the task is left suspended at this instruction, as a `Fiber.yield` leaves a
+                // fiber, and the scheduler's nested loop ends here
+                self.task.switching = false;
+                let c = self.cur;
+                let prev = self.contexts[c].prev.take().unwrap_or(ROOT);
+                self.contexts[c].status = FiberState::Suspended;
+                self.contexts[c].vmexec = false;
+                self.switch_context(prev, SwitchKind::Yield);
+                return Ok(Value::Nil);
+            }
             if let Some(left) = self.step_left {
                 // Suspend only in the outermost loop: a nested loop (native code
                 // waiting for a block) must run to completion, so the pause lands

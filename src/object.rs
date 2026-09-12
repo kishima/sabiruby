@@ -138,6 +138,32 @@ impl Default for Value {
     }
 }
 
+/// One task of mruby-task's scheduler (`mrb_task`). The queues it moves between are the VM's
+/// (`Vm::task`), and its execution context is one of `Vm::contexts`, as a Fiber's is.
+pub struct TaskData {
+    /// index into `Vm::contexts`, or `usize::MAX` before the task was given one
+    pub ctx: usize,
+    /// 0-255, 0 highest (`MRB_TASK_PRIORITY_DEFAULT` is 128)
+    pub priority: u8,
+    /// `MRB_TASK_STATUS_*`
+    pub status: u8,
+    /// `MRB_TASK_REASON_*`
+    pub reason: u8,
+    /// ticks left of this task's timeslice while it runs
+    pub timeslice: u8,
+    /// the name `Task.new(name:)` was given, or nil
+    pub name: Slot,
+    /// what the block answered, or the exception it raised and did not handle
+    pub result: Slot,
+    /// tick to wake at (`MRB_TASK_REASON_SLEEP`, or a queue wait with a timeout);
+    /// `u32::MAX` is "no timed wakeup"
+    pub wakeup_tick: u32,
+    /// the task this one is joining (`MRB_TASK_REASON_JOIN`)
+    pub join: Option<ObjId>,
+    /// the `Task::Queue` this one is waiting on (`MRB_TASK_REASON_QUEUE`)
+    pub queue: Option<ObjId>,
+}
+
 /// Why a `Break` object is unwinding the stack (mruby `RBREAK_TAG_*`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BreakTag {
@@ -162,6 +188,9 @@ pub enum ObjKind {
     Exception,
     /// `RFiber`: index of the fiber's context in `Vm::contexts` (`usize::MAX` = not initialized).
     Fiber(usize),
+    /// mruby-task's `mrb_task`: one runnable unit, its context among the fibers' and the rest
+    /// the scheduler's bookkeeping (`docs/gems.md`).
+    Task(alloc::boxed::Box<TaskData>),
     /// mruby `RBigint`: an Integer too wide for `Value::Int`. Its class is `Integer`, and a
     /// value that fits in an `i64` is never stored as one (`bint_norm`, see `docs/gems.md`).
     BigInt(BigInt),
@@ -362,6 +391,12 @@ impl Heap {
                     if let Some(a) = c.attached { mark(a.get()); }
                 }
                 ObjKind::Fiber(ctx) => { if *ctx != usize::MAX { ctxs.push(*ctx); } }
+                ObjKind::Task(t) => {
+                    if t.ctx != usize::MAX { ctxs.push(t.ctx); }
+                    mark(t.name.get());
+                    mark(t.result.get());
+                    for x in [t.join, t.queue].into_iter().flatten() { mark(Value::Obj(x)); }
+                }
             }
         }
     }
