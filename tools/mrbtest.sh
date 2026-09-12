@@ -17,7 +17,7 @@ fi
 # copy sources (they are MIT, from mruby test/) and compile.
 # Gem tests (mrbgems/<gem>/test/*.rb) are copied as gem_<file>.rb; the gem's
 # mrblib is compiled into src/mrblib_<gem>.mrb and loaded by Vm::with_mrblib.
-GEMS="mruby-sprintf mruby-metaprog mruby-proc-ext mruby-method mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext mruby-compar-ext mruby-toplevel-ext mruby-enum-chain mruby-enum-lazy mruby-object-ext mruby-symbol-ext mruby-kernel-ext mruby-class-ext mruby-numeric-ext mruby-catch mruby-objectspace"
+GEMS="mruby-sprintf mruby-metaprog mruby-proc-ext mruby-method mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext mruby-compar-ext mruby-toplevel-ext mruby-enum-chain mruby-enum-lazy mruby-object-ext mruby-symbol-ext mruby-kernel-ext mruby-class-ext mruby-numeric-ext mruby-catch mruby-objectspace mruby-math mruby-random"
 # the gem test files are copied afresh (the collision rule below looks at what this run copied)
 rm -f $DIR/src/gem_*.rb $DIR/gem_*.mrb
 cp "$MRUBY/test/assert.rb" $DIR/src/

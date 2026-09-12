@@ -146,6 +146,17 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   bodies run and `rescue Exception` does not see it (the reference raises an `RBreak` aimed at
   the frame of its bytecode `catch`). An unmatched tag raises the gem's `UncaughtThrowError`.
 
+* **mruby-math** (`ext_math.rs`) — the `Math` module over `libm` (already a dependency), the
+  reference's domain checks as `Math::DomainError`; module functions. Output is identical to
+  the reference for the values tried (`frexp`, `ldexp`, `cbrt`, `log(x, base)`, ...).
+* **mruby-random** (`ext_random.rs`) — PCG-XSH-RR with the reference's seeding, so
+  `Random.new(123)` gives the reference's sequence (checked: `rand(1000)`, `rand`, `bytes`,
+  `shuffle`, `sample` with the same seeds). The state lives in two hidden instance variables
+  (`__state`, `__seed`) rather than an `MRB_TT_ISTRUCT` payload. The default generator is
+  seeded with a constant (the VM has no clock; the reference uses `time(NULL)`), so its
+  sequence repeats across runs until `srand`; `srand` without a seed mixes the host's
+  `gc_clock` when there is one.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -165,16 +176,14 @@ The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ex
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
-class-ext, numeric-ext, catch, objectspace (22). Sizes are lines of the reference
-C / mrblib Ruby / test.
+class-ext, numeric-ext, catch, objectspace, math, random (24). Sizes are lines of the
+reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
 | 3 | mruby-struct | 909 / 77 / 504 | – | `Struct` (used by mruby-process, mruby-data is its sibling) |
 | 3 | mruby-data | 639 / 9 / 143 | – | `Data.define` |
 | 3 | mruby-set | 1552 / 325 / 807 | enumerator, hash-ext | `Set` (Hash-backed) |
-| 3 | mruby-random | 646 / 0 / 201 | – | xoshiro128; must reproduce the reference sequence for a given seed to pass the tests |
-| 3 | mruby-math | 752 / 0 / 201 | – | `Math` via libm (already a dependency) |
 | 3 | mruby-time | 1738 / 0 / 313 | – | `Time`: needs a clock from the host (no_std: a `Host` hook, like the compiler); `localtime` is POSIX, use UTC only and record the deviation |
 | 4 | mruby-eval | 417 / 0 / 333 | binding, compiler | `docs/eval-require-plan.md`; `tests/custom` cases wait for it |
 | 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |

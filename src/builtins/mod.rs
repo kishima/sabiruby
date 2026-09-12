@@ -17,6 +17,8 @@ pub mod ext_class;
 pub mod ext_numeric;
 pub mod ext_objectspace;
 pub mod ext_catch;
+pub mod ext_math;
+pub mod ext_random;
 pub mod ext_method;
 pub mod ext_proc;
 pub mod ext_range;
@@ -65,6 +67,8 @@ pub fn init(vm: &mut Vm) {
     ext_numeric::init(vm);
     ext_objectspace::init(vm);
     ext_catch::init(vm);
+    ext_math::init(vm);
+    ext_random::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers

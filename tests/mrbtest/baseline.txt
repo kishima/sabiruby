@@ -25,6 +25,7 @@ gem_fiber2 4
 gem_hash 27
 gem_kernel 10
 gem_lazy 10
+gem_math 30
 gem_metaprog 33
 gem_method 30
 gem_module 6
@@ -34,6 +35,7 @@ gem_numeric_ext_numeric 13
 gem_object 5
 gem_objectspace 4
 gem_proc 9
+gem_random 13
 gem_range 10
 gem_sprintf 10
 gem_string 64
