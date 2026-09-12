@@ -151,6 +151,22 @@ What a browser downloads (the gzip column; Pages and npm CDNs serve wasm compres
   (16,272 gzipped), not the main part.
 * These compare download size only, not features or speed.
 
+**What the Unicode tables cost** (mruby-regexp, `docs/gems.md`): the engine is `regex-automata`,
+whose `unicode` feature is tied to SabiRuby's `utf8` feature, so the character build carries the
+Unicode tables and the byte-string build carries none. The same VM-only probe as above, built for
+`wasm32-unknown-unknown` with `opt-level = "z"`, `lto`, one codegen unit, `panic = "abort"` and
+`strip`, but **without** the `wasm-opt -Oz` pass the rows above had (so these two are comparable
+with each other, not with the table):
+
+| build | bytes | gzip -9 |
+|---|---:|---:|
+| `--no-default-features` (strings as bytes, no Unicode tables) | 1,030,273 | 362,312 |
+| `--features utf8` (the default: strings as characters) | 1,356,989 | 459,938 |
+
+The difference is about 98 KB gzipped, nearly all of it the `unicode-*` tables `\p{…}`, the POSIX
+brackets above ASCII and `/i` folding read. A build that reads its strings by byte pays none of
+it.
+
 ## Verification
 
 Three suites in the playground repository, run by its CI before every deploy:

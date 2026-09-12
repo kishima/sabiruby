@@ -103,7 +103,24 @@ pub struct EnvData {
     pub modfunc: bool,
     /// `instance_eval`/`class_eval` boundary (`MRB_ENV_VISIBILITY_BREAK`).
     pub vis_break: bool,
+    /// The special variables of the scope this env belongs to (`struct RSvar`): `$~`
+    /// (`MRB_SVAR_BACKREF`) and `$_` (`MRB_SVAR_LASTLINE`), which a block shares with the method
+    /// it was written in. `None` is a scope that was never asked for one, which is what the
+    /// reference's lazily allocated container is. `docs/gems.md` says why it sits here rather
+    /// than on the frame.
+    pub svar: Option<[Slot; SVAR_KEYS]>,
+    /// Where a frame with no scope of its own sends its special variables once it has returned:
+    /// the env of the scope below the load, which keeps the frame transparent past its own life
+    /// (`svar_env_adopt_owner` / `mrb_svar_frame_container`).
+    pub svar_fwd: Option<crate::value::ObjId>,
 }
+
+/// The special variables one scope holds, in the order `mrb_vm_svar_get` numbers them.
+pub const SVAR_KEYS: usize = 2;
+/// `$~` (`MRB_SVAR_BACKREF`).
+pub const SVAR_BACKREF: usize = 0;
+/// `$_` (`MRB_SVAR_LASTLINE`), which no global is registered for.
+pub const SVAR_LASTLINE: usize = 1;
 
 #[derive(Default)]
 pub struct HashData {
@@ -148,6 +165,15 @@ pub enum ObjKind {
     /// mruby `RBigint`: an Integer too wide for `Value::Int`. Its class is `Integer`, and a
     /// value that fits in an `i64` is never stored as one (`bint_norm`, see `docs/gems.md`).
     BigInt(BigInt),
+    /// mruby-regexp's compiled pattern, which a Regexp owns (`mrb_regexp_pattern` behind its
+    /// `DATA_PTR`); `@source`, `@flags` and `@named_captures` are ivars as they are there.
+    /// A compiled pattern, or `None` while `initialize` holds the slot and the compile has not
+    /// finished: the variant says the object was initialized at all, as `DATA_PTR` does, and the
+    /// payload whether there is anything to search with (`re_uninitialized_p`).
+    Regexp(Option<alloc::boxed::Box<crate::regexp::Pattern>>),
+    /// mruby-regexp's `MatchData`: the subject as it was at match time, the Regexp that made the
+    /// match (nil for a quoted String pattern), and the capture positions in bytes.
+    MatchData { source: Slot, regexp: Slot, captures: alloc::vec::Vec<i32> },
 }
 
 pub struct HeapObject {
@@ -307,7 +333,7 @@ impl Heap {
             if o.class.0 != u32::MAX { mark(Value::Obj(o.class)); }
             for (_, v) in &o.ivars { mark(v.get()); }
             match &o.kind {
-                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) => {}
+                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Regexp(_) => {}
                 ObjKind::Break { value, .. } => mark(*value),
                 ObjKind::Array(a) => { for v in a { mark(v.get()); } }
                 ObjKind::Hash(h) => {
@@ -318,8 +344,11 @@ impl Heap {
                 ObjKind::Proc(p) => {
                     for x in [p.upper, p.env, p.target_class].into_iter().flatten() { mark(Value::Obj(x)); }
                 }
+                ObjKind::MatchData { source, regexp, .. } => { mark(source.get()); mark(regexp.get()); }
                 ObjKind::Env(e) => {
                     for v in &e.values { mark(v.get()); }
+                    for v in e.svar.iter().flatten() { mark(v.get()); }
+                    if let Some(f) = e.svar_fwd { mark(Value::Obj(f)); }
                     if let Some(t) = e.target_class { mark(Value::Obj(t)); }
                     // the values of an attached env live on its context's stack; only
                     // that window is kept (mruby marks `e->stack[0..len]`), not the fiber

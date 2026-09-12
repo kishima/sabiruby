@@ -21,6 +21,9 @@ fn run_all() {
         Err(_) => { eprintln!("no baseline; run tools/mrbtest.sh --update"); return; }
     };
     let assert_mrb = std::fs::read(dir.join("assert.mrb")).expect("assert.mrb");
+    // the helpers the gem test files share, which the reference's driver gets by linking every
+    // file into one program (`tools/mrbtest.sh`)
+    let prelude = std::fs::read(dir.join("prelude.mrb")).unwrap_or_default();
     // SABIRUBY_GC_STRESS=1: collect after every allocation (finds missing GC roots)
     let stress = std::env::var("SABIRUBY_GC_STRESS").map(|v| !v.is_empty() && v != "0").unwrap_or(false);
     let mut failures = vec![];
@@ -30,7 +33,7 @@ fn run_all() {
         let min: u64 = min.parse().unwrap();
         let bin = std::fs::read(dir.join(format!("{name}.mrb"))).expect("test .mrb");
         let host = Box::new(sabiruby_compiler::Compiler::new());
-        let sum = sabiruby::mrbtest::run_file_host(&assert_mrb, &bin, 300_000_000, false, stress, Some(host)).expect("runner");
+        let sum = sabiruby::mrbtest::run_file_prelude(&assert_mrb, &prelude, &bin, 300_000_000, false, stress, Some(host)).expect("runner");
         if sum.ok < min {
             failures.push(format!("{name}: ok {} < baseline {} ({})", sum.ok, min, sum.aborted.clone().unwrap_or_default()));
         }

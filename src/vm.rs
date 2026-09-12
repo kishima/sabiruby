@@ -142,6 +142,8 @@ pub struct Core {
     pub range_error: ObjId,
     pub key_error: ObjId,
     pub not_implemented_error: ObjId,
+    /// 15.2.27, which mruby-regexp raises (`E_REGEXP_ERROR`).
+    pub regexp_error: ObjId,
     pub stop_iteration: ObjId,
     pub frozen_error: ObjId,
     pub float_domain_error: ObjId,
@@ -153,19 +155,24 @@ pub struct Core {
     /// `init` (the two are recognized by class, and a native asks often).
     pub rational: ObjId,
     pub complex: ObjId,
+    /// mruby-regexp's `Regexp` and `MatchData`, filled in by its `init`: `$~` takes only a
+    /// MatchData, and a literal pattern is one of these.
+    pub regexp: ObjId,
+    pub match_data: ObjId,
 }
 
 impl Core {
     /// Every class in the set (GC roots).
-    pub fn ids(&self) -> [ObjId; 41] {
+    pub fn ids(&self) -> [ObjId; 44] {
         [self.basic_object, self.object, self.module, self.class, self.kernel, self.comparable, self.enumerable,
          self.nil_class, self.true_class, self.false_class, self.numeric, self.integer, self.float, self.symbol,
          self.string, self.array, self.hash, self.range, self.proc_, self.exception, self.standard_error,
          self.runtime_error, self.argument_error, self.type_error, self.name_error, self.no_method_error,
          self.zero_division_error, self.local_jump_error, self.index_error, self.range_error, self.key_error,
+         self.regexp_error,
          self.not_implemented_error, self.stop_iteration, self.frozen_error, self.float_domain_error,
          self.no_matching_pattern_error, self.system_stack_error, self.fiber, self.fiber_error,
-         self.rational, self.complex]
+         self.rational, self.complex, self.regexp, self.match_data]
     }
 }
 
@@ -205,6 +212,13 @@ pub struct Syms {
     pub benv: Sym,
     pub brecv: Sym,
     pub bpc: Sym,
+    /// `$~`, the one name a match publishes (`mrb_gv_define_virtual`), and the hidden instance
+    /// variables of a Regexp and a MatchData (`ext_regexp.rs`).
+    pub backref: Option<Sym>,
+    pub source: Sym,
+    pub rflags: Sym,
+    pub mdstr: Sym,
+    pub mdre: Sym,
 }
 
 pub struct Vm {
@@ -370,6 +384,8 @@ impl Vm {
         let index_error = c(&mut heap, &mut syms, "IndexError", standard_error);
         let range_error = c(&mut heap, &mut syms, "RangeError", standard_error);
         let key_error = c(&mut heap, &mut syms, "KeyError", index_error);
+        // 15.2.27, defined by core beside the rest even though only mruby-regexp raises it
+        let regexp_error = c(&mut heap, &mut syms, "RegexpError", standard_error);
         let script_error = c(&mut heap, &mut syms, "ScriptError", exception);
         let _syntax_error = c(&mut heap, &mut syms, "SyntaxError", script_error);
         let not_implemented_error = c(&mut heap, &mut syms, "NotImplementedError", script_error);
@@ -384,9 +400,9 @@ impl Vm {
         let core = Core {
             basic_object, object, module, class, kernel, comparable, enumerable, nil_class, true_class,
             false_class, numeric, integer, float, symbol, string, array, hash, range, proc_, exception,
-            rational: object, complex: object,
+            rational: object, complex: object, regexp: object, match_data: object,
             standard_error, runtime_error, argument_error, type_error, name_error, no_method_error,
-            zero_division_error, local_jump_error, index_error, range_error, key_error,
+            zero_division_error, local_jump_error, index_error, range_error, key_error, regexp_error,
             not_implemented_error, stop_iteration, frozen_error, float_domain_error,
             no_matching_pattern_error, system_stack_error, fiber, fiber_error,
         };
@@ -416,6 +432,11 @@ impl Vm {
             benv: syms.intern_str("env"),
             brecv: syms.intern_str("recv"),
             bpc: syms.intern_str("pc"),
+            backref: None,
+            source: syms.intern_str("@source"),
+            rflags: syms.intern_str("@flags"),
+            mdstr: syms.intern_str("@source"),
+            mdre: syms.intern_str("@regexp"),
             method_missing: syms.intern_str("method_missing"),
             eq: syms.intern_str("=="),
             eqq: syms.intern_str("==="),
@@ -479,11 +500,13 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB, crate::MRBLIB_REGEXP_MRB] {
             vm.load_and_run(lib)?;
         }
-        // natives that replace what mruby's own mrblib defines, as a gem's init does
-        crate::builtins::string::post_mrblib(vm);
+        // mruby-regexp initialises after the core mrblib is loaded, as a gem does: it takes the
+        // names of the String methods mrblib defines in Ruby (`sub`, `gsub`, which mix character
+        // and byte units there) as well as the ones the natives hold
+        crate::builtins::ext_regexp::init(vm);
         Ok(())
     }
 
@@ -1791,6 +1814,11 @@ impl Vm {
     /// Ensures the current frame has an environment (mruby `closure_setup`).
     fn frame_env(&mut self) -> ObjId {
         let i = self.ci.len() - 1;
+        self.frame_env_at(i)
+    }
+
+    /// The environment of frame `i`, made now if it has none.
+    fn frame_env_at(&mut self, i: usize) -> ObjId {
         if let Some(e) = self.ci[i].env {
             return e;
         }
@@ -1799,7 +1827,7 @@ impl Vm {
         let bidx = Self::frame_bidx(ci);
         let e = self.heap.alloc(self.core.object, ObjKind::Env(EnvData {
             ctx: self.cur, base: ci.base, len, bidx, attached: true, values: Vec::new(), mid: ci.mid, target_class: Some(ci.target_class),
-            vis: ci.vis, modfunc: ci.modfunc, vis_break: ci.vis_break,
+            vis: ci.vis, modfunc: ci.modfunc, vis_break: ci.vis_break, svar: None, svar_fwd: None,
         }));
         self.ci[i].env = Some(e);
         if self.trace.is_some() {
@@ -1808,6 +1836,161 @@ impl Vm {
         }
         e
     }
+    /// The scope `$~` belongs to, as the environment that holds it (`svar_owner`): the running
+    /// frame's own where it is a method or a class body, and otherwise the scope the block was
+    /// written in, which the chain of `upper` procs leads to. A native has no frame of its own
+    /// here, as a C frame has no slot of its own there, so the walk starts at the caller.
+    /// `create` says a scope frame with no environment yet gets one, which only a write needs.
+    fn svar_env(&mut self, create: bool) -> Option<ObjId> {
+        // the walk may cross into the context a scope still stands on, while the root redirect
+        // below stays the running context's
+        let mut ctx = self.cur;
+        let mut i = self.ci.len().checked_sub(1)?;
+        let mut root_redirect = false;
+        // the bottom frame of the context is never examined: what nothing above it claims is its
+        // own, which is how a fiber keeps its special variables to itself
+        while i > 0 {
+            let p = self.ci_of(ctx)[i].proc_;
+            if self.heap.proc_data(p).scope {
+                return if create { Some(self.frame_env_at_ctx(ctx, i)) } else { self.ci_of(ctx)[i].env };
+            }
+            let Some((env, scopeless)) = self.scope_env_of(p) else {
+                // a frame with no scope of its own is as transparent as a native one, and reads
+                // and writes pass through to the scope below (`svar_scopeless_frame_p`)
+                i -= 1;
+                continue;
+            };
+            // a forward already says where a frame with no scope of its own sent its special
+            // variables, so following one settles the descent below
+            let fwd = self.follow_svar_fwd(env);
+            let scopeless = scopeless && fwd == env;
+            let env = fwd;
+            // the scope the running context's own root block was written in resolves to the
+            // context's own bottom frame (CRuby's root-lep redirect)
+            let root = self.ci[0].proc_;
+            if !self.heap.proc_data(root).scope
+                && self.scope_env_of(root).map(|(e, _)| self.follow_svar_fwd(e)) == Some(env)
+            {
+                root_redirect = true;
+                break;
+            }
+            // where that scope is itself a frame with no scope of its own, the walk goes on
+            // below it, on whichever context that frame still stands
+            if scopeless {
+                let ectx = self.heap.env(env).ctx;
+                if let Some(s) = self.frame_of_env(ectx, env) {
+                    if s > 0 { ctx = ectx; i = s - 1; continue; }
+                }
+            }
+            return Some(env);
+        }
+        if root_redirect { ctx = self.cur; }
+        if create { Some(self.frame_env_at_ctx(ctx, 0)) } else { self.ci_of(ctx)[0].env }
+    }
+
+    /// The frames of a context, the running one's being held in `self.ci`.
+    fn ci_of(&self, ctx: usize) -> &[CallInfo] {
+        if ctx == self.cur { &self.ci } else { &self.contexts[ctx].ci }
+    }
+
+    /// The env of frame `i` of `ctx`, made now if it has none.
+    fn frame_env_at_ctx(&mut self, ctx: usize, i: usize) -> ObjId {
+        if ctx == self.cur { return self.frame_env_at(i); }
+        if let Some(e) = self.contexts[ctx].ci[i].env { return e; }
+        let ci = &self.contexts[ctx].ci[i];
+        let (irep, base, mid, tc) = (ci.irep, ci.base, ci.mid, ci.target_class);
+        let (vis, modfunc, vis_break) = (ci.vis, ci.modfunc, ci.vis_break);
+        let bidx = Self::frame_bidx(ci);
+        let len = self.ireps[irep].nlocals;
+        let e = self.heap.alloc(self.core.object, ObjKind::Env(EnvData {
+            ctx, base, len, bidx, attached: true, values: Vec::new(), mid, target_class: Some(tc),
+            vis, modfunc, vis_break, svar: None, svar_fwd: None,
+        }));
+        self.contexts[ctx].ci[i].env = Some(e);
+        e
+    }
+
+    /// The env of the scope a block was written in (`svar_scope_env`): its own env, or the one
+    /// the outermost enclosing block captured where the block sits inside others. The flag says
+    /// that scope is itself a frame with no scope of its own, which the walk goes on below.
+    fn scope_env_of(&self, p: ObjId) -> Option<(ObjId, bool)> {
+        let mut pd = self.heap.proc_data(p);
+        let mut env = pd.env?;
+        loop {
+            let Some(up) = pd.upper else { return Some((env, false)) };
+            let upd = self.heap.proc_data(up);
+            if upd.scope { return Some((env, false)); }
+            let Some(upenv) = upd.env else { return Some((env, true)) };
+            env = upenv;
+            pd = upd;
+        }
+    }
+
+    /// Where an env's special variables have been sent on, following the chain a nested load
+    /// leaves behind (one hop per load).
+    fn follow_svar_fwd(&self, mut e: ObjId) -> ObjId {
+        for _ in 0..64 {
+            match self.heap.env(e).svar_fwd { Some(f) => e = f, None => break }
+        }
+        e
+    }
+
+    /// The frame of `ctx` that `env` belongs to, where it is still on that context's stack.
+    fn frame_of_env(&self, ctx: usize, env: ObjId) -> Option<usize> {
+        self.ci_of(ctx).iter().rposition(|c| c.env == Some(env))
+    }
+
+    /// One special variable as the scope owning it holds it (`mrb_vm_svar_get`). A read makes
+    /// no container: a scope that was never written to answers nil.
+    pub fn svar_get_key(&mut self, key: usize) -> Value {
+        match self.svar_env(false) {
+            Some(e) => match &self.heap.env(e).svar {
+                Some(slots) => slots[key].get(),
+                None => Value::Nil,
+            },
+            None => Value::Nil,
+        }
+    }
+
+    /// Publishes one special variable into the scope owning it (`mrb_vm_svar_set`). A nil write
+    /// into a scope that holds no container leaves it without one, which is the reference's lazy
+    /// allocation (`svar_slot_ensure`).
+    pub fn svar_set_key(&mut self, key: usize, v: Value) {
+        if v.is_nil() {
+            let has = self.svar_env(false).map(|e| self.heap.env(e).svar.is_some()).unwrap_or(false);
+            if !has { return; }
+        }
+        if let Some(e) = self.svar_env(true) {
+            if let ObjKind::Env(ed) = &mut self.heap.get_mut(e).kind {
+                let slots = ed.svar.get_or_insert([Slot::from(Value::Nil); crate::object::SVAR_KEYS]);
+                slots[key] = Slot::from(v);
+            }
+        }
+    }
+
+    /// `$~` as the scope owning it holds it (`mrb_vm_svar_get`).
+    pub fn svar_get(&mut self) -> Value { self.svar_get_key(crate::object::SVAR_BACKREF) }
+
+    /// Publishes `$~` into the scope owning it (`mrb_vm_svar_set`).
+    pub fn svar_set(&mut self, v: Value) { self.svar_set_key(crate::object::SVAR_BACKREF, v) }
+
+    /// Whether the frame that called the running native carries a special-variable container,
+    /// which is the only Ruby-visible face the lazy allocation has (`svar_container_p` of the
+    /// gem's `test/backref_scope.c`).
+    pub fn svar_container_p(&self) -> bool {
+        match self.ci.last().and_then(|ci| ci.env) {
+            Some(e) => self.heap.env(e).svar.is_some(),
+            None => false,
+        }
+    }
+
+    /// Whether the env a proc closed over carries the container, and what sits in the slot
+    /// (`__env_svar?` / `__env_svar_slot` of `mrbgems/mruby-test/env.c`).
+    pub fn proc_env_svar(&self, p: ObjId) -> Option<bool> {
+        let env = self.heap.proc_data(p).env?;
+        Some(self.heap.env(env).svar.is_some())
+    }
+
     /// The environment of the frame that called the running native, made now if it has none
     /// (`mrb_vm_ci_env` / `mrb_env_new` of the reference's `create_proc_from_string`).
     /// A native has no frame of its own here, so that is the current frame.
@@ -1847,6 +2030,19 @@ impl Vm {
             ed.values = vals;
             ed.attached = false;
             if self.trace.is_some() { self.record(TraceEvent::EnvDetach { env: e, len, reason: DetachReason::FrameReturn }); }
+        }
+        // A frame with no scope of its own stays transparent after it returns: its escaped env
+        // sends its special variables to the scope below, so a proc written inside a nested load
+        // still reads and writes the scope that load ran against (`svar_env_adopt_owner`).
+        if let Some(e) = ci.env {
+            let p = ci.proc_;
+            if !self.heap.proc_data(p).scope && self.scope_env_of(p).is_none() {
+                if let Some(owner) = self.svar_env(true) {
+                    if owner != e {
+                        if let ObjKind::Env(ed) = &mut self.heap.get_mut(e).kind { ed.svar_fwd = Some(owner); }
+                    }
+                }
+            }
         }
         // Orphan blocks whose env belonged to this frame? (`MRB_PROC_ORPHAN`) — not tracked yet.
         ci
@@ -2133,8 +2329,29 @@ impl Vm {
                 Op::Loadtrue => { setreg!(a, Value::True); }
                 Op::Loadfalse => { setreg!(a, Value::False); }
                 Op::Getsv | Op::Setsv => { return Err(VmError::Unimplemented("special variables ($~, $_)".into())); }
-                Op::Getgv => { let s = self.ireps[ci.irep].syms[b]; setreg!(a, self.globals.get(&s).map(|s| s.get()).unwrap_or(Value::Nil)); }
-                Op::Setgv => { let s = self.ireps[ci.irep].syms[b]; let v = reg!(a); self.globals.insert(s, Slot::from(v)); }
+                // `$~` is a virtual global (mruby-regexp's `mrb_gv_define_virtual`): it is not
+                // in the globals table but in the scope that owns it, so that a method's match
+                // stays out of its caller's `$~`
+                Op::Getgv => {
+                    let s = self.ireps[ci.irep].syms[b];
+                    let v = if Some(s) == self.s.backref { self.svar_get() }
+                        else { self.globals.get(&s).map(|s| s.get()).unwrap_or(Value::Nil) };
+                    setreg!(a, v);
+                }
+                Op::Setgv => {
+                    let s = self.ireps[ci.irep].syms[b];
+                    let v = reg!(a);
+                    if Some(s) == self.s.backref {
+                        // the one place an arbitrary value reaches the slot (`backref_gv_set`)
+                        if !v.is_nil() && self.class_of(v) != self.core.match_data {
+                            let d = self.describe_for_error(v);
+                            return Err(self.raise_type(&format!("wrong argument type {d} (expected MatchData)")));
+                        }
+                        self.svar_set(v);
+                    } else {
+                        self.globals.insert(s, Slot::from(v));
+                    }
+                }
                 Op::Getiv => {
                     let s = self.ireps[ci.irep].syms[b];
                     let v = match reg!(0) { Value::Obj(o) => self.heap.ivar_get(o, s), _ => Value::Nil };

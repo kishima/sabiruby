@@ -94,6 +94,49 @@ pub fn install(vm: &mut Vm) {
     vm.define_method(ary, "__unshift_from_c", |vm, s, a, _b| { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } let unshift = vm.intern("unshift"); vm.funcall(s, unshift, &[a[0]], Value::Nil) });
     let psc = vm.singleton_class(Value::Obj(vm.core.proc_)).expect("Proc singleton");
     vm.define_method(psc, "c_tunnel", |vm, _s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block(b, &[]) });
+
+    // mrbgems/mruby-regexp/test/backref_scope.c: what an embedding host does to `$~`. A native
+    // pushes no frame here, so each of these lands on the calling Ruby scope the way the
+    // reference's C frame does.
+    let o = vm.core.object;
+    vm.define_method(o, "__backref_nested_load", |vm, s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let src = vm.expect_str(a[0], "string")?;
+        crate::builtins::ext_eval::top_load(vm, &src, s)
+    });
+    vm.define_method(o, "__svar_lastline", |vm, _s, a, _b| {
+        vm.check_argc(a, 0, 0)?;
+        Ok(vm.svar_get_key(crate::object::SVAR_LASTLINE))
+    });
+    vm.define_method(o, "__svar_lastline_set", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        vm.svar_set_key(crate::object::SVAR_LASTLINE, a[0]);
+        Ok(a[0])
+    });
+    vm.define_method(o, "__svar_container?", |vm, _s, a, _b| {
+        vm.check_argc(a, 0, 0)?;
+        Ok(Value::bool(vm.svar_container_p()))
+    });
+    // mrbgems/mruby-test/env.c: the two of its probes `backref_scope.rb` reads
+    vm.define_method(o, "__env_svar?", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let p = match a[0].obj().filter(|o| matches!(vm.heap.get(*o).kind, crate::object::ObjKind::Proc(_))) {
+            Some(p) => p,
+            None => return Err(vm.raise_type("not a Proc")),
+        };
+        Ok(match vm.proc_env_svar(p) { Some(b) => Value::bool(b), None => Value::Nil })
+    });
+    vm.define_method(o, "__env_svar_slot", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let p = match a[0].obj().filter(|o| matches!(vm.heap.get(*o).kind, crate::object::ObjKind::Proc(_))) {
+            Some(p) => p,
+            None => return Err(vm.raise_type("not a Proc")),
+        };
+        // the slot holds the container itself, which has no Ruby face, so it is named
+        let name = match vm.proc_env_svar(p) { Some(true) => "svar", _ => "none" };
+        let sym = vm.intern(name);
+        Ok(Value::Sym(sym))
+    });
 }
 
 /// Port of `str_match_p` in `mrbgems/mruby-test/driver.c`: `*`, `?`, `[...]`,
@@ -237,6 +280,13 @@ pub fn run_file_cfg(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool,
 
 /// [`run_file_cfg`] with the host the `eval` tests need (`Vm::set_host`).
 pub fn run_file_host(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host>>) -> VmResult<Summary> {
+    run_file_prelude(assert_mrb, &[], test_mrb, cap, verbose, gc_stress, host)
+}
+
+/// The same with a prelude loaded after `assert.mrb`: the reference's driver links every test
+/// file into one program, so a helper one file defines is there for the next; a file at a time
+/// needs the shared helpers handed to it (`tools/mrbtest.sh` extracts them).
+pub fn run_file_prelude(assert_mrb: &[u8], prelude: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host>>) -> VmResult<Summary> {
     let mut vm = Vm::new();
     vm.set_gc_stress(gc_stress);
     if let Some(h) = host { vm.set_host(h); }
@@ -244,6 +294,7 @@ pub fn run_file_host(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool
     install(&mut vm);
     if verbose { let g = vm.intern("$mrbtest_verbose"); vm.globals.insert(g, Slot::from(Value::True)); }
     vm.load_and_run(assert_mrb)?;
+    if !prelude.is_empty() { vm.load_and_run(prelude)?; }
     let mut sum = Summary::default();
     let irep = match vm.load(test_mrb) { Ok(i) => i, Err(e) => { sum.aborted = Some(format!("{e}")); return Ok(sum); } };
     vm.start(irep);

@@ -63,6 +63,40 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`, two `"…".unpack1("E")` of a NaN).
 * The differences a character-indexed String brings with it are their own list, in
   [`utf8.md`](utf8.md) ("Deviations kept").
+* **mruby-regexp**: the engine is `regex-automata`, not the reference's NFA, so what a finite
+  automaton has none of is refused at compile time with `RegexpError` naming the construct. The
+  reference's own test files (14 of them, 501 assertions) use them, and those assertions are
+  counted as intended differences rather than fixed. In the default build, by construct:
+
+  | refused construct | assertions | written instead |
+  |---|---:|---|
+  | lookbehind `(?<=…)` `(?<!…)` | 22 | — |
+  | lookahead `(?=…)` `(?!…)` | 16 | `(?!)` alone (a pattern that never matches) is `\b\B` |
+  | backreference `\1`…`\9` | 15 | — |
+  | named backreference `\k<…>` | 10 | — |
+  | subexpression call `\g<…>` | 8 | — |
+  | possessive quantifier `*+` `++` `?+` | 4 | — |
+  | atomic group `(?>…)` | 2 | — |
+  | absent operator `(?~…)` | 2 | — |
+  | conditional `(?(…)…)` | 1 | — |
+  | nesting past `regex-syntax`'s depth limit | 1 | — |
+
+  What the two engines answer differently where both compile the pattern (39 assertions, most of
+  them in `regexp_syntax.rb`): `\Z` is `\z` here, so it does not match before a trailing newline
+  (writing it takes a lookahead); `^` matches after a trailing newline, where Ruby opens no line
+  there (that takes a lookbehind); a repetition's last, empty iteration keeps no capture, the
+  automaton having no backtracking state to keep it in; `/i` is Rust's Unicode simple folding,
+  applied to each member of a class rather than to the class its set operations build, and to a
+  POSIX bracket before its negation; a nested negated class and a `&&` of two unions compile here
+  where the reference refuses them; the reference's step and stack limits (`MRB_REGEXP_STEP_LIMIT`,
+  `MRB_REGEXP_STACK_LIMIT`) have no equivalent, an automaton being linear in the subject, so the
+  constants are there and nothing raises against them; and a byte-read subject (`String#b`) is
+  searched with the pattern's own automaton, which was built for characters unless the *pattern*
+  was byte-read too — the reference decides that per search, so `"\xC3\xA9x".b.scan(/./)` answers
+  three bytes there and two characters here. A few of the parser's complaints keep the
+  reference's wording (`empty range in char class`, `too big number for repeat range`,
+  `too many capture groups are specified`, the unmatched-parenthesis pair); the rest are
+  `regex-syntax`'s own text.
 * Wide integers (mruby-bigint): five answers of the reference are slips of its own bigint code,
   not decisions, and SabiRuby keeps the meaning the same at both widths
   (`tests/custom/bigint_reference_bugs.rb` holds them with CRuby's answers):
@@ -370,6 +404,58 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   * Not done: **`require`** (`docs/eval-require-plan.md` §5) — the `Host` already has
     `read_file`/`file_exists` for it.
 
+* **mruby-regexp** (`src/regexp/mod.rs`, `src/builtins/ext_regexp.rs`) — `Regexp`, `MatchData`
+  and the String and Symbol methods whose regexp form the gem answers. The reference carries its
+  own NFA (`re_compile.c`, `re_exec.c`, `re_utf8.c`, 7,263 lines, plus 3,611 lines of tables);
+  that part is **not** ported. The engine here is Rust's `regex-automata` (author's decision of
+  2026-09-13, `docs/gems-plan.md` 3.6), so what a pattern *means* is a finite automaton's: linear
+  in the subject, and without backreference, lookaround, atomic group or subexpression call. The
+  Ruby surface above it is ported from `regexp.c` as usual, and the two halves meet at a
+  translation layer.
+
+  * **The translation layer** (`src/regexp/mod.rs`) — Ruby's pattern syntax written as
+    `regex-syntax`'s, about 500 lines against the 7,263 not ported. What the two spell
+    differently is rewritten: the ASCII shorthands (`\d`, `\w`, `\s`, `\h` and their negations,
+    each wrapped in `(?-i:…)` so `/i` never folds them out of ASCII), the octal and `\xNN`
+    escapes (a run of them is decoded together, so `\303\244` is the one character those bytes
+    spell), `\uXXXX` and `\u{…}`, `(?'name'…)`, the comment group `(?#…)`, `{,m}`, a `{`
+    that opens no repeat, and Ruby's `m` flag, which is the automaton's `s` (the automaton's `m`
+    is `^`/`$` as line anchors, which Ruby has on whatever the flags). Free spacing (`/x`) is
+    applied here rather than by the parser, because the parser's own drops the spaces a class
+    holds. A pattern that names a group numbers no other (Onigmo's `DONT_CAPTURE_GROUP`), so a
+    plain `(` is written `(?:` there; the names are kept beside the pattern rather than in it,
+    since Ruby lets two groups share a name and names one the automaton would refuse. A digit
+    escape is a backreference or an octal escape by the group count, as CRuby reads it.
+  * **What reads a byte as a byte** — a pattern byte that starts no character stands for the
+    byte, which only a span with Unicode turned off can compare, so such a span is written
+    `(?-u:…)` (a whole class where one of its members is such a byte). A byte-read pattern
+    (`Regexp.new(s.b)`) compiles with `unicode(false)` throughout, and so does the whole
+    byte-string build, where `\u{…}` becomes the UTF-8 spelling of the codepoint the way the
+    character written out is spelled.
+  * **`$~`** — the one name a match publishes; `$&`, `` $` ``, `$'`, `$+` and `$1` onward are
+    readings of it the compiler derives. In 4.1.0-rc it lives in the scope that owns it
+    (`svar_owner` of `src/vm.c`), not in the globals table: a method's match stays out of its
+    caller's `$~`, a block shares its defining method's, a native writes through to the Ruby
+    frame below, and a fiber keeps its own. SabiRuby holds it in the owning scope's environment
+    (`EnvData::svar`, a container made on the first non-nil write, with `$_`'s slot beside it),
+    resolves the owner by the same walk — including the redirect that keeps a fiber's matches to
+    itself and the forward a nested `mrb_load_string` frame leaves behind when it returns — and
+    intercepts `$~` in `OP_GETGV`/`OP_SETGV`, the gem registering it as a virtual global.
+    `test/backref_scope.rb` (64 assertions) pins all of it and passes.
+  * **The surface** — `Regexp` (including `union`, `last_match`, `named_captures`, the
+    `to_s` fold of a leading option group), `MatchData`, and the String methods the gem takes
+    over from core by aliasing the originals away (`__split`, `__aref`, `__index`, …), which is
+    why `ext_regexp::init` runs *after* `load_mrblib`: a gem initialises after core's Ruby part,
+    and mrblib's `sub`/`gsub` would otherwise win. What says a `Regexp` was initialized at all is
+    the pattern slot (`ObjKind::Regexp(Option<…>)`), the reference's `DATA_PTR`: it is opened
+    before the compile, so an object whose compile raised still answers `source` and `inspect`
+    while refusing to match, and a `dup` whose `initialize_copy` never called `super` answers
+    neither.
+  * **The engine's own tests** are `tests/regexp_engine.rs`; everything else is the reference's
+    (`tools/mrbtest.sh`, the `gem_regexp*` files). The pair `ascii_case`/`ascii_ctype` and
+    `unicode_case`/`unicode_ctype` assert opposite things about the same patterns, so each build
+    runs one pair, as the gem's `spec.build_settings` says.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -386,28 +472,28 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 ## Remaining gems (plan as of 2026-09-12)
 
 Order and instructions for the rest: `docs/gems-plan.md`. Order 5 (the numeric tower and
-mruby-pack), order 4 (eval, binding, proc-binding) and UTF-8 strings (`docs/utf8.md`) are done;
-`require` is the half of `docs/eval-require-plan.md` still open. Next: regexp, then task.
+mruby-pack), order 4 (eval, binding, proc-binding), UTF-8 strings (`docs/utf8.md`) and order 6
+(regexp) are done; `require` is the half of `docs/eval-require-plan.md` still open. Next: task.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
 class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint,
-rational, complex, pack, eval, binding, proc-binding (35), plus mruby-cmath from outside
-the gembox. Only mruby-regexp and the POSIX gems are left.
+rational, complex, pack, eval, binding, proc-binding, regexp (36), plus mruby-cmath from outside
+the gembox. Only the POSIX gems are left.
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
-| 6 | mruby-regexp | 10940 / 42 / 10213 | enumerator, symbol-ext, string-ext | the NFA engine (4.0.0); the largest single piece, its own milestone |
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
 Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives, done 2026-09-12) → 3 (data structures and host
 clocks, done 2026-09-12) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
 (`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
-6 (regexp, on top of UTF-8) → 7 (task). regexp is by far the heaviest and can be moved after task.
+6 (regexp, on top of UTF-8, done 2026-09-13 — the engine is Rust's, only the surface is ported)
+→ 7 (task).
 Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib_<gem>.mrb`,
 tests into `tools/mrbtest.sh` `GEMS`, reasons for what does not pass into
 `docs/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.

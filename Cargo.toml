@@ -33,11 +33,14 @@ std = []
 # MRB_UTF8_STRING is (`length`, `[]`, `index`, `chars`, `reverse`, `center`, `upcase`, …).
 # Without it they are sequences of bytes, which is the reference's default build. Both are
 # checked against their own reference image (`docs/utf8.md`).
-utf8 = []
+utf8 = ["regex-automata/unicode"]
 
 [dependencies]
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }
 libm = { version = "0.2", default-features = false }
+# mruby-regexp's engine (`docs/gems-plan.md` 3.6): the pattern matcher is Rust's rather than a
+# port of the reference's NFA, and it builds without `std`.
+regex-automata = { version = "0.4", default-features = false, features = ["alloc", "syntax", "meta", "nfa-pikevm", "nfa-backtrack"] }
 
 [dev-dependencies]
 # The tests install the compiler as the VM's host, so that the `eval` cases and mruby's

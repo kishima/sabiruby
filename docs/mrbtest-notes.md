@@ -13,7 +13,11 @@ Categories:
   binary (`mrbgems/mruby-test/` or a gem's `test/*.c`). Porting the helper is possible but
   it tests mruby internals (REnv slots, `mrb_vformat`, `mrb_sys_fail`), not Ruby semantics.
   The reference `mruby` command fails these too.
-* **gem** — needs a gem that is not ported yet (`mruby-regexp`).
+* **gem** — needs a gem that is not ported (the POSIX ones).
+* **engine** — mruby-regexp's pattern engine is `regex-automata`, not the reference's NFA
+  (`docs/gems.md`, "Deviations kept"): a pattern using a construct a finite automaton has none of
+  is refused with `RegexpError`, and the reference's assertions on it are counted as intended
+  differences.
 * **deviation** — a difference SabiRuby keeps on purpose (see README).
 * **build** — depends on how the reference binary was built.
 
@@ -24,12 +28,12 @@ Categories:
 | exception | 2 skip | build | `GC in rescue` and `Method call in rescue` skip when `backtrace_available?` is false. SabiRuby does not read the DBG section, so `Exception#backtrace` is empty. |
 | float | 1 KO (3 assertions) | deviation | `a NaN is the object it is and no other`: SabiRuby Floats are immediates, so two NaNs made separately are `equal?` and have the same `object_id`. mruby with Word Boxing allocates each NaN on the heap. |
 | literals | 1 skip | build | `Literals Numerical without Float` skips because Float is defined (the reference skips it too, 11/12). |
-| superclass | 1 skip | gem | `Direct superclass of RegexpError`: `RegexpError` comes with mruby-regexp. |
 | syntax | 1 KO (2 assertions) | deviation | `pattern matching - a key that moves the subject`: a hash pattern whose key's `hash`/`eql?` mutates the subject is not detected (mruby raises RuntimeError from the hash iteration guard). The reference `mruby` command has 3 KO here of its own: tests reading `__FILE__`/`__LINE__` see the concatenated runner script. |
 | sysfail | 1 crash | C fixture | `TestSysFail` of `mruby-test/sysfail.c` (`mrb_sys_fail`). Reference `mruby` crashes too. |
 | version | 1 skip | build | `MRUBY_REVISION` is `"HEAD"` in SabiRuby, and the test skips itself for a build without a revision. The reference binary carries the commit hash and passes. |
 | vformat | 1 crash | C fixture | `TestVFormat` of `mruby-test/vformat.c` (`mrb_vformat`). Reference `mruby` crashes too. |
-| regexperror | 0 assertions | gem | The file defines no assertion unless mruby-regexp is present; the reference reports 0 too. |
+| regexperror | 0 assertions | — | The file's one test is commented out on the reference (`# TODO broken ATM`), so it reports 0 there too. |
+| codegen | 1 KO (2 assertions) | gem | `register window of calls (#3783)` expects `/static/` to raise NoMethodError, which holds only where the build has no `Regexp` class. mruby-regexp is not in any gembox, so the reference's `mrbtest` never links it; the reference `mruby` command, which does, answers as SabiRuby does. |
 | range | 1 crash | reference too | `Range#last`: `assert_nil (1..).last` in the core test, but mruby-range-ext's Ruby `last` raises RangeError for an endless range. The reference `mruby` (default gembox) crashes on the same assertion (21/22); the two only agree in a build without the gem. |
 | gem_array | 1 KO (4 assertions) | deviation | `Array#uniq, Array#- and Array#include? with a NaN`: the reference treats every NaN made as its own object (identity), SabiRuby's Floats are immediates. |
 | gem_enum | 1 KO (2 assertions) | deviation | `Array#count with a NaN`: same NaN identity. |
@@ -45,14 +49,28 @@ Categories:
 | gem_proc | 2 crash | C fixture | `ProcExtTest.mrb_proc_new_cfunc_with_env` / `mrb_cfunc_env_get` test the C closure API of `mruby-proc-ext/test/proc.c`; there is no C closure here. The reference `mruby` crashes too. |
 | gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
 | gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |
+| gem_regexp | 1 crash | engine | `Regexp#to_s` folds a leading option group by trial-compiling what it encloses, and the pattern there is `(?=a)`. |
+| gem_regexp_syntax | 25 KO, 55 crash | engine | The crashes are lookbehind (18), backreference (11), lookahead (9), `\k` (8), possessive (3), atomic, absent, conditional and one nesting depth. The KO are `\Z`, `^` after a trailing newline, an empty iteration's capture, `/i` over `\w` and over a class the reference closes once, the step and stack limits, and the parser's wording for constructs neither engine compiles. |
+| gem_regexp_call | 12 crash, 2 KO | engine | The file is about `\g<…>`, the subexpression call. |
+| gem_regexp_utf8 | 5 KO, 6 crash | engine | The crashes are backreference, lookaround and the absent operator. The KO are a byte-read subject (`String#b`) searched with a pattern compiled for characters: the reference decides per search what a byte means, this engine at compile time. |
+| gem_string_index | 1 crash | engine | A pattern with a lookbehind. |
+| gem_string_regexp | 2 KO, 6 crash | engine | The crashes are lookahead, atomic and possessive; the KO are `^` after a trailing newline and a byte-read subject split by byte. |
+| gem_unicode_case | 3 KO, 1 crash | engine | `/i` is Rust's Unicode simple folding, applied to each member of a class rather than to the class its set operations build; the crash is a backreference. |
+| gem_unicode_ctype | 4 KO, 1 crash | engine | A nested negated class and a `&&` of two unions compile here where the reference refuses them, `/i` over a negated POSIX bracket folds the other way round, and a byte-read subject is read as characters; the crash is a lookbehind. |
+| gem_ascii_case | 1 KO, 1 skip | engine | Byte-string build only (the gem's `spec.build_settings`): `/i` carries Rust's Unicode table in either build, where the reference has none without `MRB_UTF8_STRING`. |
+| gem_backtracking_stack | 0 assertions | — | The file carries the helper the other gem test files call; `tools/mrbtest.sh` extracts it into `prelude.rb` and loads it after `assert.rb` for every file, the reference's driver getting it by linking all the files into one program. |
 
-Summary (2026-09-12, after the numeric tower, mruby-pack, mruby-eval and the two binding
-gems): 1866 assertions, 1819 pass.
-Not passing: 17 crashes (16 C fixtures, 1 core-test-vs-gem conflict the reference shares), 8 KO
-(deliberate deviations: NaN identity ×5, the pattern-matching guard, the Set rebuild guard,
-and `binding_in_c`), 22 skips (regexp 1, backtrace 2, Float defined 1, revision 1,
-UTF-8/encoding 12, DBG-dependent `source_location` 5, plus the empty `regexperror`),
-0 warnings (one was a bug, see below).
+Summary (2026-09-13, after mruby-regexp): 2412 assertions in the default build, 2243 pass
+(2357 and 2166 without the feature `utf8`).
+Not passing: 100 crashes and 50 KO, of which mruby-regexp's engine accounts for 82 crashes and
+39 KO; the rest are the 17 crashes (16 C fixtures, 1 core-test-vs-gem conflict the reference
+shares) and 11 KO (NaN identity ×5, the pattern-matching guard, the Set rebuild guard,
+`binding_in_c`, `Enumerator::Chain#size`, and `codegen`'s two assertions that hold only without
+a `Regexp` class) of the files above. 19 skips, 0 warnings (one was a bug, see below).
+The gem's own test files add 501 assertions (`gem_regexp*`, `gem_match_data`,
+`gem_string_regexp`, `gem_string_index`, `gem_symbol_regexp`, `gem_backref_scope`, the
+`unicode_*`/`ascii_*` pair for the build that owns it); `gem_backref_scope` (64, `$~` scoping),
+`gem_match_data` (53) and `gem_symbol_regexp` (11) pass whole.
 The four assertions that skipped for want of mruby-bigint (`array`, `gc`, `integer`,
 `literals`) run now; the four gems' own test files add 244 (bigint 29, rational 134,
 complex 8 + 81, cmath 21), all passing, and mruby-pack 50 (one KO, the NaN above).

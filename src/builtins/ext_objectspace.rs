@@ -23,6 +23,9 @@ fn type_index(vm: &Vm, id: ObjId) -> usize {
         ObjKind::String(_) => 8,
         ObjKind::Range { .. } => 9,
         ObjKind::Exception => 10,
+        // a Regexp and a MatchData are `T_CDATA` in the reference, which the table has no entry
+        // for; they are counted as plain objects here (`docs/gems.md`)
+        ObjKind::Regexp(_) | ObjKind::MatchData { .. } => 0,
         ObjKind::Env(_) => 11,
         ObjKind::Fiber(_) => 12,
         ObjKind::Break { .. } => 13,

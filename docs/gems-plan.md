@@ -201,7 +201,12 @@ rational、pack の照合も bigint がある前提の方が楽。
 `strip`／`lstrip`／`rstrip`）は本家の取りこぼしなので CRuby の意味に合わせ、
 `tests/custom/utf8_reference_bugs.rb` と `docs/utf8.md` に記録した。詳細は `docs/utf8.md`。
 
-### 3.6 mruby-regexp — エンジンは `regex-automata`、表面は本家を移植（著者決定 2026-09-13）
+### 3.6 mruby-regexp — エンジンは `regex-automata`、表面は本家を移植（著者決定 2026-09-13）— **済み（2026-09-13）**
+
+結果は `docs/gems.md`（「What each gem needed」の mruby-regexp と「Deviations kept」）、
+テストの内訳は `docs/mrbtest-notes.md`、wasm のサイズは `docs/playground.md`。
+本家テスト 501 件のうち、有限オートマトンに無い構文を使う 82 件と、両エンジンの答えが違う 39 件が意図した差異。
+`backref_scope.rb`（64 件、`$~` のスコープ）と `match_data.rb`（53 件）は全件通る。
 
 **決定**: 本家のエンジン（`re_compile.c`、`re_exec.c`、`re_utf8.c` 7,263 行と `re_ctype.h`／`re_cased.h` の表 3,611 行）は
 移植せず、Rust の `regex-automata` を使う。Ruby 側の表面（`src/regexp.c` 3,677 行相当）は本家から移植する。

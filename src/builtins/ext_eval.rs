@@ -81,6 +81,32 @@ fn eval_proc(vm: &mut Vm, src: &[u8], file: Option<String>, line: u32) -> VmResu
     Ok(p)
 }
 
+/// `mrb_load_string` called from a native while the VM runs, the way an embedding host does
+/// (`mrbgems/mruby-regexp/test/backref_scope.c`). The string is compiled on its own and run in a
+/// frame whose proc captured no scope, which is the frame `$~` resolution steps over.
+pub(crate) fn top_load(vm: &mut Vm, src: &[u8], self_: Value) -> VmResult<Value> {
+    let scopes: Vec<Vec<Vec<u8>>> = Vec::new();
+    let mut host = match vm.host.take() { Some(h) => h, None => return Err(vm.raise(vm.core.not_implemented_error, "load: no compiler installed (Vm::set_host)")) };
+    let opts = EvalOptions { filename: "(eval)", line: 1, scopes: &scopes, debug_info: true };
+    let r = host.compile(src, &opts);
+    vm.host = Some(host);
+    let bin = match r {
+        Ok(b) => b,
+        Err(msg) => {
+            let text = format!("file (eval) line 1: {msg}");
+            let e = vm.intern("SyntaxError");
+            let cls = match vm.const_get(vm.core.object, e) { Some(Value::Obj(c)) => c, _ => vm.core.standard_error };
+            return Err(vm.raise(cls, &text));
+        }
+    };
+    let irep = vm.load(&bin)?;
+    let p = vm.heap.alloc(vm.core.proc_, ObjKind::Proc(ProcData {
+        irep, upper: None, env: None, target_class: Some(vm.core.object),
+        strict: false, scope: false, orphan: false, mid: None,
+    }));
+    vm.run_eval(p, self_, None)
+}
+
 /// The `line` and `file` arguments of `eval`/`instance_eval`, with the reference's checks.
 fn file_line(vm: &mut Vm, a: &[Value], at: usize) -> VmResult<(Option<String>, u32)> {
     let file = match a.get(at) {

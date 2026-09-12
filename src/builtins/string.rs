@@ -400,7 +400,7 @@ pub(crate) fn char_head(b: &[u8], i: usize, chars: bool) -> usize {
 
 /// `mrb_str_check_byte_pos`: a byte offset that lands inside a character names no position
 /// the string has, so a byte search refuses it rather than starting from the middle of one.
-fn check_byte_pos(vm: &mut Vm, b: &[u8], pos: usize, chars: bool) -> VmResult<()> {
+pub(crate) fn check_byte_pos(vm: &mut Vm, b: &[u8], pos: usize, chars: bool) -> VmResult<()> {
     if !is_char_boundary(b, pos, chars) {
         return Err(vm.raise(vm.core.index_error, &format!("offset {pos} does not land on character boundary")));
     }
@@ -532,6 +532,9 @@ pub fn init(vm: &mut Vm) {
         ("[]", str_aref),
         ("slice", str_aref),
         ("[]=", |vm, s, a, _b| {
+            // the arguments are read in order, so a replacement that is no String is reported
+            // before the count is (`mrb_str_aset_m`'s `mrb_get_args("oo|S!")`)
+            if a.len() >= 3 && !a[2].is_nil() { vm.expect_str(a[2], "value")?; }
             argc!(vm, a, 2, 3);
             let mut b = bytes(vm, s);
             let val = vm.expect_str(a[a.len() - 1], "value")?;
@@ -750,10 +753,14 @@ fn str_split(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
             if !cur.is_empty() { parts.push(cur); }
         }
         Some(sep) if sep.is_empty() => {
+            let mut cut = false;
             for (i, c) in chars_of(&b, chars).into_iter().enumerate() {
-                if limit > 0 && parts.len() as i64 == limit - 1 { let rest: usize = chars_of(&b, chars)[..i].iter().map(|x| x.len()).sum(); parts.push(b[rest..].to_vec()); break; }
+                if limit > 0 && parts.len() as i64 == limit - 1 { let rest: usize = chars_of(&b, chars)[..i].iter().map(|x| x.len()).sum(); parts.push(b[rest..].to_vec()); cut = true; break; }
                 parts.push(c.to_vec());
             }
+            // the split after the last character is a field of its own, which only a limit of 0
+            // drops (`"abc".split("", -1)` is four fields)
+            if !cut && limit != 0 && !b.is_empty() { parts.push(Vec::new()); }
         }
         Some(sep) => {
             let mut start = 0;
@@ -842,28 +849,6 @@ fn str_sub(vm: &mut Vm, s: Value, a: &[Value], blk: Value, global: bool) -> VmRe
     let r = vm.str_new(&out);
     vm.str_set_binary(r, binary);
     Ok(r)
-}
-
-/// The natives that must win over mruby's own `mrblib` definitions, registered after it is
-/// loaded (`Vm::load_mrblib`), as a gem's `gem_init` does in the reference.
-pub fn post_mrblib(vm: &mut Vm) {
-    let c = vm.core.string;
-    vm.define_methods(c, &[
-        ("sub", |vm, s, a, b| str_sub(vm, s, a, b, false)),
-        ("gsub", |vm, s, a, b| str_sub(vm, s, a, b, true)),
-        ("sub!", |vm, s, a, b| str_sub_bang(vm, s, a, b, false)),
-        ("gsub!", |vm, s, a, b| str_sub_bang(vm, s, a, b, true)),
-    ]);
-}
-
-fn str_sub_bang(vm: &mut Vm, s: Value, a: &[Value], blk: Value, global: bool) -> VmResult<Value> {
-    if let Some(o) = s.obj() { if vm.heap.get(o).frozen { return Err(vm.raise(vm.core.frozen_error, "can't modify frozen String")); } }
-    let before = bytes(vm, s);
-    let r = str_sub(vm, s, a, blk, global)?;
-    let after = bytes(vm, r);
-    if after == before { return Ok(Value::Nil); }
-    set(vm, s, after)?;
-    Ok(s)
 }
 
 /// What stepping one character came to (`enum succ_step`).

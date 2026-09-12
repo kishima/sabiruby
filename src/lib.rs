@@ -68,6 +68,8 @@ pub mod error;
 pub mod host;
 pub mod object;
 pub mod opcode;
+#[doc(hidden)]
+pub mod regexp;
 pub mod rite;
 pub mod symbol;
 pub mod value;
@@ -111,3 +113,4 @@ pub const MRBLIB_DATA_MRB: &[u8] = include_bytes!("mrblib_data.mrb");
 pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib_toplevel-ext.mrb");
 pub const MRBLIB_RATIONAL_MRB: &[u8] = include_bytes!("mrblib_rational.mrb");
 pub const MRBLIB_COMPLEX_MRB: &[u8] = include_bytes!("mrblib_complex.mrb");
+pub const MRBLIB_REGEXP_MRB: &[u8] = include_bytes!("mrblib_regexp.mrb");

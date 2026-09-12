@@ -32,6 +32,7 @@ pub mod ext_time;
 pub mod ext_method;
 pub mod ext_proc;
 pub mod ext_range;
+pub mod ext_regexp;
 pub mod ext_sprintf;
 pub mod ext_string;
 pub mod fiber;

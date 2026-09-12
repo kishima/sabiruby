@@ -54,7 +54,7 @@ fn wrap_lvspace(vm: &mut Vm, proc_: Option<ObjId>, env: Option<ObjId>) -> (ObjId
     let target_class = env.and_then(|e| vm.heap.env(e).target_class);
     let new_env = vm.heap.alloc(vm.core.object, ObjKind::Env(EnvData {
         ctx: vm.cur, base: 0, len: 1, bidx: 0, attached: false, values: vec![Slot::from(self_)],
-        mid: None, target_class, vis: Vis::Public, modfunc: false, vis_break: false,
+        mid: None, target_class, vis: Vis::Public, modfunc: false, vis_break: false, svar: None, svar_fwd: None,
     }));
     // the space's own Proc keeps the environment it wraps, and the Binding takes the new
     // one: a name of the wrapped scope is then one step up from the Binding's environment

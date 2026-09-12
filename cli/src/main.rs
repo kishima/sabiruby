@@ -257,6 +257,12 @@ fn program(cli: Cli) -> ExitCode {
 /// Markdown table of the `report` counts, and the opcodes never executed.
 fn mrbtest(verbose: bool, files: &[String]) -> ExitCode {
     let assert_mrb = match std::fs::read(&files[0]) { Ok(b) => b, Err(e) => { eprintln!("{}: {}", files[0], e); return ExitCode::from(1); } };
+    // a file named `prelude.mrb` is not a test but the helpers the gem test files share, which
+    // the reference's driver has by linking every file into one program (`tools/mrbtest.sh`)
+    let prelude = files[1..].iter()
+        .find(|f| std::path::Path::new(f).file_stem().map(|s| s == "prelude").unwrap_or(false))
+        .and_then(|f| std::fs::read(f).ok())
+        .unwrap_or_default();
     let cap: u64 = 300_000_000;
     let mut rows = Vec::new();
     let mut counts = vec![0u64; sabiruby::opcode::OP_COUNT];
@@ -264,8 +270,9 @@ fn mrbtest(verbose: bool, files: &[String]) -> ExitCode {
     for f in &files[1..] {
         let bin = match std::fs::read(f) { Ok(b) => b, Err(e) => { eprintln!("{f}: {e}"); return ExitCode::from(1); } };
         let name = std::path::Path::new(f).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        if name == "prelude" { continue; }
         let host = Box::new(sabiruby_compiler::Compiler::new());
-        let sum = match sabiruby::mrbtest::run_file_host(&assert_mrb, &bin, cap, verbose, gc_stress(), Some(host)) {
+        let sum = match sabiruby::mrbtest::run_file_prelude(&assert_mrb, &prelude, &bin, cap, verbose, gc_stress(), Some(host)) {
             Ok(s) => s,
             Err(e) => { eprintln!("{name}: {e}"); return ExitCode::from(1); }
         };

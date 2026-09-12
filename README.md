@@ -43,8 +43,12 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 * Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
   [`docs/fibers.md`](https://github.com/kishima/sabiruby/blob/main/docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
   -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method, and the
-  rest of the reference's `default.gembox` except `regexp` and the POSIX ones — 35 gems, plus
-  mruby-cmath from outside it. The numeric tower is complete: **mruby-bigint**
+  rest of the reference's `default.gembox` except the POSIX ones — 36 gems, plus
+  mruby-cmath from outside it. **mruby-regexp** is there with `Regexp`, `MatchData`, the String
+  and Symbol methods and `$~`; its pattern engine is Rust's `regex-automata` rather than a port
+  of the reference's NFA, so backreference, lookaround, atomic group and subexpression call are
+  refused with `RegexpError` (the list is in
+  [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md), "Deviations kept"). The numeric tower is complete: **mruby-bigint**
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
@@ -66,8 +70,8 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   Output is byte-identical to `mrbc` for every `.rb` in the repository. See
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
 
-Not yet: the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
-`rescue => e`), `require` (design notes below), the remaining mrbgems (`io`, `regexp`, …),
+Not yet: `$!` (nil even inside `rescue`; use
+`rescue => e`), `require` (design notes below), the remaining mrbgems (`io`, …),
 encodings other than UTF-8 (`Encoding` and `force_encoding` come with mruby-encoding;
 `String#b` is here). Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
@@ -95,17 +99,17 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 18 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`); `utf8.rb` is compared with
 the image of the build's own reading (`kishima/mruby:4.1.0-rc-utf8` by default).
 
-mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 1877 of
-1916 in the default build and 1819 of 1866 in a byte-string one — each build runs the
+mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 2243 of
+2412 in the default build and 2166 of 2357 in a byte-string one — each build runs the
 assertions written for it and has its own floor (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md)
 and [`docs/mrbtest-bytes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-bytes.md), reasons for the rest in
-[`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
-assertions only the two NaN identity tests fail, the C-fixture ones crash and the DBG and
-other-build ones skip.
-The rest: 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
-`ary_shared.c`), 2 are the deviations above, 1 is `(1..).last`, where the core test and
+[`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)).
+Most of what does not pass is mruby-regexp's engine: 82 crashes are patterns using a construct a
+finite automaton has none of, and 39 KO are what the two engines answer differently. The rest:
+11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
+`ary_shared.c`), a handful are the deviations above, 1 is `(1..).last`, where the core test and
 mruby-range-ext disagree (the reference `mruby` crashes on it too), and the remaining ones are
-skips the reference makes too (regexp, build-dependent).
+skips the reference makes too (build-dependent).
 `tools/mrbtest.sh` compiles the gem tests and gem mrblibs too (`GEMS` in the script).
 
 The reference image includes the default gembox (array-ext, hash-ext, compar-ext, …). The

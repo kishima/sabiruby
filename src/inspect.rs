@@ -276,6 +276,8 @@ impl Vm {
             Value::Obj(o) => {
                 if self.heap.is_free(o) { return format!("#<freed {}>", o.0); }
                 match &self.heap.get(o).kind {
+                    ObjKind::Regexp(_) => format!("#<Regexp {}>", o.0),
+                    ObjKind::MatchData { .. } => format!("#<MatchData {}>", o.0),
                     ObjKind::String(b) => render_string(b),
                     ObjKind::Array(a) => {
                         if depth == 0 { return format!("#<Array len={}>", a.len()); }

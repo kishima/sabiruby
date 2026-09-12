@@ -33,7 +33,7 @@ pub fn init(vm: &mut Vm) {
         ("hash", |vm, s, _a, _b| Ok(Value::Int(vm.value_hash(s)))),
         ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("===", |vm, s, a, _b| { argc!(vm, a, 1); Ok(Value::bool(vm.equal(s, a[0])?)) }),
-        ("=~", |vm, _s, a, _b| { argc!(vm, a, 1); Ok(Value::Nil) }),
+
         ("nil?", |_vm, s, _a, _b| Ok(Value::bool(s.is_nil()))),
         ("to_s", |vm, s, _a, _b| { let t = any_to_s(vm, s); Ok(vm.str_from(t)) }),
         ("inspect", obj_inspect),
@@ -230,6 +230,8 @@ pub fn init(vm: &mut Vm) {
         ("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b""))),
         ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"nil"))),
         // to_a/to_h/to_i/to_f are mruby-object-ext (`ext_object.rs`)
+        // `nil_match`: nil matches nothing, and it is the only object core gives `=~` to
+        ("=~", |vm, _s, a, _b| { argc!(vm, a, 1); Ok(Value::Nil) }),
         ("&", |_vm, _s, _a, _b| Ok(Value::False)),
         ("|", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
         ("^", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
@@ -393,6 +395,10 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), hashes: hd.hashes.clone(), default: hd.default }),
             ObjKind::Range { .. } => ObjKind::Object, // `initialize_copy` fills the copy in, as the reference's `range_initialize_copy` does
             ObjKind::Exception => ObjKind::Exception,
+            // a Regexp copies its source and flags and compiles its own pattern
+            // (`regexp_init_copy`), which `initialize_copy` does below; a MatchData is never
+            // copied, `dup` on one answering a plain object as the reference's does
+            ObjKind::Regexp(_) | ObjKind::MatchData { .. } => ObjKind::Object,
             ObjKind::BigInt(b) => ObjKind::BigInt(b.clone()),
             ObjKind::Class(cd) => {
                 let (hc, data, is_module, ivars) = (h.class, crate::object::ClassData { name: None, superclass: cd.superclass, methods: cd.methods.clone(), vis: cd.vis.clone(), consts: cd.consts.clone(), cvars: cd.cvars.clone(), is_module: cd.is_module, instance_kind: cd.instance_kind, outer: None, ..Default::default() }, cd.is_module, h.ivars.clone());
