@@ -17,7 +17,10 @@ gem_array 82
 gem_bigint 29
 gem_catch 8
 gem_class 3
+gem_cmath 21
 gem_compar 3
+gem_complex 8
+gem_complex_complex 81
 gem_data 14
 gem_enum 38
 gem_enum_chain 6
@@ -39,6 +42,7 @@ gem_objectspace 4
 gem_proc 9
 gem_random 13
 gem_range 10
+gem_rational 134
 gem_set 41
 gem_sprintf 10
 gem_string 64

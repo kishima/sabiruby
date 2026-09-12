@@ -70,9 +70,16 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   for `(2**62).dup`, which is wide in its build and immediate here). The bit operations work over
   one limb more than the longer operand, which the reference does not, so a result needing the
   extra limb (`-1 ^ 0xffffffff`) is not truncated.
-* `Integer#quo` on a wide integer answers a Float; the reference answers a Rational (its
-  `int_quo` uses mruby-rational, which is not ported yet — and answers `(0/1)` for
-  `(2**64).quo(2)`, which is wrong there too).
+* `Integer#quo` on a wide integer answers the exact Rational (`(2**64).quo(2)` is
+  `(9223372036854775808/1)`); the reference reads the wide receiver as a machine integer
+  there and answers `(0/1)`.
+* `Integer#div` and `Integer#divmod` with a Float or a Rational divisor divide by the value
+  (`2.div(1.5)` is 1, `2.div(Rational(1, 2))` is 4, as in CRuby); the reference converts the
+  divisor to an Integer first (`mrb_as_int`), which answers 2 and raises ZeroDivisionError.
+* A Rational and a Complex are plain objects with hidden instance variables here, so
+  `ObjectSpace.count_objects` counts them as `T_OBJECT`, not `T_RATIONAL`/`T_COMPLEX`.
+  `Rational#eql?` is defined natively (the reference gets it from `mrb_eql`'s "same type,
+  then `==`" rule, which has no equivalent here).
 * `ObjectSpace.count_objects` has a `T_BIGINT` entry, counted after `T_BREAK` as in the
   reference's type enum.
 * **mruby-sprintf** — `Kernel#sprintf`/`format` (`ext_sprintf.rs`): the reference's state machine
@@ -265,6 +272,44 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   t("Time.at"){ Time.at(2**64) };     t("exp"){ 2 ** (2**64) }
   ```
 
+* **mruby-rational** (`ext_rational.rs`) and **mruby-complex** (`ext_complex.rs`) — the two
+  gems that finish the numeric tower. They land in the same places of `numeric.rs` as
+  mruby-bigint and were ported together, because the Rational tests need Complex and the
+  Complex tests need Rational (`add_test_dependency`).
+
+  * **Representation** — a Rational keeps `__num`/`__den` and a Complex `__real`/`__imag` in
+    hidden instance variables of a plain object (the Random/Time style), not a new
+    `ObjKind`. A Rational's halves are Integers of any width, always reduced with the sign on
+    the numerator; a Complex's parts are whatever member of the tower they were given
+    (Integer, Rational or Float — the reference's `COMP_VALUE` form, which is the only form
+    here). Both objects are frozen. `Vm::core` gained `rational` and `complex` so a native can
+    ask "is this one of ours" with one comparison, and `Vm::s` the four ivar names.
+  * **Exact arithmetic** — the reference works in `mrb_int` and reaches for a wide integer
+    when that overflows; here every Rational operation goes through [`BigInt`] and comes back
+    normalized, which is the same value with less code. A Complex works part by part through
+    the tower's own dispatch (`mrb_num_add` is a `funcall` here), so an exact pair stays exact:
+    `(1+2i) * (3-1i)` is `(5+5i)` with Integer parts and `1/Complex(1,2)` is
+    `((1/5)-(2/5)*i)`.
+  * **The core branches** — `numeric.c`'s `MRB_USE_RATIONAL`/`MRB_USE_COMPLEX` arms, in
+    `numeric.rs`'s `tower()`: `Integer` `+ - * /` with a Rational or a Complex hands the pair
+    to the gem, `Float` does the same for a Complex only (a Rational converts to a Float
+    there), `==` asks the wider operand, `<=>` compares a Rational through Float and asks a
+    Complex for its own answer, and `Integer#quo` of two Integers is now a Rational.
+    `Vm::expect_int` gained the `mrb_ensure_int_type` arms (a Rational truncates, a Complex
+    converts when its imaginary part is zero), which is why `2 ** Rational(2, 1)` is 4.
+  * **What the receiver taught** — SabiRuby had `<`, `<=`, `>`, `>=` as natives on **Numeric**;
+    in the reference they are Comparable's, and Integer and Float have their own. With a
+    Rational receiver the native compared nothing it knew and raised. `cmp` now dispatches
+    `<=>` for a receiver that is neither an Integer nor a Float, which is what Comparable
+    does — and that is also what makes mrblib's `Numeric#abs` (`self < 0`) work for a Rational.
+* **mruby-cmath** (`ext_cmath.rs`) — `CMath`, Math over the complex plane. The reference
+  leans on C99 `<complex.h>`; the functions are written out here from their definitions with
+  C's principal branches (`casin z = -i ln(iz + sqrt(1 - z^2))`, and so on), on `libm`. The
+  gem is **not in `default.gembox`**, so the reference image has no `CMath` and cannot answer
+  for it: the checks are its own test file (21 assertions, all passing, including the
+  round trips `sin(asin z)`, `cosh(acosh z)`, …) and `CMath.log(-8, -2)`, whose expected
+  value the test spells out.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -280,14 +325,16 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 ## Remaining gems (plan as of 2026-09-12)
 
-Order and instructions for the rest: `docs/gems-plan.md`. mruby-bigint is done (order 5 started
-with it, because rational and complex branch in the same places of `numeric.rs`).
+Order and instructions for the rest: `docs/gems-plan.md`. Order 5's numeric tower is done —
+bigint, then rational and complex together (they branch in the same places of `numeric.rs`),
+then cmath. What is left of it is mruby-pack.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
-class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint (29).
+class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint,
+rational, complex (31), plus mruby-cmath from outside the gembox.
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
@@ -296,9 +343,6 @@ Sizes are lines of the reference C / mrblib Ruby / test.
 | 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |
 | 4 | mruby-proc-binding | 75 / 0 / 22 | binding, proc-ext | `Proc#binding` |
 | 5 | mruby-pack | 2133 / 0 / 278 | – | `Array#pack`/`String#unpack`; large but self-contained |
-| 5 | mruby-rational | 1512 / 72 / 742 | – (tests: complex) | `Rational`; the lexer literals (`1r`) already compile |
-| 5 | mruby-complex | 1087 / 295 / 325 | math | `Complex` |
-| 5 | mruby-cmath | 425 / 0 / 41 | complex | not in default.gembox |
 | 6 | mruby-regexp | 10940 / 42 / 10213 | enumerator, symbol-ext, string-ext | the NFA engine (4.0.0); the largest single piece, its own milestone |
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
@@ -322,7 +366,6 @@ Candidates, with the reference sizes (C / Ruby / test):
 | mruby-string-bitops | 581 / 0 / 210 | maybe: `String#&`, `|`, `^`, `~` on bytes; small, self-contained |
 | mruby-os-memsize | 283 / 0 / 63 | maybe: `ObjectSpace.memsize_of`; needs per-object sizes from our heap, answers will differ from the reference (deviation) |
 | mruby-encoding | 109 / 0 / 921 | no for now: only meaningful with `MRB_UTF8_STRING`, which the byte-string build does not have |
-| mruby-cmath | 425 / 0 / 41 | with complex (order 5) |
 | mruby-benchmark | 0 / 130 / 283 | no: pure Ruby but depends on io and process |
 | mruby-error, mruby-exit | 143, 82 | no: C API helpers (`mrb_protect`), `exit` is a host decision |
 | mruby-test-inline-struct, mruby-test, mruby-bin-* | – | build/test infrastructure, not runtime |

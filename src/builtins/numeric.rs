@@ -75,9 +75,42 @@ pub(crate) fn num_f64(vm: &Vm, v: Value) -> Option<f64> {
     match v {
         Value::Int(i) => Some(i as f64),
         Value::Float(f) => Some(f),
+        _ if super::ext_rational::is_rational(vm, v) => Some(super::ext_rational::to_f(vm, v)),
         Value::Obj(o) => vm.heap.bigint(o).map(|b| b.to_f64()),
         _ => None,
     }
+}
+
+// --------------------------------------------- Rational and Complex (the rest of the tower)
+
+/// The arms `numeric.c` has for a Rational or a Complex operand: the pair is handed to the
+/// gem that owns the wider type. `None` when the operand is neither.
+fn zero_like(x: Value) -> Value {
+    // `mrb_complex_new(a, 0)` builds the two-Float form, so a Float receiver keeps Float parts
+    if matches!(x, Value::Float(_)) { Value::Float(0.0) } else { Value::Int(0) }
+}
+
+fn tower(vm: &mut Vm, x: Value, y: Value, op: char) -> VmResult<Option<Value>> {
+    use super::{ext_complex as cpx, ext_rational as rat};
+    if !matches!(y, Value::Obj(_)) { return Ok(None); }
+    if rat::is_rational(vm, y) && !matches!(x, Value::Float(_)) {
+        // a Float receiver keeps the Float arms: `1.0 + Rational(1, 2)` is 1.5
+        return Ok(Some(match op {
+            '+' => rat::add(vm, y, x)?,
+            '*' => rat::mul(vm, y, x)?,
+            '-' => { let r = rat::as_rational(vm, x)?; rat::sub(vm, r, y)? }
+            _ => { let r = rat::as_rational(vm, x)?; rat::div(vm, r, y)? }
+        }));
+    }
+    if cpx::is_complex(vm, y) {
+        return Ok(Some(match op {
+            '+' => cpx::arith(vm, y, x, '+')?,
+            '*' => cpx::arith(vm, y, x, '*')?,
+            '-' => { let c = cpx::new_complex(vm, x, zero_like(x))?; cpx::arith(vm, c, y, '-')? }
+            _ => { let c = cpx::new_complex(vm, x, zero_like(x))?; cpx::div(vm, c, y)? }
+        }));
+    }
+    Ok(None)
 }
 
 /// `mrb_bint_cmp` against a Float: the float is split at its integer part, which is exact,
@@ -103,6 +136,7 @@ fn int_arith(vm: &mut Vm, s: Value, a: &[Value], op: IntOp) -> VmResult<Value> {
         if let Some(r) = r { return Ok(Value::Int(r)); }
         return Ok(bint_arith(vm, &BigInt::from_i64(p), &BigInt::from_i64(q), op));
     }
+    if let Some(v) = tower(vm, x, y, match op { IntOp::Add => '+', IntOp::Sub => '-', IntOp::Mul => '*' })? { return Ok(v); }
     if let Value::Float(q) = y {
         let p = num_f64(vm, x).unwrap_or(0.0);
         return Ok(Value::Float(match op { IntOp::Add => p + q, IntOp::Sub => p - q, IntOp::Mul => p * q }));
@@ -136,6 +170,7 @@ fn int_div(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
         if p == i64::MIN && q == -1 { return Ok(vm.bint_value(BigInt::from_i64(p).neg())); }
         return Ok(Value::Int(div_floor(p, q)));
     }
+    if let Some(v) = tower(vm, x, y, '/')? { return Ok(v); }
     if let Value::Float(q) = y {
         let p = num_f64(vm, x).unwrap_or(0.0);
         return Ok(Value::Float(p / q));
@@ -165,14 +200,20 @@ fn int_idiv(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
         }
         // the reference's `mrb_bint_div` multiplies by a Float instead of dividing; the
         // floor division is taken here (`docs/gems.md`, `tests/custom/bigint_div_float`)
-        (_, Value::Float(q)) => {
-            let p = num_f64(vm, x).unwrap_or(0.0);
+        _ if float_arm(vm, y) => {
+            let (p, q) = (num_f64(vm, x).unwrap_or(0.0), num_f64(vm, y).unwrap_or(0.0));
             if q == 0.0 { return Err(zero_div(vm)); }
             let d = libm::floor(p / q);
             Ok(if (-9223372036854775808.0..9223372036854775808.0).contains(&d) { Value::Int(d as i64) } else { vm.bint_value(BigInt::from_f64(d)) })
         }
         _ => bint_div_floor(vm, x, y),
     }
+}
+
+/// True where `mrb_as_float` would take over: a Float, or a Rational, which converts
+/// (`Integer#%`, `div` and `divmod` have no exact arm for one).
+fn float_arm(vm: &Vm, y: Value) -> bool {
+    matches!(y, Value::Float(_)) || super::ext_rational::is_rational(vm, y)
 }
 
 fn int_mod(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
@@ -184,8 +225,8 @@ fn int_mod(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
             Ok(Value::Int(mod_floor(p, q)))
         }
         // as for `div`, the floor remainder rather than the reference's `fmod`
-        (_, Value::Float(q)) => {
-            let p = num_f64(vm, x).unwrap_or(0.0);
+        _ if float_arm(vm, y) => {
+            let (p, q) = (num_f64(vm, x).unwrap_or(0.0), num_f64(vm, y).unwrap_or(0.0));
             let m = p % q;
             Ok(Value::Float(if m != 0.0 && ((m < 0.0) != (q < 0.0)) { m + q } else { m }))
         }
@@ -209,8 +250,8 @@ fn int_divmod(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> 
             if p == i64::MIN && q == -1 { let d = vm.bint_value(BigInt::from_i64(p).neg()); return Ok(vm.ary_new(vec![d, Value::Int(0)])); }
             Ok(vm.ary_new(vec![Value::Int(div_floor(p, q)), Value::Int(mod_floor(p, q))]))
         }
-        (_, Value::Float(q)) => {
-            let p = num_f64(vm, x).unwrap_or(0.0);
+        _ if float_arm(vm, y) => {
+            let (p, q) = (num_f64(vm, x).unwrap_or(0.0), num_f64(vm, y).unwrap_or(0.0));
             let (d, m) = flodivmod(vm, p, q)?;
             let dv = if d.is_finite() { float_to_int(vm, d) } else { Value::Float(d) };
             Ok(vm.ary_new(vec![dv, Value::Float(m)]))
@@ -251,6 +292,24 @@ pub fn int_float_cmp(x: i64, y: f64) -> Option<core::cmp::Ordering> {
 fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Result<Option<core::cmp::Ordering>, ()>> {
     argc!(vm, a, 1);
     let (x, y) = (s, a[0]);
+    if matches!(x, Value::Obj(_)) && !vm.is_bigint(x) {
+        // Numeric's `<`/`<=`/`>`/`>=` are Comparable's in the reference, which asks `<=>`;
+        // a Rational or a Complex receiver reaches them through this
+        let cmp = vm.intern("<=>");
+        let r = vm.funcall(x, cmp, &[y], Value::Nil)?;
+        return Ok(match r { Value::Int(i) => Ok(Some(i.cmp(&0))), _ => Err(()) });
+    }
+    if super::ext_rational::is_rational(vm, y) {
+        // `cmpnum`: a Rational is compared as a Float
+        let (p, q) = (num_f64(vm, x), num_f64(vm, y));
+        return Ok(match (p, q) { (Some(p), Some(q)) => Ok(p.partial_cmp(&q)), _ => Err(()) });
+    }
+    if super::ext_complex::is_complex(vm, y) {
+        // the default arm: ask the other operand and reverse the answer
+        let cmp = vm.intern("<=>");
+        let r = vm.funcall(y, cmp, &[x], Value::Nil)?;
+        return Ok(match r { Value::Int(i) => Ok(Some(match i.cmp(&0) { core::cmp::Ordering::Less => core::cmp::Ordering::Greater, core::cmp::Ordering::Equal => core::cmp::Ordering::Equal, core::cmp::Ordering::Greater => core::cmp::Ordering::Less })), _ => Err(()) });
+    }
     if vm.is_bigint(x) || vm.is_bigint(y) {
         // the reference takes the wide value first and reverses the answer for `Float <=> big`
         if let Value::Float(f) = x {
@@ -272,6 +331,24 @@ fn cmp(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Result<Option<core::cmp::
     })
 }
 /// For `<` and friends: unordered numbers answer false, non-numbers raise.
+/// `int_equal` / `flo_eq`: a Rational or a Complex on the right answers the comparison
+/// itself (a Float and a Rational compare as Floats).
+fn num_eq(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    argc!(vm, a, 1);
+    let y = a[0];
+    if matches!(y, Value::Obj(_)) {
+        let rational = super::ext_rational::is_rational(vm, y);
+        if rational && matches!(s, Value::Float(_)) {
+            return Ok(Value::bool(num_f64(vm, s) == num_f64(vm, y)));
+        }
+        if rational || super::ext_complex::is_complex(vm, y) {
+            let eq = vm.s.eq;
+            return vm.funcall(y, eq, &[s], Value::Nil);
+        }
+    }
+    Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))
+}
+
 fn cmp_or_fail(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Option<core::cmp::Ordering>> {
     match cmp(vm, s, a)? {
         Ok(o) => Ok(o),
@@ -286,6 +363,8 @@ fn pow_exp(vm: &mut Vm, y: Value) -> VmResult<i64> {
     match y {
         Value::Int(e) => Ok(e),
         _ if vm.is_bigint(y) => Err(vm.raise(vm.core.range_error, "integer out of range")),
+        // `mrb_as_int`: a Rational truncates, anything else is a TypeError
+        Value::Obj(_) => vm.expect_int(y, "exponent"),
         _ => { let d = vm.describe_for_type_error(y); Err(vm.raise_type(&format!("{d} cannot be converted to Integer"))) }
     }
 }
@@ -398,7 +477,7 @@ pub fn init(vm: &mut Vm) {
         ("<=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_le())) }),
         (">", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_gt())) }),
         (">=", |vm, s, a, _b| { let o = cmp_or_fail(vm, s, a)?; Ok(ord_test(o, |o| o.is_ge())) }),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
+        ("==", num_eq),
         ("between?", |vm, s, a, _b| { argc!(vm, a, 2); match cmp_or_fail(vm, s, &a[..1])? { Some(l) if l.is_lt() => return Ok(Value::False), Some(_) => {} None => return Err(unordered(vm, s, a[0])) } match cmp_or_fail(vm, s, &a[1..])? { Some(h) => Ok(Value::bool(h.is_le())), None => Err(unordered(vm, s, a[1])) } }),
         ("abs", |vm, s, _a, _b| Ok(match s {
             Value::Int(i) => match i.checked_abs() { Some(r) => Value::Int(r), None => vm.bint_value(BigInt::from_i64(i).abs()) },
@@ -437,7 +516,7 @@ pub fn init(vm: &mut Vm) {
         ("^", |vm, s, a, _b| bit(vm, s, a, |p, q| p ^ q, BigInt::xor)),
         ("<<", |vm, s, a, _b| shift(vm, s, a, true)),
         (">>", |vm, s, a, _b| shift(vm, s, a, false)),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
+        ("==", num_eq),
         // `eql?` compares the class as well: a Float is never `eql?` to an Integer
         ("eql?", |vm, s, a, _b| Ok(Value::bool(match a.first() {
             Some(&y) if matches!(y, Value::Int(_)) || vm.is_bigint(y) => cmp(vm, s, &[y])? == Ok(Some(core::cmp::Ordering::Equal)),
@@ -461,23 +540,34 @@ pub fn init(vm: &mut Vm) {
         ("ceil", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Ceil)),
         ("round", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Round)),
         ("truncate", |vm, s, a, _b| int_rounding(vm, s, a, Rounding::Truncate)),
-        ("quo", |vm, s, a, _b| { argc!(vm, a, 1); let p = num_f64(vm, s).unwrap_or(0.0); match num_f64(vm, a[0]) { Some(q) => Ok(Value::Float(p / q)), None => Err(coerce_fail(vm, a[0], "quo")) } }),
+        // `int_quo`: with mruby-rational loaded the quotient of two Integers is exact
+        ("quo", |vm, s, a, _b| {
+            argc!(vm, a, 1);
+            let y = a[0];
+            if let (Some(n), Some(d)) = (vm.as_bigint(s), vm.as_bigint(y)) { return super::ext_rational::new_rat(vm, &n, &d); }
+            if super::ext_rational::is_rational(vm, y) {
+                let r = super::ext_rational::as_rational(vm, s)?;
+                return super::ext_rational::div(vm, r, y);
+            }
+            let p = num_f64(vm, s).unwrap_or(0.0);
+            match num_f64(vm, y) { Some(q) => Ok(Value::Float(p / q)), None => Err(coerce_fail(vm, y, "quo")) }
+        }),
         ("fdiv", |vm, s, a, _b| { argc!(vm, a, 1); let p = num_f64(vm, s).unwrap_or(0.0); match num_f64(vm, a[0]) { Some(q) => Ok(Value::Float(p / q)), None => Err(coerce_fail(vm, a[0], "fdiv")) } }),
         ("__num_to_a", |_vm, _s, _a, _b| Ok(Value::Nil)),
     ]);
     vm.define_methods(c.float, &[
         // `flo_idiv`: floor division to an Integer
         ("div", |vm, s, a, _b| { argc!(vm, a, 1); let x = match s { Value::Float(x) => x, _ => 0.0 }; if !x.is_finite() { return Err(vm.raise(vm.core.float_domain_error, &float_to_s(x))); } let y = vm.expect_int(a[0], "divisor")?; if !(-9223372036854775808.0..9223372036854775808.0).contains(&x) { return Err(vm.raise(vm.core.range_error, "integer overflow in div")); } if y == 0 { return Err(vm.raise(vm.core.zero_division_error, "divided by 0")); } Ok(Value::Int(div_floor(x as i64, y))) }),
-        ("+", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p + q)),
-        ("-", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p - q)),
-        ("*", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p * q)),
-        ("/", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p / q)),
+        ("+", |vm, s, a, _b| { argc!(vm, a, 1); if let Some(v) = tower(vm, s, a[0], '+')? { return Ok(v); } float_binop(vm, s, a, |p, q| p + q) }),
+        ("-", |vm, s, a, _b| { argc!(vm, a, 1); if let Some(v) = tower(vm, s, a[0], '-')? { return Ok(v); } float_binop(vm, s, a, |p, q| p - q) }),
+        ("*", |vm, s, a, _b| { argc!(vm, a, 1); if let Some(v) = tower(vm, s, a[0], '*')? { return Ok(v); } float_binop(vm, s, a, |p, q| p * q) }),
+        ("/", |vm, s, a, _b| { argc!(vm, a, 1); if let Some(v) = tower(vm, s, a[0], '/')? { return Ok(v); } float_binop(vm, s, a, |p, q| p / q) }),
         ("quo", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p / q)),
         ("fdiv", |vm, s, a, _b| float_binop(vm, s, a, |p, q| p / q)),
         ("%", |vm, s, a, _b| float_binop(vm, s, a, |p, q| { let m = p % q; if m != 0.0 && ((m < 0.0) != (q < 0.0)) { m + q } else { m } })),
         ("**", |vm, s, a, _b| float_binop(vm, s, a, libm::pow)),
         ("-@", |_vm, s, _a, _b| Ok(match s { Value::Float(f) => Value::Float(-f), v => v })),
-        ("==", |vm, s, a, _b| Ok(Value::bool(cmp(vm, s, a)? == Ok(Some(core::cmp::Ordering::Equal))))),
+        ("==", num_eq),
         ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("hash", |_vm, s, _a, _b| Ok(Value::Int(match s { Value::Float(f) => f.to_bits() as i64, _ => 0 }))),
         ("__coerce_step_counter", |_vm, s, _a, _b| Ok(s)),

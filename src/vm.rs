@@ -149,18 +149,23 @@ pub struct Core {
     pub system_stack_error: ObjId,
     pub fiber: ObjId,
     pub fiber_error: ObjId,
+    /// mruby-rational's `Rational` and mruby-complex's `Complex`, filled in by their
+    /// `init` (the two are recognized by class, and a native asks often).
+    pub rational: ObjId,
+    pub complex: ObjId,
 }
 
 impl Core {
     /// Every class in the set (GC roots).
-    pub fn ids(&self) -> [ObjId; 39] {
+    pub fn ids(&self) -> [ObjId; 41] {
         [self.basic_object, self.object, self.module, self.class, self.kernel, self.comparable, self.enumerable,
          self.nil_class, self.true_class, self.false_class, self.numeric, self.integer, self.float, self.symbol,
          self.string, self.array, self.hash, self.range, self.proc_, self.exception, self.standard_error,
          self.runtime_error, self.argument_error, self.type_error, self.name_error, self.no_method_error,
          self.zero_division_error, self.local_jump_error, self.index_error, self.range_error, self.key_error,
          self.not_implemented_error, self.stop_iteration, self.frozen_error, self.float_domain_error,
-         self.no_matching_pattern_error, self.system_stack_error, self.fiber, self.fiber_error]
+         self.no_matching_pattern_error, self.system_stack_error, self.fiber, self.fiber_error,
+         self.rational, self.complex]
     }
 }
 
@@ -189,6 +194,12 @@ pub struct Syms {
     pub aref: Sym,
     pub aset: Sym,
     pub attached: Sym,
+    /// The hidden instance variables of a Rational and a Complex (`ext_rational.rs`,
+    /// `ext_complex.rs`), which their natives read on every operation.
+    pub num: Sym,
+    pub den: Sym,
+    pub real: Sym,
+    pub imag: Sym,
 }
 
 pub struct Vm {
@@ -364,6 +375,7 @@ impl Vm {
         let core = Core {
             basic_object, object, module, class, kernel, comparable, enumerable, nil_class, true_class,
             false_class, numeric, integer, float, symbol, string, array, hash, range, proc_, exception,
+            rational: object, complex: object,
             standard_error, runtime_error, argument_error, type_error, name_error, no_method_error,
             zero_division_error, local_jump_error, index_error, range_error, key_error,
             not_implemented_error, stop_iteration, frozen_error, float_domain_error,
@@ -387,6 +399,10 @@ impl Vm {
             inspect: syms.intern_str("inspect"),
             call: syms.intern_str("call"),
             mesg: syms.intern_str("mesg"),
+            num: syms.intern_str("__num"),
+            den: syms.intern_str("__den"),
+            real: syms.intern_str("__real"),
+            imag: syms.intern_str("__imag"),
             method_missing: syms.intern_str("method_missing"),
             eq: syms.intern_str("=="),
             eqq: syms.intern_str("==="),
@@ -450,7 +466,7 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_METHOD_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
         Ok(())
@@ -580,6 +596,13 @@ impl Vm {
     pub fn expect_int(&mut self, v: Value, _what: &str) -> VmResult<i64> {
         match v {
             Value::Int(i) => Ok(i),
+            // `mrb_ensure_int_type`: a Rational truncates, a Complex converts when its
+            // imaginary part is zero
+            Value::Obj(_) if crate::builtins::ext_rational::is_rational(self, v) || crate::builtins::ext_complex::is_complex(self, v) => {
+                let to_i = self.intern("to_i");
+                let r = self.funcall(v, to_i, &[], Value::Nil)?;
+                self.expect_int(r, _what)
+            }
             // `mrb_bint_as_int`: an Integer too wide for the operation that asked for it
             Value::Obj(o) if self.heap.bigint(o).is_some() => {
                 match self.heap.bigint(o).unwrap().to_i64() {

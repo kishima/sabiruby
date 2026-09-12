@@ -42,13 +42,15 @@ Categories:
 | gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
 | gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |
 
-Summary (2026-09-12, after mruby-bigint): 1534 assertions, 1494 pass.
+Summary (2026-09-12, after the numeric tower — bigint, rational, complex, cmath): 1778
+assertions, 1738 pass.
 Not passing: 14 crashes (13 C fixtures, 1 core-test-vs-gem conflict the reference shares), 6 KO
 (deliberate deviations: NaN identity ×4, the pattern-matching guard, the Set rebuild guard),
 20 skips (regexp 1, backtrace 2, Float defined 1, revision 1, UTF-8/encoding 12, DBG-dependent
 `source_location` 3, plus the empty `regexperror`), 0 warnings (one was a bug, see below).
 The four assertions that skipped for want of mruby-bigint (`array`, `gc`, `integer`,
-`literals`) run now; the gem's own `test/bigint.rb` adds 29, all passing.
+`literals`) run now; the four gems' own test files add 244 (bigint 29, rational 134,
+complex 8 + 81, cmath 21), all passing.
 
 The five `... does not retain ... in the GC arena` assertions of `gc` (`OP_GETIDX`, `OP_GETIDX0` twice each,
 `OP_SETIDX`) failed until the collector (`docs/gc.md`): they compare `GC.stat[:live]` around 20000 operations after a
