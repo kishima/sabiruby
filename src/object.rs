@@ -154,6 +154,9 @@ pub struct HeapObject {
     pub class: ObjId,
     pub ivars: Vec<(Sym, Slot)>,
     pub frozen: bool,
+    /// `MRB_STR_ENCODING_BINARY`: a String made byte-read by `String#b`, which counts and cuts
+    /// one position per byte whatever its bytes are. Meaningless for every other kind.
+    pub binary: bool,
     pub kind: ObjKind,
 }
 
@@ -209,7 +212,7 @@ impl Heap {
         if self.allocated_since_gc >= self.alloc_threshold || (self.malloc_threshold != 0 && self.malloc_increase > self.malloc_threshold) {
             self.gc_pending = true;
         }
-        let o = HeapObject { class, ivars: Vec::new(), frozen: false, kind };
+        let o = HeapObject { class, ivars: Vec::new(), frozen: false, binary: false, kind };
         match self.free.pop() {
             Some(i) => {
                 self.flags[i as usize] = 0;
@@ -343,7 +346,7 @@ impl Heap {
                 self.flags[i] = 0;
             } else if f & FREE == 0 {
                 // drop the payload; ObjKind::Object with class 0 is inert if touched by mistake
-                self.objs[i] = HeapObject { class: ObjId(0), ivars: Vec::new(), frozen: false, kind: ObjKind::Object };
+                self.objs[i] = HeapObject { class: ObjId(0), ivars: Vec::new(), frozen: false, binary: false, kind: ObjKind::Object };
                 self.flags[i] = FREE;
                 freed += 1;
             }

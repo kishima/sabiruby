@@ -25,10 +25,15 @@ name = "sabiruby"
 path = "src/lib.rs"
 
 [features]
-default = ["std"]
+default = ["std", "utf8"]
 # The library itself is no_std + alloc. `std` only adds `std::error::Error` glue
 # and is used by the command line tool (crate sabiruby-cli) and the tests.
 std = []
+# `utf8`: Strings are sequences of characters, as the reference built with
+# MRB_UTF8_STRING is (`length`, `[]`, `index`, `chars`, `reverse`, `center`, `upcase`, …).
+# Without it they are sequences of bytes, which is the reference's default build. Both are
+# checked against their own reference image (`docs/utf8.md`).
+utf8 = []
 
 [dependencies]
 hashbrown = { version = "0.15", default-features = false, features = ["default-hasher", "inline-more"] }

@@ -1,5 +1,10 @@
 # UTF-8 strings (`MRB_UTF8_STRING`) — plan
 
+**実装状況 (2026-09-12): 完了。** Option B の通り Cargo feature `utf8`（既定で有効）として実装し、
+文字としての String は `docs/utf8.md` にまとめた。本家テストは UTF-8 ビルドで 1877/1916、
+バイトビルドで 1819/1866（それぞれ `tests/mrbtest/baseline.txt` と `baseline-bytes.txt`）。
+以下は着手時の計画で、記録として残す。
+
 Requirement (author, 2026-09-12): Japanese text must work, because the VM is meant for
 games built on a game engine later. Today SabiRuby is a byte-string build, like the
 reference image `kishima/mruby:4.1.0-rc` (`__ENCODING__` is `"ASCII-8BIT"`,

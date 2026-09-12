@@ -215,6 +215,14 @@ fn as_float(vm: &mut Vm, v: Value) -> VmResult<f64> {
 
 /// `mrb_str_format`.
 pub fn format_str(vm: &mut Vm, fmt: &[u8], args: &[Value]) -> VmResult<Vec<u8>> {
+    let mut binary = false;
+    format_str_enc(vm, fmt, args, &mut binary)
+}
+
+/// `mrb_str_format`, also answering whether the string it built is to be read as bytes: bytes
+/// that were read as bytes and go above ASCII spell no character in the string they are written
+/// into, so they hand it the byte reading along with themselves (`mark_written_bytes`).
+pub fn format_str_enc(vm: &mut Vm, fmt: &[u8], args: &[Value], binary: &mut bool) -> VmResult<Vec<u8>> {
     let mut st = Fmt { args, posarg: 0, nextarg: 1, hash: None };
     let f = fmt;
     let mut out: Vec<u8> = Vec::with_capacity(f.len() + 16);
@@ -306,10 +314,20 @@ pub fn format_str(vm: &mut Vm, fmt: &[u8], args: &[Value]) -> VmResult<Vec<u8>> 
                 b'c' => {
                     let val = match nextvalue.take() { Some(v) => v, None => st.next(vm)? };
                     let ch: Vec<u8> = match val {
-                        Value::Int(code) => vec![(code & 0xff) as u8],
+                        // a code point with the feature `utf8`, a byte without it; a value that
+                        // spells no character writes no byte, which CRuby reports here as an
+                        // invalid character rather than as a range error
+                        Value::Int(code) => {
+                            if super::string::UTF8 {
+                                match super::string::utf8_to_buf(code) { Some(b) => b, None => return Err(arg_err(vm, "invalid character")) }
+                            } else { vec![(code & 0xff) as u8] }
+                        }
                         _ => {
                             let s = match vm.str_bytes(val) { Some(b) => b.to_vec(), None => { let to_str = vm.intern("to_str"); if vm.respond_to(val, to_str) { let r = vm.funcall(val, to_str, &[], Value::Nil)?; match vm.str_bytes(r) { Some(b) => b.to_vec(), None => return Err(arg_err(vm, "invalid character")) } } else { return Err(arg_err(vm, "invalid character")) } } };
+                            // one byte, as the reference asks in both builds ("%c" % "い" is
+                            // refused there too: `RSTRING_LEN(tmp) != 1`)
                             if s.len() != 1 { return Err(arg_err(vm, "%c requires a character")); }
+                            if vm.str_binary(val) && s[0] >= 0x80 { *binary = true; }
                             s
                         }
                     };
@@ -320,6 +338,10 @@ pub fn format_str(vm: &mut Vm, fmt: &[u8], args: &[Value]) -> VmResult<Vec<u8>> 
                 }
                 b's' | b'p' => {
                     let val = match nextvalue.take() { Some(v) => v, None => st.next(vm)? };
+                    // `inspect` builds a string of its own, so only `%s` hands the reading over
+                    if c == b's' && vm.str_binary(val) {
+                        if let Some(b) = vm.str_bytes(val) { if b.iter().any(|x| *x >= 0x80) { *binary = true; } }
+                    }
                     let s = format_string(vm, val, c == b'p', flags, width, prec)?;
                     out.extend_from_slice(&s);
                     break 'spec;
@@ -385,6 +407,7 @@ fn getaster(vm: &mut Vm, st: &mut Fmt, f: &[u8], p: &mut usize) -> VmResult<Valu
 
 fn format_string(vm: &mut Vm, arg: Value, inspect: bool, flags: u32, width: i64, prec: i64) -> VmResult<Vec<u8>> {
     let s = if inspect { vm.inspect(arg)? } else { vm.as_string(arg)? };
+    // the width and the precision count bytes, as the reference does in both builds
     let mut len = s.len() as i64;
     let mut out = vec![];
     if flags & (FPREC | FWIDTH) != 0 {
@@ -474,8 +497,12 @@ fn format_int(vm: &mut Vm, val: Value, c: u8, flags: u32, mut width: i64, mut pr
 fn sprintf(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     if a.is_empty() { return Err(vm.raise_arg("too few arguments")); }
     let fmt = match vm.str_bytes(a[0]) { Some(b) => b.to_vec(), None => { let d = vm.describe_for_type_error(a[0]); return Err(vm.raise_type(&format!("{d} cannot be converted to String"))) } };
-    let out = format_str(vm, &fmt, &a[1..])?;
-    Ok(vm.str_new(&out))
+    // the format string lays its own bytes down as they are, so the answer is read the way it is
+    let mut binary = vm.str_binary(a[0]);
+    let out = format_str_enc(vm, &fmt, &a[1..], &mut binary)?;
+    let r = vm.str_new(&out);
+    vm.str_set_binary(r, binary);
+    Ok(r)
 }
 
 pub fn init(vm: &mut Vm) {

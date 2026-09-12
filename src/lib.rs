@@ -49,6 +49,12 @@
 //! `wasm32-unknown-unknown`). The default `std` feature only adds `std::error::Error` for
 //! [`VmError`]; `default-features = false` gives the `no_std` library.
 //!
+//! `utf8` (also default) reads a String as a sequence of characters, as the reference does
+//! when it is built with `MRB_UTF8_STRING`: `length`, `[]`, `index`, `chars`, `reverse` and
+//! the case methods count and cut characters, while `bytesize`, `byteslice`, `byteindex` and
+//! friends stay bytes. Dropping it gives the byte-string build the reference ships. Both are
+//! checked against a reference image of their own (the repository's `docs/utf8.md`).
+//!
 //! # Stability
 //!
 //! 0.x: the API follows the VM's internals and will change between minor versions. Items

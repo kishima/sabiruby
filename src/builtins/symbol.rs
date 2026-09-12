@@ -11,14 +11,16 @@ pub fn sym_inspect(name: &[u8]) -> Vec<u8> {
     let s = String::from_utf8_lossy(name);
     let simple = {
         let ops = ["[]", "[]=", "!", "!=", "!~", "+", "-", "*", "/", "%", "**", "==", "===", "=~", "<=>", "<", "<=", ">", ">=", "<<", ">>", "&", "|", "^", "~", "+@", "-@", "call", "`"];
-        let ident = |t: &str| { let mut cs = t.chars(); matches!(cs.next(), Some(c) if c == '_' || c.is_alphabetic() || !c.is_ascii()) && cs.all(|c| c == '_' || c.is_alphanumeric() || !c.is_ascii()) };
+        // `symname_p`/`is_identchar`: a plain name is ASCII letters, digits and `_` in both
+        // builds, so a name with a character above ASCII is written quoted (`:"あ"`)
+        let ident = |t: &str| { let mut cs = t.chars(); matches!(cs.next(), Some(c) if c == '_' || c.is_ascii_alphabetic()) && cs.all(|c| c == '_' || c.is_ascii_alphanumeric()) };
         if ops.contains(&s.as_ref()) { true }
         else if let Some(t) = s.strip_prefix("@@").or_else(|| s.strip_prefix('@')).or_else(|| s.strip_prefix('$')) { ident(t) }
         else if let Some(t) = s.strip_suffix('=').or_else(|| s.strip_suffix('?')).or_else(|| s.strip_suffix('!')) { ident(t) }
         else { ident(&s) }
     };
     if simple { let mut v = b":".to_vec(); v.extend_from_slice(name); v }
-    else { let mut v = b":".to_vec(); v.extend(super::string::str_inspect(name)); v }
+    else { let mut v = b":".to_vec(); v.extend(super::string::str_inspect(name, super::string::UTF8)); v }
 }
 
 pub fn init(vm: &mut Vm) {

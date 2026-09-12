@@ -46,3 +46,20 @@ objects rebuilt 16 times) shows no change.
 
 `vm_optimization_bench` and `gc_churn` run for the first time here: the first needs `Time`
 (mruby-time, ported 2026-09-12) and the second is new in the reference tree.
+
+## Re-measured after UTF-8 strings (2026-09-12)
+
+Strings became sequences of characters (the feature `utf8`, on by default; `docs/utf8.md`).
+The character helpers take how the string is read as an argument, so every string method now
+starts with one test of that flag, and the instruction loop is untouched. These three
+benchmarks are numeric and list work with no string method in their inner loops, which is what
+the numbers say; a string-heavy benchmark is not in mruby's set.
+
+| benchmark | before ms | after ms | change |
+|---|---:|---:|---:|
+| bm_fib | 6223.078 | 6304.543 | +1.3% |
+| bm_so_lists | 3813.499 | 3803.837 | −0.3% |
+| bm_so_mandelbrot | 1707.520 | 1674.126 | −2.0% |
+
+Within this machine's run-to-run spread (the same three moved ±1.2% between two runs of the
+unchanged VM above).

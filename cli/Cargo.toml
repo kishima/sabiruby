@@ -11,11 +11,17 @@ repository = "https://github.com/kishima/sabiruby"
 readme = "README.md"
 include = ["/src/**/*", "/README.md"]
 
+[features]
+# Strings as characters, as in a reference built with MRB_UTF8_STRING. On by default;
+# `--no-default-features` builds the byte-string mode the reference ships by default.
+default = ["utf8"]
+utf8 = ["sabiruby/utf8"]
+
 [[bin]]
 name = "sabiruby"
 path = "src/main.rs"
 
 [dependencies]
 clap = { version = "4.5", features = ["derive"] }
-sabiruby = { version = "0.2.0", path = ".." }
+sabiruby = { version = "0.2.0", path = "..", default-features = false, features = ["std"] }
 sabiruby-compiler = { version = "0.1.0", path = "../compiler", features = ["host"] }

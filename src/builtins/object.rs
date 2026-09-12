@@ -424,6 +424,8 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     };
     let n = vm.heap.alloc(class, kind);
     vm.heap.get_mut(n).ivars = ivars;
+    // a copy of a String is read the way the original is (`RSTR_ENC_CR_COPY` in `mrb_str_dup`)
+    vm.heap.get_mut(n).binary = vm.heap.get(o).binary;
     // mruby `init_copy`: the copy gets `initialize_copy(original)` (Ruby overrides may refuse)
     let ic = vm.intern("initialize_copy");
     vm.funcall(Value::Obj(n), ic, &[s], Value::Nil)?;

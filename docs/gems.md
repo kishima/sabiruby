@@ -44,21 +44,25 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   reference's epsilon), `__empty_range?`. Its Ruby `first`/`last`/`min`/`max` replace the
   core natives. Note: with this gem loaded, `(1..).last` raises RangeError, and the core
   test `Range#last` (`assert_nil (1..).last`) fails on the reference `mruby` as well.
-* **mruby-string-ext** — 56 natives (`ext_string.rs`) for the byte-string build. The
+* **mruby-string-ext** — 56 natives (`ext_string.rs`). What a position means depends on how
+  the string is read (`docs/utf8.md`); what follows holds in both builds. The
   `tr`/`delete`/`squeeze`/`count` pattern parser is ported byte for byte, including two
   quirks of the reference: the bitmap used by `delete`/`squeeze`/`count` treats a range
   `a-c` as *exclusive* of `c` (`tr_compile_pattern` loops `i < ch[1]`), while `tr` itself
   is inclusive; and replacement bytes are read as signed `char`, so a byte ≥ 0x80 in the
   replacement deletes. `String#succ` follows `str_succ_bang`: the rightmost alphanumeric
   steps and carries across non-alphanumerics, but a letter never carries into a digit nor a
-  digit into a letter (`"1-z".succ == "1-aa"`, `"1.9".succ == "2.0"`). `Integer#chr` accepts
-  only `ASCII-8BIT`/`BINARY` (a UTF-8 name is an ArgumentError in this build).
+  digit into a letter (`"1-z".succ == "1-aa"`, `"1.9".succ == "2.0"`); above ASCII the runs of
+  letters and digits come from `str_alnum.h`, ported as `src/builtins/str_alnum.rs`, so `"ת".succ`
+  is `"אא"`. `Integer#chr` accepts `ASCII-8BIT`/`BINARY`, and `UTF-8` only in a build that has
+  the encoding (the feature `utf8`), as the reference accepts it only under `MRB_UTF8_STRING`.
 
 ## Deviations kept
 
 * NaN identity: every NaN is one immediate here, the reference allocates one object per NaN
   (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`, two `"…".unpack1("E")` of a NaN).
-* `String#slice!`, `tr` and friends work on bytes; the multibyte tests skip themselves.
+* The differences a character-indexed String brings with it are their own list, in
+  [`utf8.md`](utf8.md) ("Deviations kept").
 * Wide integers (mruby-bigint): five answers of the reference are slips of its own bigint code,
   not decisions, and SabiRuby keeps the meaning the same at both widths
   (`tests/custom/bigint_reference_bugs.rb` holds them with CRuby's answers):
@@ -382,8 +386,8 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 ## Remaining gems (plan as of 2026-09-12)
 
 Order and instructions for the rest: `docs/gems-plan.md`. Order 5 (the numeric tower and
-mruby-pack) and order 4 (eval, binding, proc-binding) are done; `require` is the half of
-`docs/eval-require-plan.md` still open. Next: UTF-8 strings, then regexp, then task.
+mruby-pack), order 4 (eval, binding, proc-binding) and UTF-8 strings (`docs/utf8.md`) are done;
+`require` is the half of `docs/eval-require-plan.md` still open. Next: regexp, then task.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
@@ -418,7 +422,7 @@ Candidates, with the reference sizes (C / Ruby / test):
 | mruby-strftime | 118 / 0 / 152 | yes, with time: `Time#strftime` |
 | mruby-string-bitops | 581 / 0 / 210 | maybe: `String#&`, `|`, `^`, `~` on bytes; small, self-contained |
 | mruby-os-memsize | 283 / 0 / 63 | maybe: `ObjectSpace.memsize_of`; needs per-object sizes from our heap, answers will differ from the reference (deviation) |
-| mruby-encoding | 109 / 0 / 921 | no for now: only meaningful with `MRB_UTF8_STRING`, which the byte-string build does not have |
+| mruby-encoding | 109 / 0 / 921 | maybe: the default build now reads strings as characters (`docs/utf8.md`), so `Encoding`, `String#encoding` and `force_encoding` would have something to say; `String#b` is already here |
 | mruby-benchmark | 0 / 130 / 283 | no: pure Ruby but depends on io and process |
 | mruby-error, mruby-exit | 143, 82 | no: C API helpers (`mrb_protect`), `exit` is a host decision |
 | mruby-test-inline-struct, mruby-test, mruby-bin-* | – | build/test infrastructure, not runtime |

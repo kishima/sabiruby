@@ -37,7 +37,9 @@ fn dump_line_numbers_match_the_reference_listing() {
         let path = entry.unwrap().path();
         if path.extension().is_none_or(|e| e != "dump") { continue; }
         let name = path.file_stem().unwrap().to_string_lossy().into_owned();
-        let expected = positions(&std::fs::read_to_string(&path).unwrap());
+        // a listing quotes the source's own bytes, which need not be UTF-8
+        let text = std::fs::read(&path).unwrap();
+        let expected = positions(&String::from_utf8_lossy(&text));
         let bin = std::fs::read(dir.join(format!("{name}.mrb"))).expect(".mrb");
         let rite = sabiruby::rite::parse(&bin).expect("parse");
         let ours = positions(&sabiruby::vm::dump(&rite));

@@ -8,7 +8,7 @@
 //! value that does not fit an Integer is a RangeError rather than a wide integer (the
 //! reference checks `MRB_INT_MAX` even in a build with mruby-bigint).
 
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{format, string::String, vec::Vec};
 
 use crate::argc;
 use crate::error::{VmError, VmResult};
@@ -212,16 +212,6 @@ fn pack_ber(vm: &mut Vm, n: i64, out: &mut Vec<u8>, at: usize) -> VmResult<usize
     Ok(len)
 }
 
-fn utf8_to_buf(cp: i64) -> Option<Vec<u8>> {
-    if cp < 0 { return None; }
-    Some(match cp {
-        0..=0x7f => vec![cp as u8],
-        0x80..=0x7ff => vec![0xC0 | (cp >> 6) as u8, 0x80 | (cp & 0x3F) as u8],
-        0x800..=0xffff => vec![0xE0 | (cp >> 12) as u8, 0x80 | ((cp >> 6) & 0x3F) as u8, 0x80 | (cp & 0x3F) as u8],
-        0x10000..=0x10FFFF => vec![0xF0 | (cp >> 18) as u8, 0x80 | ((cp >> 12) & 0x3F) as u8, 0x80 | ((cp >> 6) & 0x3F) as u8, 0x80 | (cp & 0x3F) as u8],
-        _ => return None,
-    })
-}
 
 fn pack_str(src: &[u8], out: &mut Vec<u8>, at: usize, count: i64, flags: u32) -> usize {
     let pad = if flags & (F_A | F_Z) != 0 { 0u8 } else { b' ' };
@@ -429,7 +419,7 @@ fn pack(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
                         Dir::Quad => { put_int(&mut out, at, n as u64, 8, sp.flags & F_LE != 0); 8 }
                         Dir::Ber => pack_ber(vm, n, &mut out, at)?,
                         Dir::Utf8 => {
-                            let bytes = match utf8_to_buf(n) { Some(b) => b, None => return Err(vm.raise(vm.core.range_error, "pack(U): value out of range")) };
+                            let bytes = match super::string::utf8_to_buf(n) { Some(b) => b, None => return Err(vm.raise(vm.core.range_error, "pack(U): value out of range")) };
                             ensure(&mut out, at + bytes.len());
                             out[at..at + bytes.len()].copy_from_slice(&bytes);
                             bytes.len()

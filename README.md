@@ -31,8 +31,9 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   through `ensure`), class/module/singleton classes, class variables, `method_missing`.
 * Native core classes: Object, Module, Class, Kernel, NilClass/TrueClass/FalseClass,
   Integer (immediate while it fits in 64 bits, a heap value of arbitrary width beyond that,
-  see mruby-bigint below), Float, Symbol, String (bytes, no encoding), Array, Hash, Range,
-  Proc, Exception hierarchy.
+  see mruby-bigint below), Float, Symbol, String (characters, as the reference built with
+  `MRB_UTF8_STRING`; bytes without the feature `utf8` — [`docs/utf8.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8.md)),
+  Array, Hash, Range, Proc, Exception hierarchy.
 * mruby's own `mrblib/*.rb` (Enumerable, Comparable, `Array#each`, `Integer#times`, …) is
   compiled by the reference `mrbc` and embedded (`src/mrblib.mrb`), so those run as bytecode.
 * Step execution with an instruction budget (`Vm::start` / `Vm::step`) for host loops.
@@ -67,12 +68,14 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 
 Not yet: the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
 `rescue => e`), `require` (design notes below), the remaining mrbgems (`io`, `regexp`, …),
-encodings. Native code may re-enter the VM
+encodings other than UTF-8 (`Encoding` and `force_encoding` come with mruby-encoding;
+`String#b` is here). Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
-NaNs made apart are `equal?`), and a hash pattern whose keys mutate the subject during
-matching is not detected.
+NaNs made apart are `equal?`), a hash pattern whose keys mutate the subject during
+matching is not detected, and five string methods cut where their offset was measured rather
+than where the reference's own byte-for-character slip cuts ([`docs/utf8.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8.md)).
 
 ## Rules
 
@@ -89,13 +92,16 @@ matching is not detected.
 `tests/fixtures/*.rb` are compiled and run by the reference mruby 4.1.0-rc
 (Docker image `kishima/mruby:4.1.0-rc`, see `tools/fixtures.sh`); `.out` holds the
 reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every `.mrb`
-on SabiRuby and compares stdout byte for byte. All 17 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`).
+on SabiRuby and compares stdout byte for byte. All 18 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`); `utf8.rb` is compared with
+the image of the build's own reading (`kishima/mruby:4.1.0-rc-utf8` by default).
 
-mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
-gems (`gem_*`, 1033 assertions) passes 1819 of 1866 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
-reasons for the rest in [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
-assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
-ones skip.
+mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 1877 of
+1916 in the default build and 1819 of 1866 in a byte-string one — each build runs the
+assertions written for it and has its own floor (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md)
+and [`docs/mrbtest-bytes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-bytes.md), reasons for the rest in
+[`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
+assertions only the two NaN identity tests fail, the C-fixture ones crash and the DBG and
+other-build ones skip.
 The rest: 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
 `ary_shared.c`), 2 are the deviations above, 1 is `(1..).last`, where the core test and
 mruby-range-ext disagree (the reference `mruby` crashes on it too), and the remaining ones are
@@ -151,7 +157,9 @@ GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (th
 `eval` and `Binding` (done; `require` is the half still open, with PicoRuby's approach as the reference): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
 Looking inside the VM (snapshots, the trace of events, the DBG line numbers; what the playground's
 debugger reads): [`docs/inspect.md`](https://github.com/kishima/sabiruby/blob/main/docs/inspect.md).
-UTF-8 strings (not implemented; plan): [`docs/utf8-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8-plan.md). Remaining gems and their order: [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md).
+Strings as characters, and what each build answers: [`docs/utf8.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8.md)
+(the plan it was built from: [`docs/utf8-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8-plan.md)).
+Remaining gems and their order: [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md).
 
 ## Usage
 

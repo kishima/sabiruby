@@ -482,6 +482,8 @@ impl Vm {
         for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
+        // natives that replace what mruby's own mrblib defines, as a gem's init does
+        crate::builtins::string::post_mrblib(vm);
         Ok(())
     }
 
@@ -589,6 +591,21 @@ impl Vm {
     }
     pub fn argnum_error(&mut self, given: usize, expected: &str) -> VmError {
         self.raise(self.core.argument_error, &format!("wrong number of arguments (given {given}, expected {expected})"))
+    }
+    /// Whether the string is byte-read (`String#b`, `RSTR_BINARY_P`). A non-string answers no.
+    pub fn str_binary(&self, v: Value) -> bool {
+        v.obj().map(|o| self.heap.get(o).binary && matches!(self.heap.get(o).kind, ObjKind::String(_))).unwrap_or(false)
+    }
+    /// Marks the string byte-read (`RSTR_ENCODING_SET`).
+    pub fn str_set_binary(&mut self, v: Value, binary: bool) {
+        if let Some(o) = v.obj() { self.heap.get_mut(o).binary = binary; }
+    }
+    /// A new String read the way `like` is (`RSTR_ENC_COPY`).
+    pub fn str_new_like(&mut self, bytes: &[u8], like: Value) -> Value {
+        let binary = self.str_binary(like);
+        let v = self.str_new(bytes);
+        self.str_set_binary(v, binary);
+        v
     }
     pub fn str_bytes(&self, v: Value) -> Option<&[u8]> {
         v.obj().and_then(|o| self.heap.string(o))

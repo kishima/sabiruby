@@ -1,6 +1,7 @@
-//! Regression floor for mruby's test suite: every file must pass at least as
-//! many assertions as recorded in `tests/mrbtest/baseline.txt`
-//! (refresh it with `tools/mrbtest.sh --update`).
+//! Regression floor for mruby's test suite: every file must pass at least as many assertions as
+//! recorded in `tests/mrbtest/baseline.txt` (the default build, strings as characters) or
+//! `tests/mrbtest/baseline-bytes.txt` (without the feature `utf8`). Refresh them with
+//! `tools/mrbtest.sh --update` and `tools/mrbtest.sh --bytes --update`.
 
 use std::path::Path;
 
@@ -12,7 +13,10 @@ fn mrbtest_no_regression() {
 
 fn run_all() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mrbtest");
-    let baseline = match std::fs::read_to_string(dir.join("baseline.txt")) {
+    // each build has its own floor: the UTF-8 one runs the assertions guarded by
+    // `UTF8STRING`, which the byte-string build leaves out (`tools/mrbtest.sh --bytes`)
+    let floor = if cfg!(feature = "utf8") { "baseline.txt" } else { "baseline-bytes.txt" };
+    let baseline = match std::fs::read_to_string(dir.join(floor)) {
         Ok(s) => s,
         Err(_) => { eprintln!("no baseline; run tools/mrbtest.sh --update"); return; }
     };

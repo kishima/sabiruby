@@ -41,6 +41,7 @@ pub mod numeric;
 pub mod object;
 pub mod proc_;
 pub mod range;
+pub mod str_alnum;
 pub mod string;
 pub mod symbol;
 

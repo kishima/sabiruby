@@ -6,7 +6,8 @@
 > 詳細と本家との差異は `docs/gems.md`）。pack も済み（本家テスト 50 件中 49 件、落ちる 1 件は
 > NaN の同一性の既存差異）。順序 4（eval、binding、proc-binding）も済み（`src/host.rs` の差し込み口、
 > vendoring したコンパイラへの唯一のパッチ `SABIRUBY_EVAL_SCOPES`、`docs/eval-require-plan.md`）。
-> 残るは require（同文書 5 節）、UTF-8 → regexp → task。本家テストは 1866 件中 1819 件。
+> UTF-8 文字列も済み（feature `utf8` 既定 on、`docs/utf8.md`。文字ビルドで 1877/1916、
+> バイトビルドで 1819/1866、baseline は 2 本）。残るは require（同文書 5 節）、regexp → task。
 
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に残りの本家 gem を移植できること。
 作業前に `README.md`（Rules、Verification）、`docs/gems.md`（手順と、移植済み gem が教えたこと）、
@@ -17,7 +18,9 @@
 
 * 本家は mruby 4.1.0-rc（`../../ref/mruby`）。参照バイナリは Docker イメージ `kishima/mruby:4.1.0-rc`
   （バイト列ビルド、bigint 無し）。本家テストは `tools/mrbtest.sh` で走らせ、`docs/mrbtest.md` に表を書く。
-  現在 **1866 件中 1819 件**（数の塔、pack、eval／binding の移植後）。落ちる 47 件の理由は
+  文字としての String は `kishima/mruby:4.1.0-rc-utf8`（同じ木を `MRB_UTF8_STRING` で建てたもの）と
+  突き合わせる（`tools/mrbtest.sh` は既定が文字、`--bytes` がバイト）。
+  現在 **文字ビルド 1916 件中 1877 件／バイトビルド 1866 件中 1819 件**。落ちる件の理由は
   `docs/mrbtest-notes.md` と `tests/mrbtest/notes.tsv`。
 * 移植済み: `default.gembox` の 33 gem のうち 31（fiber、enumerator、*-ext 5 種、sprintf、metaprog、proc-ext、
   method、compar-ext、toplevel-ext、enum-chain、enum-lazy、object-ext、symbol-ext、kernel-ext、class-ext、
@@ -189,10 +192,14 @@ rational、pack の照合も bigint がある前提の方が楽。
 （本家 false、SabiRuby true。即値の幅の違い）。`(2**62).dup` が本家で 0 になるのは本家の不具合と見て合わせない
 （`docs/gems.md` と本の corelib 章のメモに記録する）。
 
-### 3.5 UTF-8 文字列
+### 3.5 UTF-8 文字列 — 済み（2026-09-12）
 
-`docs/utf8-plan.md`（案 B: feature `utf8` 既定 on、バイト列モードも残す、参照イメージ `4.1.0-rc-utf8` と baseline を別に持つ）。
-regexp の前に終える。string-ext の `tr`／`delete` などバイト単位の関数はここで文字単位の分岐を足す。
+案 B のまま実装した。feature `utf8` が既定で on、`--no-default-features` でバイト列ビルド。
+文字か バイトかは「読み方」を引数で渡す形にまとめ（`string.rs` の `char_mode`／`char_len`／
+`char_to_byte`…）、`String#b` の byte-read 文字列（`MRB_STR_ENCODING_BINARY`）も持つ。
+本家が `mrb_str_substr` にバイト長を渡している 5 メソッド（`delete_prefix`／`delete_suffix`／
+`strip`／`lstrip`／`rstrip`）は本家の取りこぼしなので CRuby の意味に合わせ、
+`tests/custom/utf8_reference_bugs.rb` と `docs/utf8.md` に記録した。詳細は `docs/utf8.md`。
 
 ### 3.6 mruby-regexp（10940 C / 42 Ruby / 10213 test）
 

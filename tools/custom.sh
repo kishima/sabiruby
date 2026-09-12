@@ -9,9 +9,14 @@
 set -eu
 cd "$(dirname "$0")/.."
 IMG=kishima/mruby:4.1.0-rc
+# a case marked `# utf8-only:` is about strings as characters, so its reference output comes
+# from the image built with MRB_UTF8_STRING (`docs/utf8.md`)
+IMG_UTF8=kishima/mruby:4.1.0-rc-utf8
 for rb in tests/custom/${1:-*}.rb; do
   base=${rb%.rb}; name=$(basename "$base")
-  docker run --rm -v "$PWD/tests/custom:/w" $IMG /bin/sh -c "
+  img=$IMG
+  grep -q '^# utf8-only:' "$rb" && img=$IMG_UTF8
+  docker run --rm -v "$PWD/tests/custom:/w" $img /bin/sh -c "
     mrbc -g -o /w/$name.mrb /w/$name.rb &&
     mrbc -g --verbose /w/$name.rb > /w/$name.dump 2>&1 &&
     mruby /w/$name.rb > /w/$name.rc.out 2>&1 || true"

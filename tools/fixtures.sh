@@ -7,6 +7,9 @@
 set -eu
 cd "$(dirname "$0")/.."
 IMG=kishima/mruby:4.1.0-rc
+# the same mruby built with MRB_UTF8_STRING, for the fixtures whose answer depends on how a
+# string is read (`docs/utf8.md`)
+IMG_UTF8=kishima/mruby:4.1.0-rc-utf8
 MRUBY=${MRUBY_SRC:-../../ref/mruby}
 if [ -d "$MRUBY/mrblib" ]; then
   mkdir -p target/mrblib
@@ -20,5 +23,11 @@ for rb in tests/fixtures/${1:-*}.rb; do
     mrbc -o /w/$(basename $base).mrb /w/$(basename $rb) &&
     mrbc --verbose /w/$(basename $rb) > /w/$(basename $base).dump 2>&1 &&
     mruby /w/$(basename $rb) > /w/$(basename $base).out 2>&1 || true"
+  # a fixture read both ways records the byte-string answer beside the UTF-8 one
+  if [ -e "$base-bytes.out" ] || [ "$(basename $base)" = utf8 ]; then
+    mv "$base.out" "$base-bytes.out"
+    docker run --rm -v "$PWD/tests/fixtures:/w" $IMG_UTF8 /bin/sh -c \
+      "mruby /w/$(basename $rb) > /w/$(basename $base).out 2>&1 || true"
+  fi
   echo "$base: $(wc -c < $base.mrb) bytes, expected $(wc -l < $base.out) lines"
 done

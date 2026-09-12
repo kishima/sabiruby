@@ -1,8 +1,9 @@
 # Why an assertion does not pass
 
-Hand-written companion of the generated [`mrbtest.md`](mrbtest.md). Every assertion of
-mruby's `test/t` and of the ported gems that SabiRuby does not pass is listed here with
-its reason, and with what the reference `mruby` (4.1.0-rc, default gembox, run through the
+Hand-written companion of the generated [`mrbtest.md`](mrbtest.md) (the default build, strings as
+characters) and [`mrbtest-bytes.md`](mrbtest-bytes.md) (without the feature `utf8`). Every
+assertion of mruby's `test/t` and of the ported gems that SabiRuby does not pass is listed here
+with its reason, and with what the reference `mruby` (4.1.0-rc, default gembox, run through the
 kit's `reference_runner.rb`) does on the same file. Update this file whenever the table
 changes; `tests/mrbtest/notes.tsv` holds the one-line version that fills the `note` column.
 
@@ -37,10 +38,10 @@ Categories:
 | gem_binding_binding | 1 KO, 2 crash, 1 skip | C fixture | `binding_in_c` and the `__binding_env_*` helpers are `mruby-binding/test/binding.c`; the reference `mruby` command fails them too. The skip is `Binding#source_location`, which asks for `Proc#source_location` first (nil here, no DBG-based location yet). |
 | gem_proc_binding | 1 crash, 1 skip | C fixture | `proc_in_c` of `mruby-proc-binding/test/binding.c`; same skip. |
 | gem_pack | 1 KO | deviation | `unpack a NaN that signals`: two unpacked NaNs are the same immediate here, so `equal?` is true. Same NaN identity as `float`. |
-| gem_string | 9 skip | build | `swapcase`/`casecmp?` Unicode and the six `scrub` tests skip themselves without `MRB_UTF8_STRING` (`UNICODECASE` false); the reference build is a byte-string build too. |
+| gem_string | 3 skip (9 as bytes) | build | Each build skips what only the other answers, as the reference does: the UTF-8 build skips the three tests written for a byte-string one, and the byte-string build skips `swapcase`/`casecmp?` Unicode and the six `scrub` tests (`UNICODECASE` false). |
 | gem_fiber2 | (all pass) | — | Needs the six natives of `mruby-fiber/test/fibertest.c`; SabiRuby provides them in `src/mrbtest.rs`. The reference `mruby` command lacks them and crashes on all 4. |
 | gem_array | (C helper) | — | `__unshift_from_c` of `mruby-array-ext/test/array.c` is provided by `src/mrbtest.rs`. |
-| gem_sprintf | 3 skip | build | Tests of `%c` with UTF-8 code points and of the result's encoding skip unless `__ENCODING__ == "UTF-8"` / `String#encoding` exists; neither does on the reference build either. |
+| gem_sprintf | 1 skip (3 as bytes) | build | `what the string sprintf builds claims` asks for `String#encoding`, which comes with mruby-encoding (not ported, and absent from the reference build too). The two `%c` tests skip themselves in the byte-string build, where `__ENCODING__` is `"ASCII-8BIT"`. |
 | gem_proc | 2 crash | C fixture | `ProcExtTest.mrb_proc_new_cfunc_with_env` / `mrb_cfunc_env_get` test the C closure API of `mruby-proc-ext/test/proc.c`; there is no C closure here. The reference `mruby` crashes too. |
 | gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
 | gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |

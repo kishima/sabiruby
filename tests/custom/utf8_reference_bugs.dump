@@ -1,0 +1,30 @@
+irep 0x64d6a16cadd0 nregs=5 nlocals=1 pools=6 syms=6 reps=0 ilen=85
+file: /w/utf8_reference_bugs.rb
+   16 000 STRING	R2	L[0]	; あい
+   16 003 STRING	R3	L[1]	; あ
+   16 006 SEND		R2	:delete_prefix	n=1
+   16 010 SSEND		R1	:p	n=1
+   17 014 STRING	R2	L[0]	; あい
+   17 017 STRING	R3	L[2]	; い
+   17 020 SEND		R2	:delete_suffix	n=1
+   17 024 SSEND		R1	:p	n=1
+   18 028 STRING	R2	L[0]	; あい
+   18 031 STRING	R3	L[3]	; �
+   18 034 SEND		R2	:delete_prefix	n=1
+   18 038 SSEND		R1	:p	n=1
+   19 042 STRING	R2	L[4]	;   あ  
+   19 045 SEND0		R2	:strip
+   19 048 SSEND		R1	:p	n=1
+   20 052 STRING	R2	L[4]	;   あ  
+   20 055 SEND0		R2	:rstrip
+   20 058 SSEND		R1	:p	n=1
+   21 062 STRING	R2	L[4]	;   あ  
+   21 065 SEND0		R2	:lstrip
+   21 068 SSEND		R1	:p	n=1
+   22 072 STRING	R2	L[5]	; あ	
+
+   22 075 SEND0		R2	:strip
+   22 078 SSEND		R1	:p	n=1
+   22 082 RETURN	R1	
+   22 084 STOP
+

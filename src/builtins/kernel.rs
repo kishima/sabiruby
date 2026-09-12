@@ -29,7 +29,8 @@ pub fn init(vm: &mut Vm) {
         ("global_variables", |vm, _s, _a, _b| { let l: Vec<Value> = vm.globals.keys().map(|k| Value::Sym(*k)).collect(); Ok(vm.ary_new(l)) }),
         ("local_variables", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),
         ("instance_variable_names", |vm, s, _a, _b| { let names: Vec<Value> = match s { Value::Obj(o) => vm.heap.get(o).ivars.iter().map(|(k, _)| Value::Sym(*k)).collect(), _ => vec![] }; Ok(vm.ary_new(names)) }),
-        ("__ENCODING__", |vm, _s, _a, _b| Ok(vm.str_new(b"ASCII-8BIT"))),
+        // the encoding the build has (`MRB_UTF8_STRING` in the reference, the feature `utf8` here)
+        ("__ENCODING__", |vm, _s, _a, _b| Ok(vm.str_new(if cfg!(feature = "utf8") { b"UTF-8".as_slice() } else { b"ASCII-8BIT".as_slice() }))),
         // `case`/`when` with a splat: `when *list` compiles to `__case_eqq`
         ("__case_eqq", |vm, s, a, _b| {
             argc!(vm, a, 1);

@@ -1,0 +1,182 @@
+irep 0x5ee8d196f510 nregs=11 nlocals=4 pools=32 syms=38 reps=0 ilen=561
+local variable names:
+  R1:s
+  R2:broken
+  R3:b
+file: /w/utf8.rb
+    4 000 STRING	R1	L[0]	; 日本語テキスト	; R1:s
+    5 003 MOVE		R5	R1	; R1:s
+    5 006 SEND0		R5	:length
+    5 009 MOVE		R6	R1	; R1:s
+    5 012 SEND0		R6	:size
+    5 015 MOVE		R7	R1	; R1:s
+    5 018 SEND0		R7	:bytesize
+    5 021 SSEND		R4	:p	n=3
+    6 025 GETIDX0	R5	R1[0]
+    6 028 MOVE		R6	R1	; R1:s
+    6 031 LOADI_2	R7	(2)
+    6 033 LOADI_3	R8	(3)
+    6 035 SEND		R6	:[]	n=2
+    6 039 MOVE		R7	R1	; R1:s
+    6 042 LOADI__1	R8	(-1)
+    6 044 GETIDX	R7	(R8)
+    6 046 MOVE		R8	R1	; R1:s
+    6 049 LOADI_1	R9	(1)
+    6 051 LOADI_3	R10	(3)
+    6 053 RANGE_INC	R9
+    6 055 GETIDX	R8	(R9)
+    6 057 SSEND		R4	:p	n=4
+    7 061 MOVE		R5	R1	; R1:s
+    7 064 STRING	R6	L[1]	; 語
+    7 067 SEND		R5	:index	n=1
+    7 071 MOVE		R6	R1	; R1:s
+    7 074 STRING	R7	L[2]	; ト
+    7 077 SEND		R6	:rindex	n=1
+    7 081 MOVE		R7	R1	; R1:s
+    7 084 STRING	R8	L[1]	; 語
+    7 087 SEND		R7	:byteindex	n=1
+    7 091 SSEND		R4	:p	n=3
+    8 095 MOVE		R5	R1	; R1:s
+    8 098 SEND0		R5	:chars
+    8 101 SSEND		R4	:p	n=1
+    9 105 MOVE		R5	R1	; R1:s
+    9 108 SEND0		R5	:reverse
+    9 111 SSEND		R4	:p	n=1
+   10 115 MOVE		R5	R1	; R1:s
+   10 118 STRING	R6	L[3]
+   10 121 SEND		R5	:split	n=1
+   10 125 SSEND		R4	:p	n=1
+   11 129 MOVE		R5	R1	; R1:s
+   11 132 SEND0		R5	:each_char
+   11 135 SEND0		R5	:to_a
+   11 138 SEND0		R5	:length
+   11 141 SSEND		R4	:p	n=1
+   12 145 MOVE		R5	R1	; R1:s
+   12 148 STRING	R6	L[4]	; テキ
+   12 151 SEND		R5	:include?	n=1
+   12 155 MOVE		R6	R1	; R1:s
+   12 158 STRING	R7	L[5]	; 日本
+   12 161 SEND		R6	:start_with?	n=1
+   12 165 MOVE		R7	R1	; R1:s
+   12 168 STRING	R8	L[6]	; スト
+   12 171 SEND		R7	:end_with?	n=1
+   12 175 SSEND		R4	:p	n=3
+   13 179 MOVE		R5	R1	; R1:s
+   13 182 STRING	R6	L[7]	; テキスト
+   13 185 STRING	R7	L[8]	; 文字
+   13 188 SEND		R5	:sub	n=2
+   13 192 MOVE		R6	R1	; R1:s
+   13 195 STRING	R7	L[2]	; ト
+   13 198 STRING	R8	L[9]	; -
+   13 201 SEND		R6	:gsub	n=2
+   13 205 SSEND		R4	:p	n=2
+   14 209 MOVE		R5	R1	; R1:s
+   14 212 LOADI8	R6	11
+   14 215 STRING	R7	L[10]	; ＊
+   14 218 SEND		R5	:center	n=2
+   14 222 MOVE		R6	R1	; R1:s
+   14 225 LOADI8	R7	9
+   14 228 STRING	R8	L[11]	; ・
+   14 231 SEND		R6	:ljust	n=2
+   14 235 MOVE		R7	R1	; R1:s
+   14 238 LOADI8	R8	9
+   14 241 STRING	R9	L[11]	; ・
+   14 244 SEND		R7	:rjust	n=2
+   14 248 SSEND		R4	:p	n=3
+   15 252 MOVE		R5	R1	; R1:s
+   15 255 SEND0		R5	:inspect
+   15 258 SSEND		R4	:p	n=1
+   16 262 MOVE		R5	R1	; R1:s
+   16 265 SEND0		R5	:ord
+   16 268 MOVE		R6	R1	; R1:s
+   16 271 SEND0		R6	:chr
+   16 274 SSEND		R4	:p	n=2
+   19 278 SSEND		R4	:__ENCODING__	n=0
+   19 282 STRING	R5	L[12]	; UTF-8
+   19 285 EQ		R4	(R5)
+   19 287 JMPNOT	R4	307
+   19 291 MOVE		R5	R1	; R1:s
+   19 294 SEND0		R5	:codepoints
+   19 297 LOADI_3	R6	(3)
+   19 299 SEND		R5	:first	n=1
+   19 303 SSEND		R4	:p	n=1
+   20 307 STRING	R5	L[13]	; あ
+   20 310 SEND0		R5	:succ
+   20 313 STRING	R6	L[14]	; ｚ
+   20 316 SEND0		R6	:succ
+   20 319 STRING	R7	L[15]	; ア
+   20 322 STRING	R8	L[16]	; エ
+   20 325 SEND		R7	:upto	n=1
+   20 329 SEND0		R7	:to_a
+   20 332 SSEND		R4	:p	n=3
+   21 336 STRING	R5	L[17]	; %s|%5s|%-5s|%.2s
+   21 339 MOVE		R6	R1	; R1:s
+   21 342 STRING	R7	L[13]	; あ
+   21 345 STRING	R8	L[13]	; あ
+   21 348 MOVE		R9	R1	; R1:s
+   21 351 ARRAY		R6	4
+   21 354 SEND		R5	:%	n=1
+   21 358 SSEND		R4	:p	n=1
+   22 362 STRING	R5	L[18]	; %c
+   22 365 LOADI16	R6	12354
+   22 369 ARRAY		R6	1
+   22 372 SEND		R5	:%	n=1
+   22 376 STRING	R6	L[18]	; %c
+   22 379 STRING	R7	L[19]	; a
+   22 382 ARRAY		R7	1
+   22 385 SEND		R6	:%	n=1
+   22 389 SSEND		R4	:p	n=2
+   25 393 STRING	R5	L[20]	; Straße
+   25 396 SEND0		R5	:upcase
+   25 399 STRING	R6	L[21]	; ÄÖÜ
+   25 402 SEND0		R6	:downcase
+   25 405 STRING	R7	L[22]	; ﬁ
+   25 408 SEND0		R7	:capitalize
+   25 411 STRING	R8	L[23]	; Äö
+   25 414 SEND0		R8	:swapcase
+   25 417 SSEND		R4	:p	n=4
+   26 421 STRING	R5	L[24]	; ß
+   26 424 STRING	R6	L[25]	; SS
+   26 427 SEND		R5	:casecmp?	n=1
+   26 431 STRING	R6	L[26]	; ä
+   26 434 STRING	R7	L[27]	; Ä
+   26 437 SEND		R6	:casecmp	n=1
+   26 441 SSEND		R4	:p	n=2
+   29 445 STRING	R2	L[28]	; あ�い	; R2:broken
+   30 448 MOVE		R5	R2	; R2:broken
+   30 451 SEND0		R5	:length
+   30 454 MOVE		R6	R2	; R2:broken
+   30 457 SEND0		R6	:chars
+   30 460 SEND0		R6	:length
+   30 463 MOVE		R7	R2	; R2:broken
+   30 466 SEND0		R7	:bytesize
+   30 469 SSEND		R4	:p	n=3
+   31 473 MOVE		R5	R2	; R2:broken
+   31 476 SEND0		R5	:scrub
+   31 479 MOVE		R6	R2	; R2:broken
+   31 482 STRING	R7	L[29]	; ?
+   31 485 SEND		R6	:scrub	n=1
+   31 489 SSEND		R4	:p	n=2
+   32 493 MOVE		R5	R2	; R2:broken
+   32 496 STRING	R6	L[30]	; �
+   32 499 SEND		R5	:index	n=1
+   32 503 MOVE		R6	R2	; R2:broken
+   32 506 STRING	R7	L[30]	; �
+   32 509 SEND		R6	:byteindex	n=1
+   32 513 SSEND		R4	:p	n=2
+   35 517 STRING	R4	L[13]	; あ
+   35 520 SEND0		R4	:b
+   35 523 MOVE		R3	R4	; R3:b
+   36 526 MOVE		R5	R3	; R3:b
+   36 529 SEND0		R5	:length
+   36 532 MOVE		R6	R3	; R3:b
+   36 535 SEND0		R6	:bytesize
+   36 538 MOVE		R7	R3	; R3:b
+   36 541 STRING	R8	L[31]	; �
+   36 544 SEND		R7	:index	n=1
+   36 548 MOVE		R8	R3	; R3:b
+   36 551 SEND0		R8	:inspect
+   36 554 SSEND		R4	:p	n=4
+   36 558 RETURN	R4	
+   36 560 STOP
+

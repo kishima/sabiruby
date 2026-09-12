@@ -8,8 +8,8 @@ use crate::value::Value;
 use crate::vm::Vm;
 
 fn sym_len(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
-    // byte length (`MRB_UTF8_STRING` is off in this build)
-    Ok(Value::Int(match s { Value::Sym(x) => vm.syms.name(x).len() as i64, _ => 0 }))
+    // characters, as `String#length` counts them (bytes without the feature `utf8`)
+    Ok(Value::Int(match s { Value::Sym(x) => super::string::char_len(vm.syms.name(x), super::string::UTF8) as i64, _ => 0 }))
 }
 
 /// `mrb_sym_slice`: the name (read from the symbol, not through `to_s`) is handed to
