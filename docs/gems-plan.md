@@ -201,13 +201,71 @@ rational、pack の照合も bigint がある前提の方が楽。
 `strip`／`lstrip`／`rstrip`）は本家の取りこぼしなので CRuby の意味に合わせ、
 `tests/custom/utf8_reference_bugs.rb` と `docs/utf8.md` に記録した。詳細は `docs/utf8.md`。
 
-### 3.6 mruby-regexp（10940 C / 42 Ruby / 10213 test）
+### 3.6 mruby-regexp — エンジンは `regex-automata`、表面は本家を移植（著者決定 2026-09-13）
 
-* 4.0.0 の NFA エンジン。最大の単体。UTF-8 の後。`test/` に 13 ファイル（`backref_scope.c` は C 補助）。
-* `String#slice`／`[]`／`=~`／`sub`／`gsub`／`scan`／`split` など、string-ext と symbol-ext（`Symbol#slice` は
-  `String#slice` に委ねる設計）が regexp の有無で分岐する箇所を `grep -n "REGEXP\|mrb_regexp" src/string.c mrbgems/mruby-string-ext` で洗い出してから。
-* `regexperror.rb`（本家テスト）は regexp が入ると空でなくなる。`superclass.rb` の skip も外れる。
-* 自前のエンジンを書かず、本家 `src/*.c` の構造（コンパイル → NFA → 実行、backtracking stack の上限）を写す。
+**決定**: 本家のエンジン（`re_compile.c`、`re_exec.c`、`re_utf8.c` 7,263 行と `re_ctype.h`／`re_cased.h` の表 3,611 行）は
+移植せず、Rust の `regex-automata` を使う。Ruby 側の表面（`src/regexp.c` 3,677 行相当）は本家から移植する。
+正規表現の仕様は Rust のエンジンに寄せる（著者「正規表現の仕様は Rust 製のものによせてもよい」）。
+本家テスト（14 ファイル 501 件）のうち、有限オートマトンに無い構文を使う件は**意図した差異**として数え、直さない。
+
+**参考: mruby/edge** は `regex` クレート（`std` 付き）を Cargo feature で任意にし、`Regexp.new`／`=~`／`!~`／`match`／
+`MatchData#[]` だけを 307 行で提供している（`ref/mrubyedge/mrubyedge/src/yamrb/prelude/regexp.rs`）。SabiRuby はそこまで
+削らず、`String#gsub` など表面は本家どおりにする。
+
+**クレート（決定）**
+* `regex-automata = { version = "0.4", default-features = false, features = ["alloc", "syntax", "meta", "nfa-pikevm", "nfa-backtrack"] }`。
+  `regex` クレート本体は `std` 前提なので使わない。`regex-automata` は no_std + alloc で動く（0.4.18 の Cargo.toml で確認済み）。
+  Unicode の表（`unicode-*`）は `utf8` feature のときだけ有効にし、バイト列ビルドでは `unicode(false)`・`utf8(false)`。
+  wasm のサイズは Playground で両方測って `docs/playground.md` に書く（未計測）。
+* 使う API は `meta::Regex`（`Config` で `case_insensitive`、`multi_line`、`dot_matches_new_line`、`ignore_whitespace`、
+  `unicode`、`utf8`）と `Captures`。`&[u8]` を検索するので String の格納形（バイト列）にそのまま合う。
+* 依存が増えるので `tools/check_no_std.sh` と CI で no_std ビルドが通ることを最初に確かめる。
+
+**翻訳層**（`src/builtins/ext_regexp.rs` の前段。Ruby の構文 → `regex-syntax` の構文）
+* 常時: `^`／`$` は行頭行末（`multi_line(true)` を常に on）。`/m` は `dot_matches_new_line`。`/x` は `ignore_whitespace`。`/i` は `case_insensitive`。
+* 書き換えるもの: `\h`→`[0-9a-fA-F]`、`\H`、`\d`→`[0-9]`、`\w`→`[0-9A-Za-z_]`、`\s`→`[ \t\r\n\f\v]`（Ruby は ASCII、Rust は Unicode 既定。
+  否定形も）、`\Z`→`(?:\n?\z)` は先読みが無いと書けないので `\z` に落として差異に数える、クラス内の `\b`（バックスペース）、
+  8 進 `\NNN`、`(?imx-imx)` と `(?imx-imx:…)`（Rust も持つが `x` の扱いを確認）、`(?#…)` コメント、`(?'name'…)`→`(?<name>…)`。
+* そのまま通るもの: `[[:alpha:]]`、`[a-z&&[^aeiou]]`、`(?<name>…)`、`(?:…)`、`\p{…}`（utf8 ビルド）、`\A`、`\z`、`\b`、`\B`、
+  非貪欲 `*?`、`{n,m}`。
+* **対応しない構文**は `RegexpError` にして、文言に構文名を入れる（例: `backreference \1 is not supported by this engine`）:
+  後方参照 `\N`／`\k<…>`、先読み `(?=` `(?!`、後読み `(?<=` `(?<!`、アトミック `(?>`、絶対最大量指定子 `*+ ++ ?+`、
+  部分式呼び出し `\g<…>`、条件 `(?(…)…)`、不在演算子 `(?~…)`。`regex-syntax` が `UnsupportedBackreference`／`UnsupportedLookAround`
+  で拒む構文はこの表と一致する。
+* 本家テストでの出現回数（差異の見積もり）: 後方参照 182、先読み 120、後読み 147、アトミック＋絶対最大 110、`\g` 128、条件＋不在 113。
+  `regexp_syntax.rb`（148 件）、`backref_scope.rb`（64 件）、`regexp_call.rb`（15 件）はほぼ落ちる。
+  表面のテスト（`string_regexp` 74、`string_index` 41、`match_data` 53、`regexp` 40、`symbol_regexp` 11、`regexp_utf8` 40）は
+  単純なパターンが多く、大半が通るはず。バックトラックの段数上限（`MRB_REGEXP_STACK_LIMIT`）や step 上限のテストも落ちる（エンジンに上限が無い）。
+
+**表面（本家 `regexp.c` を移植）**
+* `Regexp`: `new`／`compile`（文字列と `Regexp`、オプションは整数・文字列・true）、`escape`／`quote`、`union`（0 個は `/(?!)/`。
+  先読みが無いので「決してマッチしない」パターンは `\b\B` などで代用し差異に書く）、`last_match`、`source`、`options`、`casefold?`、
+  `names`、`named_captures`、`==`／`eql?`／`hash`、`=~`、`===`、`match`、`match?`、`~`、`to_s`、`inspect`、`freeze`、定数 `IGNORECASE`／
+  `EXTENDED`／`MULTILINE`。リテラル `/…/` はコンパイラが `Regexp.new` 相当（`OP_STRING` + `Regexp.compile` の SEND）に落とすので VM 命令は不要。
+* `MatchData`: `[]`（番号、名前、範囲、負）、`begin`／`end`／`offset`／`byteoffset`、`captures`、`named_captures`、`names`、`pre_match`／`post_match`、
+  `regexp`、`string`（凍結複製）、`size`／`length`、`to_a`、`to_s`、`values_at`、`inspect`、`deconstruct`／`deconstruct_keys`。
+* `String`（本家が `__split` などに退避してから置き換えるもの）: `=~`、`match`、`match?`、`scan`、`split`、`sub`／`sub!`／`gsub`／`gsub!`
+  （置換文字列の `\1`、`\k<name>`、`\0`、`\&`、`` \` ``、`\'`、Hash、ブロック内の `$~`）、`[]`／`slice`／`slice!`、`index`／`rindex`、
+  `partition`／`rpartition`、`start_with?`、`each_line` は対象外。`Symbol#=~`／`match`／`match?`／`[]`（symbol-ext の `Symbol#slice` は
+  `String#slice` に委ねる設計なので自動で効く）。
+* **`$~` と `$1`〜`$9`、`$&`、`` $` ``、`$'`**: 本家はメソッドフレームごとの特別変数（`OP_GETSV`／`OP_SETSV` → `mrb_vm_special_get/set`、
+  `src/variable.c`）。SabiRuby ではこの 2 命令がまだ一度も実行されていない（`docs/mrbtest.md` の never 一覧）。
+  `CallInfo` に `last_match: Option<Slot>` を持たせ、`=~`／`match`／`scan`／`gsub` が**呼び出し元のフレーム**（ネイティブは
+  フレームを積まないので `vm.ci.last()`）に書く。ブロック内では作られたフレームの環境をたどる本家の規則（`mrb_vm_special_get` を読む）に合わせる。
+  GC のルートに足す（`docs/gc.md` の表を更新）。
+* 大小文字: Ruby の `/i` は ASCII と Unicode の単純折り畳み、Rust は Unicode の simple case folding。差が出る文字（`ſ`、`K` など）は差異に書く。
+
+**手順**
+1. `regex-automata` を依存に足し、no_std ビルドと wasm ビルド（`unicode-*` 有無で 2 通り）のサイズを測る。
+2. `$~` の特別変数を VM に入れる（`OP_GETSV`／`OP_SETSV`、フレームの欄、GC ルート）。regexp 無しでも `$~` が nil を答えることを確かめる。
+3. 翻訳層と `Regexp`／`MatchData`。
+4. `String`／`Symbol` のメソッド。string-ext の `Symbol#slice` と core の `String#split`／`index` が Regexp を受ける分岐。
+5. `tools/mrbtest.sh` の `GEMS` に `mruby-regexp`。`backref_scope.c` は C 補助なので `src/mrbtest.rs` へ。
+   落ちる件は `notes.tsv` に「engine: no backreference」のように**構文ごとに**分類して数える。`regexperror.rb`（本家テスト）が空でなくなり、
+   `superclass.rb` の skip も外れる。
+6. `docs/gems.md` に「Deviations kept」として構文の表と件数を書く。本の移植章には「正規表現エンジンは置き換えてよい実装都合だが、
+   後方参照・先読み・アトミックは仕様の差になる。mruby/edge は同じ選択で表面を最小にしている」と書く（`extension.re` の
+   「mruby-regexp は NFA エンジン」は本家の説明なので変えない）。
 
 ### 3.7 mruby-task（2390 C / 46 Ruby / 860 test、`default.gembox` 外）
 
