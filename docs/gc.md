@@ -48,7 +48,7 @@ and heap pages are implementation choices of `src/gc.c` and are not copied (book
 
 | # | root | notes |
 |---|---|---|
-| 1 | `Vm::stack` | registers of the running context, the whole vector |
+| 1 | `Vm::stack` | registers of the running context up to the end of the top frame's window (`base + nregs`, or `base + n + 4` while ENTER has not packed the arguments yet), as mruby's `mark_context_stack` marks `ci->stack + nregs`. Above that are registers of returned frames, which hold nothing the program can reach; marking them kept garbage alive (`ObjectSpace.count_objects` after `GC.start` showed it, 2026-09-12). They are set to nil by the collection, as `mark_context_stack` does: when the frame returns, its caller's window covers them again, and a stale reference there to an object this collection freed would fail the mark-time assertion at the next one (the stress suite showed exactly that before the clearing) |
 | 2 | `Vm::ci` | each frame's `proc_`, `target_class`, `env` |
 | 3 | contexts | scanned: the running one, `ROOT`, and every context that is `Running`/`Resumed` or has `vmexec` (the chain waiting for a resumed fiber). A context's `stack`, `ci`, `fib`, `proc_` |
 | 4 | `Vm::globals` | |

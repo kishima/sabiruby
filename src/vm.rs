@@ -250,6 +250,10 @@ pub struct Vm {
     /// Objects the host keeps across calls (`mrb_gc_register`).
     #[doc(hidden)]
     pub gc_registered: Vec<ObjId>,
+    /// `catch` tags in flight: (tag, context, depth of the block's frame); `throw` searches it
+    /// innermost first (mruby-catch, `ext_catch.rs`).
+    #[doc(hidden)]
+    pub catch_tags: Vec<(Value, usize, usize)>,
     /// Objects alive after the last collection.
     pub live_after_gc: usize,
     /// Collections run so far.
@@ -396,10 +400,10 @@ impl Vm {
         };
         let top_self = heap.alloc(object, ObjKind::Object);
         let call_irep = VmIrep { nlocals: 1, nregs: 4, iseq: vec![Op::Call as u8], catch: vec![], pool: vec![], syms: vec![], reps: vec![], lv: vec![], lines: vec![], filename: None };
-        let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false }));
+        let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
         };
         // Constants for the core classes, Object includes Kernel.
@@ -439,7 +443,7 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_METHOD_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
         Ok(())
@@ -627,7 +631,22 @@ impl Vm {
     }
     pub fn alias_method(&mut self, class: ObjId, new: Sym, old: Sym) -> VmResult<()> {
         match self.find_method(class, old) {
-            Some((m, owner)) => { let vis = self.method_vis(owner, old); self.def_method(class, new, m, vis) }
+            Some((m, owner)) => {
+                let vis = self.method_vis(owner, old);
+                // `mrb_alias_method`: a Ruby method is aliased through a proc of its own that
+                // carries the original name (`MRB_PROC_ALIAS`, `body.mid`), so `__method__` and
+                // `super` in the method see the name it was defined under
+                let m = match m {
+                    Method::Ruby(p) => {
+                        let mut pd = self.heap.proc_data(p).clone();
+                        pd.mid = Some(pd.mid.unwrap_or(old));
+                        let cls = self.heap.get(p).class;
+                        Method::Ruby(self.heap.alloc(cls, ObjKind::Proc(pd)))
+                    }
+                    m => m,
+                };
+                self.def_method(class, new, m, vis)
+            }
             None => { let n = self.sym_name(old); let cn = self.class_name(class); Err(self.name_error(old, &format!("undefined method '{n}' for class '{cn}'"))) }
         }
     }
@@ -942,7 +961,7 @@ impl Vm {
     /// Runs a top-level irep with `self` = main.
     pub fn run_irep(&mut self, irep: IrepId) -> VmResult<Value> {
         let proc_ = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData {
-            irep, upper: None, env: None, target_class: Some(self.core.object), strict: false, scope: true, orphan: false,
+            irep, upper: None, env: None, target_class: Some(self.core.object), strict: false, scope: true, orphan: false, mid: None,
         }));
         let base = self.stack.len();
         let nregs = self.ireps[irep].nregs.max(4);
@@ -958,7 +977,7 @@ impl Vm {
     /// Prepares a top-level irep for stepped execution ([`Vm::step`]).
     pub fn start(&mut self, irep: IrepId) {
         let proc_ = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData {
-            irep, upper: None, env: None, target_class: Some(self.core.object), strict: false, scope: true, orphan: false,
+            irep, upper: None, env: None, target_class: Some(self.core.object), strict: false, scope: true, orphan: false, mid: None,
         }));
         let base = self.stack.len();
         let nregs = self.ireps[irep].nregs.max(4);
@@ -1060,13 +1079,23 @@ impl Vm {
 
     /// Calls a block with an explicit `self` (`instance_eval`, `class_eval`).
     pub fn call_block_with_self(&mut self, blk: Value, self_: Value, args: &[Value]) -> VmResult<Value> {
+        self.call_block_with_self_kw(blk, self_, args, None)
+    }
+    /// [`Vm::call_block_with_self`] with a keyword Hash (`instance_exec(a: 1) { |**kw| }`).
+    pub fn call_block_with_self_kw(&mut self, blk: Value, self_: Value, args: &[Value], kw: Option<Value>) -> VmResult<Value> {
         let p = match blk {
             Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o,
             _ => return Err(self.raise_type("wrong type (expected Proc)")),
         };
-        let tc = match self_ { Value::Obj(o) if self.heap.is_class(o) => o, _ => self.singleton_class(self_)? };
+        // `mrb_singleton_class_ptr` is NULL for an Integer/Float/Symbol: the frame then has no
+        // target class of its own and OP_CLASS falls back to the block's (its env's) class.
+        let tc = match self_ {
+            Value::Obj(o) if self.heap.is_class(o) => Some(o),
+            Value::Int(_) | Value::Float(_) | Value::Sym(_) => None,
+            _ => Some(self.singleton_class(self_)?),
+        };
         self.pending_vis_break = true;
-        let r = self.call_proc_with(p, self_, args, None, Value::Nil, None, Some(tc));
+        let r = self.call_proc_with(p, self_, args, kw, Value::Nil, None, tc);
         self.pending_vis_break = false;
         r
     }
@@ -1126,6 +1155,7 @@ impl Vm {
             (None, None) => self.heap.proc_data(proc_).target_class.unwrap_or(self.core.object),
         };
         let vis_break = core::mem::take(&mut self.pending_vis_break);
+        let mid = self.heap.proc_data(proc_).mid.or(mid);
         self.ci.push(CallInfo { base, pc: 0, irep, proc_, n: n as u8, kw: kw.is_some(), mid, target_class: tc, env: None, cci: Cci::Skip, vis: Vis::Public, modfunc: false, vis_break });
         let r = self.run_loop(depth);
         self.stack.truncate(base);
@@ -1401,6 +1431,33 @@ impl Vm {
         self.fiber_switch(fib, args, false, false)
     }
 
+    /// `mrb_get_backtrace` as `caller` sees it: one `file:line:in method` entry per Ruby
+    /// frame of the running context, innermost first. Frames without debug info are left
+    /// out, as the reference leaves them out. `native` names the native being run: it
+    /// comes first, located at the frame that called it (the reference's C frames are
+    /// located at the nearest Ruby frame below them the same way).
+    pub fn backtrace(&self, native: Option<Sym>) -> Vec<String> {
+        let loc = |ci: &CallInfo| -> Option<String> {
+            let ir = self.ireps.get(ci.irep)?;
+            if ir.lines.is_empty() { return None; }
+            let file = ir.filename.as_deref().unwrap_or("(unknown)");
+            // `ci.pc` is past the instruction being executed
+            Some(match ir.line_of(ci.pc.saturating_sub(1)) { Some(l) => format!("{file}:{l}"), None => format!("{file}:0") })
+        };
+        let mut out = Vec::new();
+        if let Some(m) = native {
+            if let Some(top) = self.ci.iter().rev().find_map(|ci| loc(ci)) {
+                out.push(format!("{top}:in {}", self.syms.name_str(m)));
+            }
+        }
+        for ci in self.ci.iter().rev() {
+            let Some(mut s) = loc(ci) else { continue };
+            if let Some(m) = ci.mid { s.push_str(":in "); s.push_str(&self.syms.name_str(m)); }
+            out.push(s);
+        }
+        out
+    }
+
     /// Source line of the instruction the innermost frame is at (`None` without debug info).
     pub fn current_line(&self) -> Option<u32> {
         let ci = self.ci.last()?;
@@ -1554,14 +1611,39 @@ impl Vm {
                 if let Some(e) = f.env { h.mark_id(e, work); }
             }
         }
+        // Registers are roots up to the end of the top frame's window, as mruby's
+        // `mark_context_stack` marks `ci->stack + nregs`: the size the push gave the frame
+        // (its irep's nregs, at least the self/arguments/keywords/block slots, at least 4),
+        // every slot of which the push cleared or filled. What lies above is left over
+        // from returned frames and may name objects freed long ago; it holds nothing the
+        // program can reach (`ObjectSpace.count_objects` sees the freed objects as the
+        // reference does).
+        fn live_end(ireps: &[VmIrep], ci: &[CallInfo], len: usize) -> usize {
+            match ci.last() {
+                Some(f) => {
+                    let nregs = ireps.get(f.irep).map(|ir| ir.nregs).unwrap_or(0);
+                    let npos = if f.n == 15 { 1 } else { f.n as usize };
+                    let used = npos + usize::from(f.kw) + 2;
+                    (f.base + nregs.max(used).max(4)).min(len)
+                }
+                None => len,
+            }
+        }
+        // The slots above are cleared, as `mark_context_stack` does: when the frame returns
+        // its caller's window covers them again, and a stale reference there must not name
+        // an object this collection frees.
         let h = &mut self.heap;
         if c == self.cur {
-            h.mark_slots(&self.stack, work);
+            let end = live_end(&self.ireps, &self.ci, self.stack.len());
+            h.mark_slots(&self.stack[..end], work);
             mark_ci(h, &self.ci, work);
+            for s in &mut self.stack[end..] { *s = Slot::NIL; }
         }
-        let ctx = &self.contexts[c];
-        h.mark_slots(&ctx.stack, work);
+        let ctx = &mut self.contexts[c];
+        let end = live_end(&self.ireps, &ctx.ci, ctx.stack.len());
+        h.mark_slots(&ctx.stack[..end], work);
         mark_ci(h, &ctx.ci, work);
+        for s in &mut ctx.stack[end..] { *s = Slot::NIL; }
         for id in [ctx.fib, ctx.proc_].into_iter().flatten() { h.mark_id(id, work); }
     }
 
@@ -1710,7 +1792,7 @@ impl Vm {
         self.ireps[irep].catch.iter().rev().find(|h| pc > h.begin && pc <= h.end && (!ensure_only || h.kind == CatchType::Ensure)).copied()
     }
 
-    fn break_new(&mut self, tag: BreakTag, ci_index: usize, value: Value) -> ObjId {
+    pub(crate) fn break_new(&mut self, tag: BreakTag, ci_index: usize, value: Value) -> ObjId {
         // Reuse a pending break object of the same tag (mruby `prepare_tagged_break`).
         if let Some(Value::Obj(o)) = self.exc {
             if let ObjKind::Break { tag: t, .. } = self.heap.get(o).kind { if t == tag { return o; } }
@@ -2212,7 +2294,7 @@ impl Vm {
                     let strict = matches!(op, Op::Lambda | Op::Method);
                     let env = if capture { Some(self.frame_env()) } else { None };
                     let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData {
-                        irep: nirep, upper: Some(ci.proc_), env, target_class: Some(ci.target_class), strict, scope: matches!(op, Op::Method), orphan: false,
+                        irep: nirep, upper: Some(ci.proc_), env, target_class: Some(ci.target_class), strict, scope: matches!(op, Op::Method), orphan: false, mid: None,
                     }));
                     setreg!(a, Value::Obj(p));
                 }
@@ -2257,7 +2339,7 @@ impl Vm {
                 Op::Exec => {
                     let nirep = self.ireps[ci.irep].reps[b];
                     let cls = match reg!(a) { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
-                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false }));
+                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false, mid: None }));
                     let nbase = base + a;
                     let nregs = self.ireps[nirep].nregs.max(4);
                     if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Slot::NIL); }
@@ -2281,7 +2363,7 @@ impl Vm {
                     let s = self.ireps[ci.irep].syms[b];
                     let nirep = self.ireps[ci.irep].reps[c];
                     let target = if matches!(op, Op::Tdef) { ci.target_class } else { let v = reg!(a); self.singleton_class(v)? };
-                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false }));
+                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false, mid: None }));
                     let (vis, modfunc) = if matches!(op, Op::Tdef) && !self.heap.class(target).is_singleton { self.current_def_vis(target) } else { (Vis::Public, false) };
                     self.def_method(target, s, Method::Ruby(p), if modfunc { Vis::Private } else { vis })?;
                     if modfunc { let sc = self.singleton_class(Value::Obj(target))?; self.def_method(sc, s, Method::Ruby(p), Vis::Public)?; }
@@ -2684,7 +2766,7 @@ impl Vm {
                 if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Slot::NIL); }
                 let used = (if argc == 15 { 1 } else { argc }) + (if kw { 1 } else { 0 }) + 2;
                 for i in used..nregs { self.stack[nbase + i] = Slot::NIL; }
-                self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(mid), target_class: owner, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
+                self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(self.heap.proc_data(p).mid.unwrap_or(mid)), target_class: owner, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
             }
             Method::Undef => unreachable!(),
         }

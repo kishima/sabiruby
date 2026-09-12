@@ -63,6 +63,7 @@ pub enum Vis { Public, Private, Protected }
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum InstanceKind { Object, String, Array, Hash, Range, Exception, Proc, Fiber, NoAlloc }
 
+#[derive(Clone)]
 pub struct ProcData {
     pub irep: IrepId,
     /// The proc that was running when this one was created (`upper`).
@@ -76,6 +77,9 @@ pub struct ProcData {
     pub scope: bool,
     /// `MRB_PROC_ORPHAN`: the frame that created the block has returned.
     pub orphan: bool,
+    /// For an alias of a Ruby method: the name it was defined under (`MRB_PROC_ALIAS`
+    /// `body.mid`); the frame takes it as its `mid`.
+    pub mid: Option<Sym>,
 }
 
 /// `REnv`: the locals a block can see. While the creating frame is alive the
@@ -233,6 +237,10 @@ impl Heap {
     pub fn len(&self) -> usize {
         self.objs.len()
     }
+    /// Every live object (`mrb_objspace_each_objects`), lowest id first.
+    pub fn ids(&self) -> impl Iterator<Item = ObjId> + '_ {
+        (0..self.objs.len()).map(|i| ObjId(i as u32)).filter(move |id| !self.is_free(*id))
+    }
     pub fn is_empty(&self) -> bool {
         self.objs.is_empty()
     }
@@ -243,7 +251,8 @@ impl Heap {
     /// True for a slot that was swept and not reused yet.
     #[inline]
     pub fn is_free(&self, id: ObjId) -> bool {
-        self.flags.get(id.0 as usize).is_some_and(|f| f & FREE != 0)
+        // a slot beyond the end was truncated by the sweep: free as well
+        self.flags.get(id.0 as usize).is_none_or(|f| f & FREE != 0)
     }
 
     // ------------------------------------------------------------------ collection

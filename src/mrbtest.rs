@@ -19,11 +19,42 @@ pub fn install(vm: &mut Vm) {
         for v in a { let b = vm.as_string(*v)?; vm.write_out(&b); }
         Ok(Value::Nil)
     });
+    // mruby-object-ext test/object_ext.c: `mrb_funcall_with_block(self, :instance_exec, argv, blk)`
+    vm.define_method(k, "instance_exec_from_c", |vm, s, a, b| { let m = vm.intern("instance_exec"); vm.funcall(s, m, a, b) });
     vm.define_method(k, "_str_match?", |vm, _s, a, _b| {
         vm.check_argc(a, 2, 2)?;
         let pat = vm.expect_str(a[0], "pattern")?;
         let s = vm.expect_str(a[1], "string")?;
         Ok(Value::bool(glob_match(&pat, &s, 0)))
+    });
+    // mruby-objectspace test/objectspace.c: one string per [registrations, unregistrations]
+    // pair, `mrb_gc_register`ed that often, one full collection, then which survived
+    let os = vm.define_module("ObjectSpace");
+    let osc = vm.singleton_class(Value::Obj(os)).expect("ObjectSpace singleton");
+    vm.define_method(osc, "__gc_root_survivors", |vm, _s, a, _b| {
+        vm.check_argc(a, 1, 1)?;
+        let pairs = vm.to_array(a[0])?;
+        if pairs.is_empty() { return Err(vm.raise_arg("no pairs given")); }
+        let mut held: Vec<(crate::value::ObjId, i64)> = Vec::new();
+        for pair in pairs {
+            let pv = vm.to_array(pair)?;
+            let regs = vm.expect_int(pv.first().copied().unwrap_or(Value::Nil), "registrations")?;
+            let unregs = vm.expect_int(pv.get(1).copied().unwrap_or(Value::Nil), "unregistrations")?;
+            let s = vm.str_new(b"a body long enough to sit on the heap");
+            let id = s.obj().unwrap();
+            for _ in 0..regs { vm.gc_register(id); }
+            for _ in 0..unregs { vm.gc_unregister(id); }
+            held.push((id, regs - unregs));
+        }
+        // nothing but the registrations holds them: the native's locals are not roots
+        vm.gc_start();
+        let mut out = Vec::new();
+        for (id, left) in held {
+            let alive = !vm.heap.is_free(id);
+            out.push(Value::bool(alive));
+            if alive { for _ in 0..left.max(0) { vm.gc_unregister(id); } }
+        }
+        Ok(vm.ary_new(out))
     });
     let m = vm.define_module("Mrbtest");
     let tol = vm.intern("FLOAT_TOLERANCE");

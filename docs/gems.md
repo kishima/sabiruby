@@ -101,7 +101,57 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   `Enumerator::Chain#size` with a Range fails on the reference as well (mruby-range-ext defines
   `Range#size`, the test expects nil).
 
+* **mruby-object-ext** (`ext_object.rs`) — `NilClass#to_a/to_h/to_i/to_f`, `Kernel#itself`,
+  `BasicObject#instance_exec`; `tap`, `then`/`yield_self` are its Ruby (the core-stage natives
+  `tap`/`then` went). `instance_exec` on an Integer uncovered a rule of `mrb_singleton_class_ptr`:
+  an Integer/Float/Symbol has no singleton class, the frame then has no target class of its own
+  and `class B` inside the block goes to the block's lexical class (`Vm::call_block_with_self_kw`
+  passes no override). Keywords given to `instance_exec` stay keywords for the block (the
+  pending-kdict rule of `send`).
+* **mruby-symbol-ext** (`ext_symbol.rs`) — `length`/`size` (bytes in this build), `slice`/`[]`,
+  which hand the name to `String#slice` as the reference does; `Comparable`, `capitalize`,
+  `casecmp`, `empty?`, `intern` are its Ruby (the core-stage native `empty?` went).
+* **mruby-kernel-ext** (`ext_kernel.rs`) — `Integer()`/`Float()` are the reference's scanners
+  ported byte for byte (`mrb_str_len_to_integer`, `mrb_str_len_to_dbl`, `mrb_read_float`; the
+  float's value is parsed by `core` from the exact span, so rounding is right). `caller` is the
+  reference's arithmetic over `Vm::backtrace`, new here: one `file:line:in method` entry per Ruby
+  frame with debug info, the native itself first, located at the frame that called it (the
+  reference locates a C frame at the nearest Ruby frame below it the same way). `__method__`
+  reads the frame: its `mid`, else the environment's (a block answers the method it was written
+  in). Two things came with it: **an alias is a proc of its own** (`ProcData::mid`, the
+  reference's `MRB_PROC_ALIAS` with `body.mid`) so a frame of `alias m3 m1` has `mid` `:m1`,
+  which `__method__`, `__callee__` and `super` see; and `raise`/`fail` is one function. The
+  core-stage `Integer()`, `Float()`, `String()`, `Array()`, `__method__` moved here.
+* **mruby-class-ext** (`ext_class.rs`) — `Module#<`, `<=`, `<=>`, `>`, `>=` with the reference's
+  three answers (true, false, nil when unrelated; a TypeError for a non-module), `class_exec`/
+  `module_exec` (keywords kept), `name` (frozen), `singleton_class?`; `Class#attached_object`,
+  `subclasses` (a heap walk over `Heap::ids`). The core-stage `Module#<`, `<=`, `name` moved here.
+* **mruby-numeric-ext** (`ext_numeric.rs`) — `remainder`, `pow(b, m)` with the reference's
+  overflow rule, `digits`, `size`, `bit_length`, `odd?`, `even?`, `gcd`, `lcm`, `modulo`,
+  `Integer.sqrt`, `Float#remainder`/`modulo`, `Float::EPSILON`.. constants. `zero?`, `nonzero?`,
+  `positive?`, `negative?`, `integer?`, `allbits?`, `ceildiv` are its Ruby: the core-stage natives
+  of those went, and `even?`, `odd?`, `size`, `bit_length`, `gcd` moved here. The core `Float#div`
+  (`flo_idiv`) was missing and is in `numeric.rs` now.
+* **mruby-objectspace** (`ext_objectspace.rs`) — `count_objects` (TOTAL = every slot, FREE = the
+  swept ones, then the live `T_*` counts in the reference's type order), `each_object`. Its test
+  counts hashes across a `GC.start`, which exposed **the stack root**: SabiRuby marked the whole
+  register vector, so registers left over from returned frames kept garbage alive. Now the
+  running frame's window is the limit (`base + nregs`, or the arguments still to be packed),
+  as `mark_context_stack` marks `ci->stack + nregs`. The test's C helper `__gc_root_survivors`
+  (`mrb_gc_register` counting) is in `mrbtest.rs`; it found that `Heap::is_free` said "live" for
+  a slot the sweep had truncated away.
+* **mruby-catch** (`ext_catch.rs`) — `catch` records its tag and the depth of the block's frame
+  in `Vm::catch_tags`; `throw` finds the innermost entry with the same object and returns a
+  `Break` to that frame, the mechanism a `return` from a nested block already uses, so `ensure`
+  bodies run and `rescue Exception` does not see it (the reference raises an `RBreak` aimed at
+  the frame of its bytecode `catch`). An unmatched tag raises the gem's `UncaughtThrowError`.
+
 ## Compiling the tests
+
+`tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
+already used is qualified as `gem_<gem>_<file>.rb` (`numeric.rb` of string-ext and numeric-ext,
+`range.rb` of range-ext and string-ext, whose second copy had silently replaced the first
+until 2026-09-12).
 
 `tools/mrbtest.sh` compiles the test files with `mrbc -g`, which keeps the LVAR section:
 `local_variables` and `Proc#parameters` need the names, and the reference driver compiles the
@@ -114,18 +164,12 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
-compar-ext, toplevel-ext, enum-chain, enum-lazy (15). Sizes are lines of the
-reference C / mrblib Ruby / test.
+compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
+class-ext, numeric-ext, catch, objectspace (22). Sizes are lines of the reference
+C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
-| 2 | mruby-object-ext | 127 / 33 / 83 | – | `instance_exec`, `Object#tap`, `NilClass#to_a` |
-| 2 | mruby-symbol-ext | 111 / 72 / 101 | – | `Symbol#length`, `to_proc` is Ruby |
-| 2 | mruby-kernel-ext | 333 / 0 / 151 | – | `Integer()`, `Float()`, `String()`, `Array()`, `Hash()`, `__method__`, `fail` |
-| 2 | mruby-class-ext | 376 / 0 / 182 | – | `Class#subclasses`, `attached_object`, `Module#name` rules |
-| 2 | mruby-numeric-ext | 538 / 125 / 137 | – | `Integer#chr`, `digits`, `pow(mod)`, `Float#nan?`; bigint's tests need it |
-| 2 | mruby-catch | 148 / 29 / 86 | – | `catch`/`throw`: an `UncaughtThrowError` raised through the normal unwinding, no longjmp needed |
-| 2 | mruby-objectspace | 187 / 0 / 71 | – | `ObjectSpace.count_objects`, `each_object`: needs the heap walk (GC exists now) |
 | 3 | mruby-struct | 909 / 77 / 504 | – | `Struct` (used by mruby-process, mruby-data is its sibling) |
 | 3 | mruby-data | 639 / 9 / 143 | – | `Data.define` |
 | 3 | mruby-set | 1552 / 325 / 807 | enumerator, hash-ext | `Set` (Hash-backed) |
@@ -144,7 +188,7 @@ reference C / mrblib Ruby / test.
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |
 
-Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives) → 3 (data structures and host
+Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives, done 2026-09-12) → 3 (data structures and host
 clocks) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
 (`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
 6 (regexp, on top of UTF-8) → 7 (task). regexp is by far the heaviest and can be moved after task.

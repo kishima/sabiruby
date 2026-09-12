@@ -1,0 +1,101 @@
+##
+# Symbol(Ext) Test
+
+if Symbol.respond_to?(:all_symbols)
+  assert('Symbol.all_symbols') do
+    foo = [:__symbol_test_1, :__symbol_test_2, :__symbol_test_3].sort
+    symbols = Symbol.all_symbols.select{|sym|sym.to_s.include? '__symbol_test'}.sort
+    assert_equal foo, symbols
+  end
+end
+
+%w[size length].each do |n|
+  assert("Symbol##{n}") do
+    assert_equal 5, :hello.__send__(n)
+    assert_equal 4, :"aA\0b".__send__(n)
+    if __ENCODING__ == "UTF-8"
+      assert_equal 8, :"こんにちは世界!".__send__(n)
+      assert_equal 4, :"aあ\0b".__send__(n)
+    else
+      assert_equal 22, :"こんにちは世界!".__send__(n)
+      assert_equal 6, :"aあ\0b".__send__(n)
+    end
+  end
+end
+
+assert("Symbol#capitalize") do
+  assert_equal :Hello, :hello.capitalize
+  assert_equal :Hello, :HELLO.capitalize
+  assert_equal :Hello, :Hello.capitalize
+end
+
+assert("Symbol#downcase") do
+  assert_equal :hello, :hEllO.downcase
+  assert_equal :hello, :hello.downcase
+end
+
+assert("Symbol#upcase") do
+  assert_equal :HELLO, :hEllO.upcase
+  assert_equal :HELLO, :HELLO.upcase
+end
+
+assert("Symbol#casecmp") do
+  assert_equal 0, :HELLO.casecmp(:hEllO)
+  assert_equal 1, :HELLO.casecmp(:hEllN)
+  assert_equal(-1, :HELLO.casecmp(:hEllP))
+  assert_nil :HELLO.casecmp("hEllO")
+end
+
+assert("Symbol#empty?") do
+  assert_false :'a'.empty?
+end
+
+assert('Symbol#intern') do
+  assert_equal :test, :test.intern
+end
+
+assert('Symbol#slice') do
+  assert_equal 'a', :abc.slice(0)
+  assert_equal 'ab', :abc.slice(0, 2)
+  assert_nil :abc.slice(4, 4)
+  assert_equal 'bc', :abc.slice(1..)
+  assert_equal 'b', :abc.slice("b")
+  assert_nil :abc.slice("z")
+
+  # the answer is a String of its own, not the name the symbol holds on to
+  s = :abc.slice(0, 3)
+  assert_equal 'abc', s
+  assert_false s.frozen?
+
+  # whatever slices the name is what checks the arguments
+  assert_raise(TypeError) { :abc.slice(:b) }
+  assert_raise(ArgumentError) { :abc.slice }
+end
+
+assert('Symbol#[]') do
+  assert_equal 'a', :abc[0]
+  assert_equal 'ab', :abc[0, 2]
+  assert_nil :abc[4, 4]
+  assert_equal 'bc', :abc[1..]
+  assert_equal 'b', :abc["b"]
+end
+
+assert('Symbol#slice - the name comes from the symbol, not from #to_s') do
+  # CRuby's sym_aref() reads the name with rb_sym2str(), so a redefined
+  # Symbol#to_s moves `to_s` and leaves these two where they were.
+  class Symbol
+    alias __slice_test_to_s to_s
+    def to_s
+      "redefined"
+    end
+  end
+  begin
+    assert_equal 'redefined', :abc.to_s
+    assert_equal 'a', :abc.slice(0)
+    assert_equal 'abc', :abc[0, 3]
+  ensure
+    class Symbol
+      alias to_s __slice_test_to_s
+    end
+  end
+end

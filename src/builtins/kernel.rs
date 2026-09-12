@@ -1,6 +1,6 @@
 //! Kernel: I/O, raise, block_given?, conversions.
 
-use alloc::{format, string::String, vec, vec::Vec};
+use alloc::{string::String, vec, vec::Vec};
 
 use crate::argc;
 use crate::error::{VmError, VmResult};
@@ -21,13 +21,8 @@ pub fn init(vm: &mut Vm) {
         ("p", p),
         ("raise", raise),
         ("block_given?", block_given),
-        ("Integer", kernel_integer),
-        ("Float", kernel_float),
-        ("String", |vm, _s, a, _b| { argc!(vm, a, 1); let b = vm.as_string(a[0])?; Ok(vm.str_new(&b)) }),
-        ("Array", |vm, _s, a, _b| { argc!(vm, a, 1); let v = if a[0].is_nil() { vec![] } else { vm.to_array(a[0])? }; Ok(vm.ary_new(v)) }),
         ("lambda", |vm, _s, _a, b| make_proc(vm, b, true)),
         ("proc", |vm, _s, _a, b| make_proc(vm, b, false)),
-        ("__method__", |vm, _s, _a, _b| { let m = vm.ci.iter().rev().find_map(|c| c.mid); Ok(m.map(Value::Sym).unwrap_or(Value::Nil)) }),
         ("__id__", |vm, s, a, _b| { argc!(vm, a, 0); Ok(super::object::object_id(s)) }),
         ("object_id", |vm, s, a, _b| { argc!(vm, a, 0); Ok(super::object::object_id(s)) }),
         ("iterator?", block_given),
@@ -66,7 +61,7 @@ pub fn init(vm: &mut Vm) {
     vm.set_visibility(k, ic, crate::object::Vis::Private).expect("initialize_copy private");
     // module functions: callable as Kernel.raise, private as instance methods (kernel.c MRB_MT_PRIVATE)
     let ksc = vm.singleton_class(Value::Obj(k)).unwrap();
-    for name in ["raise", "block_given?", "iterator?", "p", "print", "puts", "lambda", "proc", "Integer", "Float", "String", "Array", "__printstr__"] {
+    for name in ["raise", "block_given?", "iterator?", "p", "print", "puts", "lambda", "proc", "__printstr__"] {
         let n = vm.intern(name);
         if let Some((m, _)) = vm.find_method(k, n) {
             vm.def_method_raw(ksc, n, m);
@@ -142,7 +137,7 @@ fn block_given(vm: &mut Vm, _s: Value, _a: &[Value], _b: Value) -> VmResult<Valu
 fn defined_str(vm: &mut Vm, ok: bool, s: &str) -> Value { if ok { vm.str_new(s.as_bytes()) } else { Value::Nil } }
 
 /// `raise`, `raise "msg"`, `raise Class`, `raise Class, "msg"`, `raise exc`.
-fn raise(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+pub(crate) fn raise(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 0, 3);
     let exc = match a.len() {
         // mruby 4.1.0-rc: a bare `raise` is RuntimeError with an empty message (verified, not a re-raise)
@@ -165,57 +160,7 @@ fn raise(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     Err(VmError::Raise(exc))
 }
 
-pub fn parse_int(s: &[u8], base: u32) -> Option<i64> {
-    let t = String::from_utf8_lossy(s);
-    let t = t.trim();
-    let t: String = t.chars().filter(|c| *c != '_').collect();
-    let (neg, body) = match t.strip_prefix('-') { Some(r) => (true, r), None => (false, t.strip_prefix('+').unwrap_or(&t)) };
-    let (base, body) = if base == 10 || base == 0 {
-        if let Some(r) = body.strip_prefix("0x").or_else(|| body.strip_prefix("0X")) { (16, r) }
-        else if let Some(r) = body.strip_prefix("0b").or_else(|| body.strip_prefix("0B")) { (2, r) }
-        else if let Some(r) = body.strip_prefix("0o").or_else(|| body.strip_prefix("0O")) { (8, r) }
-        else if base == 0 && body.len() > 1 && body.starts_with('0') { (8, &body[1..]) }
-        else { (10, body) }
-    } else { (base, body) };
-    if body.is_empty() { return None; }
-    i64::from_str_radix(body, base).ok().map(|v| if neg { -v } else { v })
-}
-
-fn kernel_integer(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
-    argc!(vm, a, 1, 2);
-    match a[0] {
-        Value::Int(_) => Ok(a[0]),
-        Value::Float(f) => {
-            if !f.is_finite() { return Err(vm.raise(vm.core.float_domain_error, &numeric::float_to_s(f))); }
-            Ok(Value::Int(libm::trunc(f) as i64))
-        }
-        v => {
-            let base = if a.len() == 2 { vm.expect_int(a[1], "base")? as u32 } else { 0 };
-            match vm.str_bytes(v).map(|b| b.to_vec()) {
-                Some(b) => match parse_int(&b, base) {
-                    Some(i) => Ok(Value::Int(i)),
-                    None => { let d = vm.inspect_str(v)?; Err(vm.raise_arg(&format!("invalid string for number({d})"))) }
-                },
-                None => { let to_i = vm.intern("to_i"); if vm.respond_to(v, to_i) { vm.funcall(v, to_i, &[], Value::Nil) } else { let d = vm.describe_for_error(v); Err(vm.raise_type(&format!("can't convert {d} into Integer"))) } }
-            }
-        }
-    }
-}
-
-fn kernel_float(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
-    argc!(vm, a, 1);
-    match a[0] {
-        Value::Int(i) => Ok(Value::Float(i as f64)),
-        Value::Float(_) => Ok(a[0]),
-        v => match vm.str_bytes(v).map(|b| String::from_utf8_lossy(b).into_owned()) {
-            Some(s) => match s.trim().replace('_', "").parse::<f64>() {
-                Ok(f) => Ok(Value::Float(f)),
-                Err(_) => { let d = vm.inspect_str(v)?; Err(vm.raise_arg(&format!("invalid value for Float(): {d}"))) }
-            },
-            None => { let to_f = vm.intern("to_f"); if vm.respond_to(v, to_f) { vm.funcall(v, to_f, &[], Value::Nil) } else { let d = vm.describe_for_error(v); Err(vm.raise_type(&format!("can't convert {d} into Float"))) } }
-        },
-    }
-}
+// `Integer()`, `Float()`, `String()`, `Array()`, `Hash()`, `__method__` are mruby-kernel-ext (`ext_kernel.rs`)
 
 fn make_proc(vm: &mut Vm, b: Value, lambda: bool) -> VmResult<Value> {
     match b {
@@ -227,4 +172,3 @@ fn make_proc(vm: &mut Vm, b: Value, lambda: bool) -> VmResult<Value> {
     }
 }
 
-use super::numeric;

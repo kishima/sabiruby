@@ -56,20 +56,15 @@ pub fn init(vm: &mut Vm) {
         ("define_singleton_method", |vm, s, a, b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; let body = if a.len() == 2 { a[1] } else { b }; let sc = vm.singleton_class(s)?; match body { Value::Obj(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => { if let ObjKind::Proc(pd) = &mut vm.heap.get_mut(p).kind { pd.target_class = Some(sc); } vm.def_method(sc, n, Method::Ruby(p), Vis::Public)?; Ok(Value::Sym(n)) } _ => Err(vm.raise_arg("tried to create Proc object without a block")) } }),
         ("extend", |vm, s, a, _b| { if let Value::Obj(o) = s { if vm.heap.get(o).frozen { return Err(vm.frozen_error(s)); } } for m in a.iter().rev() { let m = class_arg(vm, *m)?; let sc = vm.singleton_class(s)?; vm.include_module(sc, m); let hook = vm.intern("extended"); vm.funcall(Value::Obj(m), hook, &[s], Value::Nil)?; } Ok(s) }),
         ("singleton_methods", |vm, s, _a, _b| { let c = vm.class_of(s); let mut list = vec![]; if vm.heap.class(c).is_singleton { for (k, m) in &vm.heap.class(c).methods { if !matches!(m, Method::Undef) { list.push(Value::Sym(*k)); } } } Ok(vm.ary_new(list)) }),
-        ("itself", |_vm, s, _a, _b| Ok(s)),
-        ("tap", |vm, s, _a, b| { vm.call_block(b, &[s])?; Ok(s) }),
-        ("then", |vm, s, _a, b| vm.call_block(b, &[s])),
     ]);
 
     // Module
     vm.define_methods(c.module, &[
-        ("name", |vm, s, _a, _b| { let o = s.obj().unwrap(); match vm.heap.class(o).name { Some(_) if !vm.heap.class(o).is_singleton => { let n = vm.class_name(o); Ok(vm.str_from(n)) } _ => Ok(Value::Nil) } }),
+        // name, <, <=, <=>, >, >= are mruby-class-ext (`ext_class.rs`)
         ("to_s", mod_to_s),
         ("inspect", mod_to_s),
         ("===", |vm, s, a, _b| { argc!(vm, a, 1); Ok(Value::bool(vm.obj_is_kind_of(a[0], s.obj().unwrap()))) }),
         ("==", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
-        ("<", |vm, s, a, _b| { argc!(vm, a, 1); let o = class_arg(vm, a[0])?; Ok(Value::bool(s.obj().unwrap() != o && class_le(vm, s.obj().unwrap(), o))) }),
-        ("<=", |vm, s, a, _b| { argc!(vm, a, 1); let o = class_arg(vm, a[0])?; Ok(Value::bool(class_le(vm, s.obj().unwrap(), o))) }),
         ("include", |vm, s, a, _b| { let cls = s.obj().unwrap(); if vm.heap.get(cls).frozen { return Err(vm.frozen_error(s)); } for mv in a.iter().rev() { let m = class_arg(vm, *mv)?; if !vm.heap.class(m).is_module { let d = vm.inspect_str(*mv)?; return Err(vm.raise_type(&format!("wrong argument type {d} (expected Module)"))); } vm.include_module(cls, m); let hook = vm.intern("included"); vm.funcall(Value::Obj(m), hook, &[s], Value::Nil)?; } Ok(s) }),
         ("included", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("extended", |_vm, _s, _a, _b| Ok(Value::Nil)),
@@ -210,10 +205,7 @@ pub fn init(vm: &mut Vm) {
     vm.define_methods(c.nil_class, &[
         ("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b""))),
         ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"nil"))),
-        ("to_a", |vm, _s, _a, _b| Ok(vm.ary_new(vec![]))),
-        ("to_i", |_vm, _s, _a, _b| Ok(Value::Int(0))),
-        ("to_f", |_vm, _s, _a, _b| Ok(Value::Float(0.0))),
-        ("to_h", |vm, _s, _a, _b| Ok(vm.hash_new())),
+        // to_a/to_h/to_i/to_f are mruby-object-ext (`ext_object.rs`)
         ("&", |_vm, _s, _a, _b| Ok(Value::False)),
         ("|", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
         ("^", |_vm, _s, a, _b| Ok(Value::bool(a.first().map(|v| v.truthy()).unwrap_or(false)))),
@@ -350,15 +342,6 @@ fn is_a(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     Ok(Value::bool(vm.obj_is_kind_of(s, c)))
 }
 
-fn class_le(vm: &Vm, a: crate::value::ObjId, b: crate::value::ObjId) -> bool {
-    let mut c = Some(a);
-    while let Some(x) = c {
-        let cd = vm.heap.class(x);
-        if x == b || cd.iclass_of == Some(b) { return true; }
-        c = cd.superclass;
-    }
-    false
-}
 
 /// `Kernel#send` / `__send__` when reached from native code. From bytecode the
 /// VM redirects in place instead (`Vm::op_send_redirect`), which is why this

@@ -32,9 +32,7 @@ pub fn init(vm: &mut Vm) {
         ("==", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("===", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
         ("<=>", |vm, s, a, _b| { argc!(vm, a, 1); match (s, a[0]) { (Value::Sym(x), Value::Sym(y)) => Ok(Value::Int(vm.syms.name(x).cmp(vm.syms.name(y)) as i64)), _ => Ok(Value::Nil) } }),
-        ("length", |vm, s, _a, _b| Ok(Value::Int(match s { Value::Sym(x) => vm.syms.name(x).len() as i64, _ => 0 }))),
-        ("size", |vm, s, _a, _b| Ok(Value::Int(match s { Value::Sym(x) => vm.syms.name(x).len() as i64, _ => 0 }))),
+        // length/size/slice/[] are mruby-symbol-ext (`ext_symbol.rs`); `empty?` is its Ruby
         ("hash", |vm, s, _a, _b| Ok(Value::Int(vm.value_hash(s)))),
-        ("empty?", |vm, s, _a, _b| Ok(Value::bool(match s { Value::Sym(x) => vm.syms.name(x).is_empty(), _ => true }))),
     ]);
 }

@@ -21,7 +21,7 @@ fn proc_dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     let o = s.obj().unwrap();
     let (irep, upper, env, tc, strict, scope) = { let p = vm.heap.proc_data(o); (p.irep, p.upper, p.env, p.target_class, p.strict, p.scope) };
     let cls = vm.heap.get(o).class;
-    let np = vm.heap.alloc(cls, ObjKind::Proc(crate::object::ProcData { irep, upper, env, target_class: tc, strict, scope, orphan: true }));
+    let np = vm.heap.alloc(cls, ObjKind::Proc(crate::object::ProcData { irep, upper, env, target_class: tc, strict, scope, orphan: true, mid: None }));
     Ok(Value::Obj(np))
 }
 
@@ -60,7 +60,7 @@ pub fn init(vm: &mut Vm) {
             // copy the block into a fresh Proc of the requested class (mruby `mrb_proc_s_new`)
             let (irep, upper, env, tc, strict, scope) = { let p = vm.heap.proc_data(o); (p.irep, p.upper, p.env, p.target_class, p.strict, p.scope) };
             let cls = s.obj().unwrap();
-            let np = vm.heap.alloc(cls, ObjKind::Proc(crate::object::ProcData { irep, upper, env, target_class: tc, strict, scope, orphan: false }));
+            let np = vm.heap.alloc(cls, ObjKind::Proc(crate::object::ProcData { irep, upper, env, target_class: tc, strict, scope, orphan: false, mid: None }));
             let init = vm.s.initialize;
             if vm.find_method(cls, init).map(|(_, owner)| owner != vm.core.proc_).unwrap_or(false) { vm.funcall(Value::Obj(np), init, &[], b)?; }
             // a block created by the calling frame is an orphan once wrapped: `break` has no home

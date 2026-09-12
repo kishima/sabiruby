@@ -17,13 +17,21 @@ fi
 # copy sources (they are MIT, from mruby test/) and compile.
 # Gem tests (mrbgems/<gem>/test/*.rb) are copied as gem_<file>.rb; the gem's
 # mrblib is compiled into src/mrblib_<gem>.mrb and loaded by Vm::with_mrblib.
-GEMS="mruby-sprintf mruby-metaprog mruby-proc-ext mruby-method mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext mruby-compar-ext mruby-toplevel-ext mruby-enum-chain mruby-enum-lazy"
+GEMS="mruby-sprintf mruby-metaprog mruby-proc-ext mruby-method mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext mruby-compar-ext mruby-toplevel-ext mruby-enum-chain mruby-enum-lazy mruby-object-ext mruby-symbol-ext mruby-kernel-ext mruby-class-ext mruby-numeric-ext mruby-catch mruby-objectspace"
+# the gem test files are copied afresh (the collision rule below looks at what this run copied)
+rm -f $DIR/src/gem_*.rb $DIR/gem_*.mrb
 cp "$MRUBY/test/assert.rb" $DIR/src/
 cp "$MRUBY"/test/t/*.rb $DIR/src/
 mkdir -p target/mrblib
 for g in $GEMS; do
-  for rb in "$MRUBY"/mrbgems/$g/test/*.rb; do cp "$rb" $DIR/src/gem_$(basename "$rb"); done
   short=${g#mruby-}
+  # a test file named like an earlier gem's (numeric.rb of string-ext and numeric-ext)
+  # is qualified with its gem: gem_<gem>_<file>.rb
+  for rb in "$MRUBY"/mrbgems/$g/test/*.rb; do
+    dst=$DIR/src/gem_$(basename "$rb")
+    [ -e "$dst" ] && dst=$DIR/src/gem_${short//-/_}_$(basename "$rb")
+    cp "$rb" "$dst"
+  done
   if ls "$MRUBY"/mrbgems/$g/mrblib/*.rb >/dev/null 2>&1; then
     cat "$MRUBY"/mrbgems/$g/mrblib/*.rb > target/mrblib/mrblib_$short.rb
     docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/mrblib_$short.mrb /w/mrblib_$short.rb

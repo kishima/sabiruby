@@ -10,6 +10,13 @@ pub mod exception;
 pub mod ext_array;
 pub mod ext_hash;
 pub mod ext_metaprog;
+pub mod ext_object;
+pub mod ext_symbol;
+pub mod ext_kernel;
+pub mod ext_class;
+pub mod ext_numeric;
+pub mod ext_objectspace;
+pub mod ext_catch;
 pub mod ext_method;
 pub mod ext_proc;
 pub mod ext_range;
@@ -51,6 +58,13 @@ pub fn init(vm: &mut Vm) {
     ext_metaprog::init(vm);
     ext_proc::init(vm);
     ext_method::init(vm);
+    ext_object::init(vm);
+    ext_symbol::init(vm);
+    ext_kernel::init(vm);
+    ext_class::init(vm);
+    ext_numeric::init(vm);
+    ext_objectspace::init(vm);
+    ext_catch::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers
