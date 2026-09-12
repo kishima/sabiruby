@@ -1,5 +1,5 @@
 argumenterror 9
-array 61
+array 62
 basicobject 2
 bs_block 46
 bs_literal 9
@@ -12,8 +12,9 @@ env 0
 exception 33
 false 6
 float 28
-gc 23
+gc 24
 gem_array 82
+gem_bigint 29
 gem_catch 8
 gem_class 3
 gem_compar 3
@@ -48,11 +49,11 @@ gem_time 43
 gem_toplevel 1
 hash 44
 indexerror 1
-integer 40
+integer 41
 iterations 4
 kernel 37
 lang 2
-literals 10
+literals 11
 localjumperror 1
 methods 7
 module 53

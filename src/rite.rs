@@ -18,8 +18,9 @@ pub enum Pool {
     Str(Vec<u8>),
     /// `IREP_TT_INT32` / `IREP_TT_INT64`
     Int(i64),
-    /// `IREP_TT_BIGINT`: raw dump (sign/base header + digits) — not decoded yet.
-    BigInt(Vec<u8>),
+    /// `IREP_TT_BIGINT`: the digits and the base they are written in. The base is
+    /// negative for a negative number (`mrb_bint_new_str`).
+    BigInt { base: i8, digits: Vec<u8> },
     /// `IREP_TT_FLOAT`
     Float(f64),
 }
@@ -210,8 +211,11 @@ fn read_record(c: &mut Cur, out: &mut Vec<Irep>) -> VmResult<usize> {
                 pool.push(Pool::Int(((hi << 32) | lo) as i64));
             }
             7 => {
-                let len = c.u8()? as usize + 2;
-                pool.push(Pool::BigInt(c.bytes(len)?.to_vec()));
+                // `load.c`: `pool_data_len = len + 2` counts the length byte and the base
+                // byte, so `len + 1` bytes follow the length byte.
+                let len = c.u8()? as usize;
+                let base = c.u8()? as i8;
+                pool.push(Pool::BigInt { base, digits: c.bytes(len)?.to_vec() });
             }
             5 => {
                 let raw: [u8; 8] = c.bytes(8)?.try_into().unwrap();

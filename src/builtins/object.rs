@@ -369,6 +369,7 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), hashes: hd.hashes.clone(), default: hd.default }),
             ObjKind::Range { .. } => ObjKind::Object, // `initialize_copy` fills the copy in, as the reference's `range_initialize_copy` does
             ObjKind::Exception => ObjKind::Exception,
+            ObjKind::BigInt(b) => ObjKind::BigInt(b.clone()),
             ObjKind::Class(cd) => {
                 let (hc, data, is_module, ivars) = (h.class, crate::object::ClassData { name: None, superclass: cd.superclass, methods: cd.methods.clone(), vis: cd.vis.clone(), consts: cd.consts.clone(), cvars: cd.cvars.clone(), is_module: cd.is_module, instance_kind: cd.instance_kind, outer: None, ..Default::default() }, cd.is_module, h.ivars.clone());
                 // an origin's table belongs to the copy too
@@ -489,6 +490,8 @@ impl Vm {
         match v {
             Value::Obj(o) => match &self.heap.get(o).kind {
                 ObjKind::String(b) => fnv(b),
+                // `mrb_bint_hash`: by value, so a wide integer works as a Hash key
+                ObjKind::BigInt(b) => fnv(&b.hash_bytes()),
                 _ => (o.0 as i64 + 1) * 8,
             },
             Value::Int(i) => i,

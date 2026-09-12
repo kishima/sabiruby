@@ -59,6 +59,22 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
 * NaN identity: every NaN is one immediate here, the reference allocates one object per NaN
   (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`).
 * `String#slice!`, `tr` and friends work on bytes; the multibyte tests skip themselves.
+* Wide integers (mruby-bigint): five answers of the reference are slips of its own bigint code,
+  not decisions, and SabiRuby keeps the meaning the same at both widths
+  (`tests/custom/bigint_reference_bugs.rb` holds them with CRuby's answers):
+  `~x` is `-x-1` (`mrb_bint_rev` takes one off the *magnitude*, answering `-(x-1)` for `x > 0`);
+  `x >> n` floors for a negative `x` (`mpz_div_2exp` shifts the magnitude, truncating toward
+  zero); `x.div(f)` divides by a Float (`mrb_bint_div` multiplies by it); `x % f` floors like
+  `Integer#%` (`mrb_bint_mod` takes `fmod`, which truncates); and `x.dup` is the number (the
+  reference's `mrb_obj_dup` copies an RInteger as an empty object and answers 0 — visible there
+  for `(2**62).dup`, which is wide in its build and immediate here). The bit operations work over
+  one limb more than the longer operand, which the reference does not, so a result needing the
+  extra limb (`-1 ^ 0xffffffff`) is not truncated.
+* `Integer#quo` on a wide integer answers a Float; the reference answers a Rational (its
+  `int_quo` uses mruby-rational, which is not ported yet — and answers `(0/1)` for
+  `(2**64).quo(2)`, which is wrong there too).
+* `ObjectSpace.count_objects` has a `T_BIGINT` entry, counted after `T_BREAK` as in the
+  reference's type enum.
 * **mruby-sprintf** — `Kernel#sprintf`/`format` (`ext_sprintf.rs`): the reference's state machine
   for flags, `n$`, `<name>`/`{name}` and `*`, with its error messages; integers follow
   `mrb_int_to_cstr`/`mrb_uint_to_cstr` including the `..f` two's-complement form for negative
@@ -188,6 +204,67 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   negative times, leap years, day overflow (`Time.gm(2024, 2, 30)`), the float/usec rounding of
   `Time.at`, `-` between Times.
 
+* **mruby-bigint** (`src/bigint.rs`, the branches in `src/builtins/numeric.rs`) — the only
+  gem that changes what a core type *is*: an Integer that leaves the `i64` range stops being an
+  immediate and becomes a heap object, so every arithmetic, comparison, conversion and hash path
+  of Integer has a second width to answer for. What it needed:
+
+  * **Representation** — `ObjKind::BigInt(BigInt)`, a sign and the absolute value in 32-bit
+    limbs (the reference's `mpz_t`: `sn`, `p[0..sz]`), with the class `Integer`, so `class_of`,
+    `is_a?` and `inspect` need no special case. The reference's embedded-limb optimization
+    (`RBIGINT_EMBED_SIZE_MAX`) is not copied. **Normalization is the invariant the rest relies
+    on**: a result that fits in an `i64` is always turned back into `Value::Int`
+    (`Vm::bint_value`, the reference's `bint_norm`), so one number never has two shapes and
+    `==`, `eql?`, `hash` and Hash keys stay simple.
+  * **The loader** — pool type 7 (`IREP_TT_BIGINT`) is `len, base, digits[len]`, and
+    `load.c`'s `pool_data_len = len + 2` counts the length byte itself. `src/rite.rs` read
+    `len + 2` bytes *after* the length byte, one too many, and the next pool entry's type byte
+    was then read as a digit (`bad pool type 56`, the `'8'` of a literal). A negative base means
+    a negative number (`mrb_bint_new_str`). This is why `test/t/literals.rb` skipped.
+  * **The arithmetic** (`src/bigint.rs`) — schoolbook multiplication and Knuth's algorithm D for
+    division, not the reference's Karatsuba/Barrett/Montgomery: `tools/bench.sh` shows the
+    integer benchmarks unchanged (the VM's `checked_*` fast path is untouched and only its
+    overflow exit reaches here), and no test is slow. `tests/bigint.rs` checks the layer against
+    `i128` for everything that fits and against known values (`3**1000`, `Integer.sqrt(10**40)`,
+    base 2..36 round trips) for what does not.
+  * **The core branches** — `+ - * / div % divmod ** pow -@ ~ & | ^ << >> <=> == eql? hash to_s
+    inspect to_f succ pred chr floor ceil round truncate quo fdiv size bit_length digits gcd lcm
+    even? odd? remainder pow(b,m) Integer.sqrt`, `Float#to_i`/`floor`/`ceil`/`round`/`divmod`
+    (a Float beyond the `i64` range now converts instead of raising), `String#to_i`/`hex`/`oct`,
+    `Integer()`, `sprintf` (`%d`/`%x`/`%o`/`%b` and the `..f` form for a negative wide value),
+    `rand(big)`, `Time.at(big)`, and `Vm::expect_int`, which answers the reference's RangeError
+    `integer out of range` wherever a wide integer reaches something that needs a machine
+    integer (an Array index, a shift width, an exponent).
+  * **What stopped raising** — `RangeError: integer overflow` is gone from `+`, `-`, `*`, `**`,
+    `<<`, `MRB_INT_MIN / -1` and `-@`; those now promote, in `op_arith`'s overflow exit as well
+    as in the methods.
+  * **`Integer#hash`** — a wide integer hashes its limbs and sign (`mrb_bint_hash`), so
+    `{2**64 => 1}[2**64]` finds the entry although the two objects are different.
+
+  Checked against the reference image with this script (`docker run --rm -v "$PWD:/w" -w /w
+  kishima/mruby:4.1.0-rc mruby probe.rb` against `sabiruby probe.rb`; everything agrees except
+  the six lines listed under "Deviations kept"):
+
+  ```ruby
+  def t(l); print l, " => "; begin; p yield; rescue => e; p e; end; end
+  t("2**64"){ 2**64 };                t("square"){ (2**64) * (2**64) }
+  t("div"){ -(2**64) / 7 };           t("divmod"){ (2**64).divmod(-7) }
+  t("to_s(2)"){ (2**64).to_s(2).size }; t("to_s(36)"){ (2**64).to_s(36) }
+  t("pow"){ 3.pow(1000).to_s.size };  t("powm"){ (2**64).pow(2, 7) }
+  t("shift"){ (1 << 64) >> 63 };      t("and"){ (2**64) & (2**63) }
+  t("float =="){ 2**64 == 18446744073709551616.0 }
+  t("to_f.to_i"){ (2**64).to_f.to_i == 2**64 }
+  t("hash key"){ ({2**64 => 1})[2**64] }
+  t("%d"){ "%d" % 2**64 };            t("%b"){ "%b" % -(2**64) }
+  t("sqrt"){ Integer.sqrt(10**40) };  t("digits"){ (10**40).digits.size }
+  t("frozen?"){ (2**64).frozen? };    t("size"){ (2**64).size }
+  t("to_i"){ "18446744073709551616".to_i }
+  t("Integer()"){ Integer("18446744073709551616") }
+  t("1e30.to_i"){ 1e30.to_i };        t("MIN/-1"){ (-9223372036854775807-1) / -1 }
+  t("index"){ [1,2,3][2**64] };       t("chr"){ (2**64).chr }
+  t("Time.at"){ Time.at(2**64) };     t("exp"){ 2 ** (2**64) }
+  ```
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -203,11 +280,14 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 ## Remaining gems (plan as of 2026-09-12)
 
+Order and instructions for the rest: `docs/gems-plan.md`. mruby-bigint is done (order 5 started
+with it, because rational and complex branch in the same places of `numeric.rs`).
+
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
-class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time (28).
+class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint (29).
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
@@ -216,7 +296,6 @@ Sizes are lines of the reference C / mrblib Ruby / test.
 | 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |
 | 4 | mruby-proc-binding | 75 / 0 / 22 | binding, proc-ext | `Proc#binding` |
 | 5 | mruby-pack | 2133 / 0 / 278 | – | `Array#pack`/`String#unpack`; large but self-contained |
-| 5 | mruby-bigint | 6409 / 0 / 529 | – (tests: numeric-ext) | `MRB_USE_BIGINT`: Integer overflow becomes bigint; changes core Integer semantics, decide together with the build configuration |
 | 5 | mruby-rational | 1512 / 72 / 742 | – (tests: complex) | `Rational`; the lexer literals (`1r`) already compile |
 | 5 | mruby-complex | 1087 / 295 / 325 | math | `Complex` |
 | 5 | mruby-cmath | 425 / 0 / 41 | complex | not in default.gembox |

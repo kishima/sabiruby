@@ -11,7 +11,7 @@ use crate::value::{ObjId, Value};
 use crate::vm::Vm;
 
 /// The reference's `MRB_TT_*` name of an object, in enum order (the order of the hash).
-const TYPES: [&str; 14] = ["T_OBJECT", "T_CLASS", "T_MODULE", "T_ICLASS", "T_SCLASS", "T_PROC", "T_ARRAY", "T_HASH", "T_STRING", "T_RANGE", "T_EXCEPTION", "T_ENV", "T_FIBER", "T_BREAK"];
+const TYPES: [&str; 15] = ["T_OBJECT", "T_CLASS", "T_MODULE", "T_ICLASS", "T_SCLASS", "T_PROC", "T_ARRAY", "T_HASH", "T_STRING", "T_RANGE", "T_EXCEPTION", "T_ENV", "T_FIBER", "T_BREAK", "T_BIGINT"];
 
 fn type_index(vm: &Vm, id: ObjId) -> usize {
     match &vm.heap.get(id).kind {
@@ -26,6 +26,9 @@ fn type_index(vm: &Vm, id: ObjId) -> usize {
         ObjKind::Env(_) => 11,
         ObjKind::Fiber(_) => 12,
         ObjKind::Break { .. } => 13,
+        // `MRB_TT_BIGINT` follows `MRB_TT_BREAK` in the reference's enum (after the
+        // Complex and Rational it has no counterpart for here)
+        ObjKind::BigInt(_) => 14,
     }
 }
 

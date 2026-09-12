@@ -208,6 +208,7 @@ fn as_float(vm: &mut Vm, v: Value) -> VmResult<f64> {
     match v {
         Value::Float(f) => Ok(f),
         Value::Int(i) => Ok(i as f64),
+        _ if vm.is_bigint(v) => Ok(super::numeric::num_f64(vm, v).unwrap_or(0.0)),
         _ => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&format!("can't convert {d} into Float"))) }
     }
 }
@@ -404,21 +405,35 @@ fn format_string(vm: &mut Vm, arg: Value, inspect: bool, flags: u32, width: i64,
 fn format_int(vm: &mut Vm, val: Value, c: u8, flags: u32, mut width: i64, mut prec: i64) -> VmResult<Vec<u8>> {
     let (base, upper, signed) = match c { b'd' | b'i' | b'u' => (10u32, false, true), b'o' => (8, false, false), b'x' => (16, false, false), b'X' => (16, true, false), b'b' => (2, false, false), _ => (2, true, false) };
     let mut prefix: Option<&[u8]> = if flags & FSHARP != 0 { match (base, upper) { (8, _) => Some(b"0"), (16, false) => Some(b"0x"), (16, true) => Some(b"0X"), (2, false) => Some(b"0b"), (2, true) => Some(b"0B"), _ => None } } else { None };
-    let v: i64 = match val {
-        Value::Int(i) => i,
-        Value::Float(_) => vm.expect_int(val, "value")?,
-        _ => match vm.str_bytes(val) { Some(b) => { let b = b.to_vec(); str_to_int_strict(vm, &b)? } None => vm.expect_int(val, "value")? },
+    // a Float or a String is converted first (`bin_retry`), and may itself be wide
+    let val = match val {
+        Value::Float(f) if f.is_finite() => { let t = libm::trunc(f); if (-9223372036854775808.0..9223372036854775808.0).contains(&t) { Value::Int(t as i64) } else { vm.bint_value(crate::bigint::BigInt::from_f64(t)) } }
+        Value::Int(_) | Value::Float(_) => val,
+        v if vm.is_bigint(v) => val,
+        _ => match vm.str_bytes(val) { Some(b) => { let b = b.to_vec(); Value::Int(str_to_int_strict(vm, &b)?) } None => Value::Int(vm.expect_int(val, "value")?) },
     };
     let mut sc: Option<u8> = None;
     let mut dots = false;
     let mut s: Vec<u8>;
-    if signed {
-        if v >= 0 { if flags & FPLUS != 0 { sc = Some(b'+'); width -= 1; } else if flags & FSPACE != 0 { sc = Some(b' '); width -= 1; } }
-        else { sc = Some(b'-'); width -= 1; }
-        s = digits_u64(v.unsigned_abs(), base);
+    let v: i64;
+    if let Some(b) = vm.as_bigint(val).filter(|_| vm.is_bigint(val)) {
+        // `mrb_bint_to_s` writes the digits and, for `%d`, the sign; the sign character and
+        // the width it takes are the reference's `str_skip`, which leaves both alone
+        let need_dots = flags & FPLUS == 0 && matches!(base, 16 | 8 | 2) && b.sign() < 0;
+        let t = if need_dots { crate::bigint::BigInt { neg: false, mag: b.two_comp_mag() } } else { b };
+        s = t.to_string_radix(base).into_bytes();
+        dots = need_dots;
+        v = if need_dots { -1 } else { 0 };
     } else {
-        s = uint_to_cstr(v, base);
-        if v < 0 { dots = true; }
+        v = match val { Value::Int(i) => i, _ => vm.expect_int(val, "value")? };
+        if signed {
+            if v >= 0 { if flags & FPLUS != 0 { sc = Some(b'+'); width -= 1; } else if flags & FSPACE != 0 { sc = Some(b' '); width -= 1; } }
+            else { sc = Some(b'-'); width -= 1; }
+            s = digits_u64(v.unsigned_abs(), base);
+        } else {
+            s = uint_to_cstr(v, base);
+            if v < 0 { dots = true; }
+        }
     }
     let mut fc: u8 = match base { 16 => b'f', 8 => b'7', 2 => b'1', _ => 0 };
     if dots {

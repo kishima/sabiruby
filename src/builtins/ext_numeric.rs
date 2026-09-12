@@ -11,7 +11,9 @@ use crate::error::VmResult;
 use crate::value::{Slot, Value};
 use crate::vm::Vm;
 
-use super::numeric::{as_f64, coerce_fail, int_pow, num_args};
+use crate::bigint::BigInt;
+
+use super::numeric::{as_f64, coerce_fail, int_pow, num_args, num_f64};
 
 fn zero_div(vm: &mut Vm) -> crate::error::VmError {
     vm.raise(vm.core.zero_division_error, "divided by 0")
@@ -19,6 +21,11 @@ fn zero_div(vm: &mut Vm) -> crate::error::VmError {
 
 fn int_overflow(vm: &mut Vm, what: &str) -> crate::error::VmError {
     vm.raise(vm.core.range_error, &format!("integer overflow in {what}"))
+}
+
+fn cant_convert(vm: &mut Vm, v: Value) -> crate::error::VmError {
+    let d = vm.describe_for_type_error(v);
+    vm.raise_type(&format!("can't convert {d} into Integer"))
 }
 
 fn expect_integer(vm: &mut Vm, v: Value) -> VmResult<i64> {
@@ -38,6 +45,15 @@ fn flo_remainder(vm: &mut Vm, a: f64, y: Value) -> VmResult<Value> {
 
 fn int_remainder(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     let (x, y) = num_args(vm, s, a)?;
+    if vm.is_bigint(x) || vm.is_bigint(y) {
+        if let Some(q) = vm.as_bigint(y) {
+            if q.is_zero() { return Err(zero_div(vm)); }
+            let p = vm.as_bigint(x).unwrap_or_else(BigInt::zero);
+            return Ok(vm.bint_value(p.rem_trunc(&q)));
+        }
+        let p = num_f64(vm, x).unwrap_or(0.0);
+        return flo_remainder(vm, p, y);
+    }
     let p = match x { Value::Int(p) => p, _ => 0 };
     match y {
         Value::Int(q) => {
@@ -55,8 +71,14 @@ fn int_remainder(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Valu
 fn int_powm(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1, 2);
     if a.len() == 1 { return int_pow(vm, s, a); }
+    if !matches!(a[0], Value::Int(_)) && !vm.is_bigint(a[0]) {
+        return Err(vm.raise_type("int.pow(n,m): 2nd argument not allowed unless 1st argument is an integer"));
+    }
+    if vm.is_bigint(s) || vm.is_bigint(a[0]) || vm.is_bigint(a[1]) {
+        return bint_powm(vm, s, a[0], a[1]);
+    }
     let x = match s { Value::Int(x) => x, _ => 0 };
-    let exp = match a[0] { Value::Int(e) => e, _ => return Err(vm.raise_type("int.pow(n,m): 2nd argument not allowed unless 1st argument is an integer")) };
+    let exp = match a[0] { Value::Int(e) => e, _ => 0 };
     if exp < 0 { return Err(vm.raise_arg("int.pow(n,m): n must be positive")); }
     let mut m = match a[1] { Value::Int(m) => m, _ => return Err(vm.raise_type("int.pow(n,m): m must be integer")) };
     if m == 0 { return Err(zero_div(vm)); }
@@ -74,7 +96,7 @@ fn int_powm(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
                 None => {
                     result %= m;
                     base %= m;
-                    match result.checked_mul(base) { Some(t) => t, None => return Err(int_overflow(vm, "pow")) }
+                    match result.checked_mul(base) { Some(t) => t, None => return bint_powm(vm, s, a[0], a[1]) }
                 }
             };
             result = t % m;
@@ -85,7 +107,7 @@ fn int_powm(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
             Some(t) => t,
             None => {
                 base %= m;
-                match base.checked_mul(base) { Some(t) => t, None => return Err(int_overflow(vm, "pow")) }
+                match base.checked_mul(base) { Some(t) => t, None => return bint_powm(vm, s, a[0], a[1]) }
             }
         };
         base = t % m;
@@ -95,11 +117,40 @@ fn int_powm(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     Ok(Value::Int(result))
 }
 
+/// `mrb_bint_powm`: modular exponentiation where any of the three is wide.
+fn bint_powm(vm: &mut Vm, x: Value, e: Value, m: Value) -> VmResult<Value> {
+    let mut modulus = match vm.as_bigint(m) { Some(m) => m, None => return Err(vm.raise_type("int.pow(n,m): m must be integer")) };
+    if modulus.is_zero() { return Err(zero_div(vm)); }
+    let neg_mod = modulus.sign() < 0;
+    if neg_mod { modulus = modulus.abs(); }
+    let exp = match vm.as_bigint(e) { Some(e) => e, None => return Err(vm.raise_type("int.pow(n,m): 2nd argument not allowed unless 1st argument is an integer")) };
+    if exp.sign() < 0 { return Err(vm.raise_arg("int.pow(n,m): n must be positive")); }
+    let base = vm.as_bigint(x).unwrap_or_else(BigInt::zero);
+    if base.is_zero() && exp.sign() > 0 { return Ok(Value::Int(0)); }
+    let mut r = base.powm(&exp, &modulus);
+    // a negative modulus: `result + m` for a non-zero result
+    if neg_mod && !r.is_zero() { r = r.sub(&modulus); }
+    Ok(vm.bint_value(r))
+}
+
 fn int_digits(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 0, 1);
     let base = if a.is_empty() { 10 } else { vm.expect_int(a[0], "base")? };
     if base < 0 { return Err(vm.raise_arg("negative radix")); }
     if base < 2 { return Err(vm.raise_arg(&format!("invalid radix {base}"))); }
+    if vm.is_bigint(s) {
+        let mut x = vm.as_bigint(s).unwrap_or_else(BigInt::zero);
+        if x.sign() < 0 { return Err(vm.raise_arg("number should be positive")); }
+        let bv = BigInt::from_i64(base);
+        let mut digits: Vec<Value> = Vec::new();
+        while x.sign() > 0 {
+            let (q, r) = x.divmod_floor(&bv);
+            let d = vm.bint_value(r);
+            digits.push(d);
+            x = q;
+        }
+        return Ok(vm.ary_new(digits));
+    }
     let mut n = match s { Value::Int(n) => n, _ => 0 };
     if n < 0 { return Err(vm.raise_arg("number should be positive")); }
     let mut digits: Vec<Value> = Vec::new();
@@ -125,6 +176,11 @@ fn gcd_raw(x: i64, y: i64) -> i64 {
 
 fn int_gcd(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     let (x, y) = num_args(vm, s, a)?;
+    if vm.is_bigint(x) || vm.is_bigint(y) {
+        let q = match vm.as_bigint(y) { Some(q) => q, None => return Err(cant_convert(vm, y)) };
+        let p = vm.as_bigint(x).unwrap_or_else(BigInt::zero);
+        return Ok(vm.bint_value(p.gcd(&q)));
+    }
     let (p, q) = (match x { Value::Int(p) => p, _ => 0 }, expect_integer(vm, y)?);
     let g = gcd_raw(p, q);
     if g < 0 { return Err(int_overflow(vm, "gcd")); }
@@ -133,6 +189,11 @@ fn int_gcd(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
 
 fn int_lcm(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     let (x, y) = num_args(vm, s, a)?;
+    if vm.is_bigint(x) || vm.is_bigint(y) {
+        let q = match vm.as_bigint(y) { Some(q) => q, None => return Err(cant_convert(vm, y)) };
+        let p = vm.as_bigint(x).unwrap_or_else(BigInt::zero);
+        return Ok(vm.bint_value(p.lcm(&q)));
+    }
     let (p, q) = (match x { Value::Int(p) => p, _ => 0 }, expect_integer(vm, y)?);
     if p == 0 || q == 0 { return Ok(Value::Int(0)); }
     if p == i64::MIN || q == i64::MIN { return Err(int_overflow(vm, "lcm")); }
@@ -161,10 +222,15 @@ pub fn init(vm: &mut Vm) {
         ("remainder", int_remainder),
         ("pow", int_powm),
         ("digits", int_digits),
-        ("size", |_vm, _s, _a, _b| Ok(Value::Int(8))),
-        ("bit_length", |_vm, s, _a, _b| Ok(Value::Int(match s { Value::Int(i) => (64 - if i < 0 { (!i).leading_zeros() } else { i.leading_zeros() }) as i64, _ => 0 }))),
-        ("odd?", |_vm, s, _a, _b| Ok(Value::bool(matches!(s, Value::Int(i) if i % 2 != 0)))),
-        ("even?", |_vm, s, _a, _b| Ok(Value::bool(matches!(s, Value::Int(i) if i % 2 == 0)))),
+        // the reference answers the bytes the limbs take, so a wide integer's size grows
+        ("size", |vm, s, _a, _b| Ok(Value::Int(match vm.as_bigint(s) { Some(b) if vm.is_bigint(s) => b.byte_size() as i64, _ => 8 }))),
+        ("bit_length", |vm, s, _a, _b| Ok(Value::Int(match s {
+            Value::Int(i) => (64 - if i < 0 { (!i).leading_zeros() } else { i.leading_zeros() }) as i64,
+            v if vm.is_bigint(v) => { let b = vm.as_bigint(v).unwrap(); (if b.sign() < 0 { b.not() } else { b }).bit_length() as i64 }
+            _ => 0,
+        }))),
+        ("odd?", |vm, s, _a, _b| Ok(Value::bool(match s { Value::Int(i) => i % 2 != 0, v if vm.is_bigint(v) => !vm.as_bigint(v).unwrap().is_even(), _ => false }))),
+        ("even?", |vm, s, _a, _b| Ok(Value::bool(match s { Value::Int(i) => i % 2 == 0, v if vm.is_bigint(v) => vm.as_bigint(v).unwrap().is_even(), _ => false }))),
         ("gcd", int_gcd),
         ("lcm", int_lcm),
     ]);
@@ -177,6 +243,11 @@ pub fn init(vm: &mut Vm) {
             Value::Int(n) => {
                 if n < 0 { return Err(vm.raise_arg("non-negative integer required")); }
                 Ok(Value::Int(isqrt(n)))
+            }
+            v if vm.is_bigint(v) => {
+                let b = vm.as_bigint(v).unwrap();
+                if b.sign() < 0 { return Err(vm.raise_arg("square root of negative number")); }
+                Ok(vm.bint_value(b.sqrt()))
             }
             _ => Err(vm.raise_type("expected Integer")),
         }

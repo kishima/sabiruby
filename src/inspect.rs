@@ -321,6 +321,7 @@ impl Vm {
                         None => "#<Fiber uninitialized>".into(),
                     },
                     ObjKind::Break { tag, ci_index, .. } => format!("#<Break {tag:?} frame={ci_index}>"),
+                    ObjKind::BigInt(b) => b.to_string_radix(10),
                     ObjKind::Object if o == self.top_self => "main".into(),
                     ObjKind::Object => {
                         let ivars = self.heap.get(o).ivars.len();

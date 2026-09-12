@@ -483,6 +483,26 @@ impl Vm {
     pub fn str_from(&mut self, s: String) -> Value {
         Value::Obj(self.heap.alloc(self.core.string, ObjKind::String(s.into_bytes())))
     }
+    /// `bint_norm`: a wide integer becomes a `Value::Int` as soon as it fits, so the two
+    /// representations never hold the same value (`==`, `eql?`, `hash` rely on it).
+    pub fn bint_value(&mut self, b: crate::bigint::BigInt) -> Value {
+        match b.to_i64() {
+            Some(i) => Value::Int(i),
+            None => Value::Obj(self.heap.alloc(self.core.integer, ObjKind::BigInt(b))),
+        }
+    }
+    /// `mrb_as_bint`: an Integer (immediate or wide) as a [`BigInt`](crate::bigint::BigInt).
+    pub fn as_bigint(&self, v: Value) -> Option<crate::bigint::BigInt> {
+        match v {
+            Value::Int(i) => Some(crate::bigint::BigInt::from_i64(i)),
+            Value::Obj(o) => self.heap.bigint(o).cloned(),
+            _ => None,
+        }
+    }
+    /// True for an Integer that does not fit in a `Value::Int`.
+    pub fn is_bigint(&self, v: Value) -> bool {
+        matches!(v, Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::BigInt(_)))
+    }
     pub fn ary_new(&mut self, v: Vec<Value>) -> Value {
         Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(slots_of(&v))))
     }
@@ -560,6 +580,13 @@ impl Vm {
     pub fn expect_int(&mut self, v: Value, _what: &str) -> VmResult<i64> {
         match v {
             Value::Int(i) => Ok(i),
+            // `mrb_bint_as_int`: an Integer too wide for the operation that asked for it
+            Value::Obj(o) if self.heap.bigint(o).is_some() => {
+                match self.heap.bigint(o).unwrap().to_i64() {
+                    Some(i) => Ok(i),
+                    None => Err(self.raise(self.core.range_error, "integer out of range")),
+                }
+            }
             Value::Float(f) => {
                 if f.is_nan() || f.is_infinite() { let s = crate::builtins::numeric::float_to_s(f); return Err(self.raise(self.core.float_domain_error, &s)); }
                 if f >= 9223372036854775808.0 || f < -9223372036854775808.0 { let s = crate::builtins::numeric::float_to_s(f); return Err(self.raise(self.core.range_error, &format!("float {s} out of range of integer"))); }
@@ -1999,7 +2026,15 @@ impl Vm {
                         Pool::Int(i) => Value::Int(*i),
                         Pool::Float(f) => Value::Float(*f),
                         Pool::Str(s) => { let s = s.clone(); self.str_new(&s) }
-                        Pool::BigInt(_) => return Err(VmError::Unimplemented("bigint literal".into())),
+                        Pool::BigInt { base, digits } => {
+                            // `mrb_bint_new_str`: a negative base means a negative number
+                            let (neg, b) = (*base < 0, base.unsigned_abs() as u32);
+                            let d = digits.clone();
+                            match crate::bigint::BigInt::from_str(&d, b) {
+                                Some(v) => self.bint_value(if neg { v.neg() } else { v }),
+                                None => return Err(VmError::Rite("bad bigint literal".into())),
+                            }
+                        }
                     };
                     setreg!(a, v);
                 }
@@ -2596,7 +2631,10 @@ impl Vm {
                 if mid == s.plus { p.checked_add(q).map(Value::Int) }
                 else if mid == s.minus { p.checked_sub(q).map(Value::Int) }
                 else if mid == s.mul { p.checked_mul(q).map(Value::Int) }
-                else { if q == 0 { return Err(self.raise(self.core.zero_division_error, "divided by 0")); } Some(Value::Int(crate::builtins::numeric::div_floor(p, q))) }
+                else if q == 0 { return Err(self.raise(self.core.zero_division_error, "divided by 0")); }
+                // `MRB_INT_MIN / -1` leaves the range: the wide path below answers it
+                else if p == i64::MIN && q == -1 { None }
+                else { Some(Value::Int(crate::builtins::numeric::div_floor(p, q))) }
             }
             (Value::Int(p), Value::Float(q)) => Some(float_op(mid, self.s, p as f64, q)),
             (Value::Float(p), Value::Int(q)) => Some(float_op(mid, self.s, p, q as f64)),
@@ -2606,7 +2644,13 @@ impl Vm {
         match r {
             Some(v) => { self.stack[base + a] = Slot::from(v); Ok(()) }
             None => {
-                if let (Value::Int(_), Value::Int(_)) = (x, y) { return Err(self.raise(self.core.range_error, "integer overflow")); }
+                // `L_INT_OVERFLOW`: the result left the `i64` range, so it is a wide integer
+                if let (Value::Int(p), Value::Int(q)) = (x, y) {
+                    let v = if mid == self.s.div { let b = crate::bigint::BigInt::from_i64(p).neg(); self.bint_value(b) }
+                            else { crate::builtins::numeric::int_overflow_op(self, p, q, mid) };
+                    self.stack[base + a] = Slot::from(v);
+                    return Ok(());
+                }
                 self.op_send(base, a, mid, 1, false, false)
             }
         }

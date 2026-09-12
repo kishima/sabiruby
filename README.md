@@ -30,7 +30,9 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   (incl. `ARGARY`), `rescue`/`ensure` with correct non-local exits (`return`/`break`/`JMPUW`
   through `ensure`), class/module/singleton classes, class variables, `method_missing`.
 * Native core classes: Object, Module, Class, Kernel, NilClass/TrueClass/FalseClass,
-  Integer, Float, Symbol, String (bytes, no encoding), Array, Hash, Range, Proc, Exception hierarchy.
+  Integer (immediate while it fits in 64 bits, a heap value of arbitrary width beyond that,
+  see mruby-bigint below), Float, Symbol, String (bytes, no encoding), Array, Hash, Range,
+  Proc, Exception hierarchy.
 * mruby's own `mrblib/*.rb` (Enumerable, Comparable, `Array#each`, `Integer#times`, …) is
   compiled by the reference `mrbc` and embedded (`src/mrblib.mrb`), so those run as bytecode.
 * Step execution with an instruction budget (`Vm::start` / `Vm::step`) for host loops.
@@ -39,7 +41,10 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   hooks (`inherited`, `included`, `method_added`, …), `defined?`, frozen objects.
 * Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
   [`docs/fibers.md`](https://github.com/kishima/sabiruby/blob/main/docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
-  -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method (natives
+  -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method, and the
+  rest of the reference's `default.gembox` except `eval`, `pack`, `rational`, `complex`,
+  `regexp` and the POSIX ones — 29 gems, including **mruby-bigint**, so an Integer that leaves
+  the 64-bit range grows instead of raising (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
   loaded in the reference gembox order; see [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md)). `send`/`__send__`
   from bytecode dispatch in place, as in mruby, so a `Fiber.yield` behind them is not a native
@@ -55,9 +60,9 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   Output is byte-identical to `mrbc` for every `.rb` in the repository. See
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
 
-Not yet: bigint, the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
+Not yet: the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
 `rescue => e`), `eval`/`require` (design notes below), the remaining mrbgems (`io`, `time`,
-`math`, `struct`, `compar-ext`, …), encodings. Native code may re-enter the VM
+`pack`, `rational`, `complex`, `regexp`, …), encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
@@ -82,14 +87,14 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 17 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`).
 
 mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
-gems (`gem_*`, 394 assertions) passes 1185 of 1227 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
+gems (`gem_*`, 701 assertions) passes 1494 of 1534 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
 reasons for the rest in [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
 assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
 ones skip.
 The rest: 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
 `ary_shared.c`), 2 are the deviations above, 1 is `(1..).last`, where the core test and
 mruby-range-ext disagree (the reference `mruby` crashes on it too), and the remaining ones are
-skips the reference makes too (bigint, regexp, build-dependent).
+skips the reference makes too (regexp, build-dependent).
 `tools/mrbtest.sh` compiles the gem tests and gem mrblibs too (`GEMS` in the script).
 
 The reference image includes the default gembox (array-ext, hash-ext, compar-ext, …). The
@@ -190,6 +195,7 @@ loop {
 | `src/rite.rs` | RITE binary reader |
 | `src/opcode.rs` | opcode table generated from mruby's `ops.h` |
 | `src/vm.rs` | interpreter loop, frames, environments, unwinding |
+| `src/bigint.rs` | integers wider than 64 bits (mruby-bigint's `mpz_*`) |
 | `src/object.rs` | heap objects (classes, procs, envs, strings, arrays, hashes), mark & sweep |
 | `src/builtins/` | native methods per class |
 | `src/mrblib.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |

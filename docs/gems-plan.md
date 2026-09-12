@@ -1,5 +1,9 @@
 # gem 移植 実装指示書（順序 4 以降）
 
+> **実装状況**: bigint 済み（2026-09-12。`src/bigint.rs`、`numeric.rs` ほかの分岐、本家テスト
+> `gem_bigint` 29/29、skip していた 4 件も解消。詳細と本家との差異は `docs/gems.md`）。
+> 次は rational → complex（+ cmath）→ pack → eval／binding／proc-binding → UTF-8 → regexp → task。
+
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に残りの本家 gem を移植できること。
 作業前に `README.md`（Rules、Verification）、`docs/gems.md`（手順と、移植済み 28 gem が教えたこと）、
 `docs/gc.md`（ネイティブから見た GC の約束）を読むこと。設計判断はここに書いたとおりにし、
@@ -9,11 +13,12 @@
 
 * 本家は mruby 4.1.0-rc（`../../ref/mruby`）。参照バイナリは Docker イメージ `kishima/mruby:4.1.0-rc`
   （バイト列ビルド、bigint 無し）。本家テストは `tools/mrbtest.sh` で走らせ、`docs/mrbtest.md` に表を書く。
-  現在 **1505 件中 1461 件**。落ちる 44 件の理由は `docs/mrbtest-notes.md` と `tests/mrbtest/notes.tsv`。
-* 移植済み: `default.gembox` の 33 gem のうち 28（fiber、enumerator、*-ext 5 種、sprintf、metaprog、proc-ext、
+  現在 **1534 件中 1494 件**（bigint 移植後）。落ちる 40 件の理由は `docs/mrbtest-notes.md` と
+  `tests/mrbtest/notes.tsv`。
+* 移植済み: `default.gembox` の 33 gem のうち 29（fiber、enumerator、*-ext 5 種、sprintf、metaprog、proc-ext、
   method、compar-ext、toplevel-ext、enum-chain、enum-lazy、object-ext、symbol-ext、kernel-ext、class-ext、
-  numeric-ext、catch、objectspace、math、random、struct、data、set、time）。
-* 残り: eval、binding、proc-binding（順序 4）、pack、bigint、rational、complex、cmath（順序 5）、
+  numeric-ext、catch、objectspace、math、random、struct、data、set、time、bigint）。
+* 残り: eval、binding、proc-binding（順序 4）、pack、rational、complex、cmath（順序 5）、
   UTF-8 文字列（ビルド構成のマイルストーン、`docs/utf8-plan.md`）、regexp（順序 6）、task（順序 7）。
   io／socket／errno／dir／env／signal／process は POSIX 依存で対象外（著者決定）。
 * 本家テストを 1 件でも落とす gem を「移植済み」と呼ばない。落ちる件は理由を `notes.tsv` に書き、
@@ -109,7 +114,11 @@ eval はコンパイラ側の C パッチを伴うので独立した節にする
   `env` の扱い（`docs/fibers.md`、`vm.rs` の `call_proc_inner`）を先に読む。
 * `mrb_f_eval` の `file`／`line` 引数はデバッグ情報にだけ効く。`__FILE__` の期待があれば DBG のファイル名に入れる。
 
-### 3.4 mruby-bigint（6409 C / 0 Ruby / 529 test）— 入れる（著者決定 2026-09-12）
+### 3.4 mruby-bigint（6409 C / 0 Ruby / 529 test）— **済み（2026-09-12）**
+
+実装で決めたこと・分かったことは `docs/gems.md` の「mruby-bigint」の項と「Deviations kept」に書いた。
+以下は着手時の指示（記録として残す）。踏んだ罠のうち本家の不具合と見て合わせなかった 5 件
+（`~x`、負数の `>>`、`div(Float)`、`% Float`、`dup`）は `tests/custom/bigint_reference_bugs.rb`。
 
 **根拠**: 参照イメージ `kishima/mruby:4.1.0-rc` は bigint 入り（`2**63` → `9223372036854775808`、`2**64 * 2**64`、
 `to_s(36)`、`pow(3, 1000)`、`divmod(-7)` の床除算まで答える。2026-09-12 確認）。SabiRuby の「溢れは RangeError」は

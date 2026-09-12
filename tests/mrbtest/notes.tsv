@@ -1,10 +1,8 @@
-array	crash: `AryShared` (mruby-test C fixture `ary_shared.c`); skip: needs mruby-bigint
+array	crash: `AryShared` (mruby-test C fixture `ary_shared.c`)
 env	all 8 need the `__env_*` natives of mruby-test `env.c` (REnv internals)
 exception	2 skips: `backtrace_available?` is false (no DBG section, no backtrace)
 float	deliberate deviation: a NaN has no identity (Floats are immediates)
-gc	skip: needs mruby-bigint
-integer	skip: no Integer wider than mrb_int without mruby-bigint
-literals	2 skips: Float is defined (same as reference); no mruby-bigint
+literals	skip: Float is defined (same as reference)
 superclass	skip: `RegexpError` needs mruby-regexp (not ported)
 syntax	deliberate deviation: a hash pattern whose key mutates the subject is not detected
 sysfail	needs `TestSysFail` of mruby-test `sysfail.c`

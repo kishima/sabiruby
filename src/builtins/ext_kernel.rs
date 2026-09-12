@@ -43,7 +43,7 @@ fn invalid_number(vm: &mut Vm, s: &[u8]) -> VmError {
 /// `mrb_str_len_to_integer`: the reference's scanner, byte for byte. `base <= 0` reads a radix
 /// prefix (`0x`, `0b`, `0o`, `0d`, a bare leading `0` is octal); a negative base is its absolute
 /// value. With `badcheck` (`Integer()`), anything but a well-formed number is an ArgumentError.
-pub(crate) fn str_to_integer(vm: &mut Vm, s: &[u8], mut base: i64, badcheck: bool) -> VmResult<i64> {
+pub(crate) fn str_to_integer(vm: &mut Vm, s: &[u8], mut base: i64, badcheck: bool) -> VmResult<Value> {
     let n = s.len();
     // C reads `p[0]`/`p[1]` past the text: a NUL terminator stands there
     let at = |i: usize| -> u8 { if i < n { s[i] } else { 0 } };
@@ -71,7 +71,7 @@ pub(crate) fn str_to_integer(vm: &mut Vm, s: &[u8], mut base: i64, badcheck: boo
     }
     if p >= n {
         if badcheck { return Err(invalid_number(vm, s)); }
-        return Ok(0);
+        return Ok(Value::Int(0));
     }
     if s[p] == b'0' {
         // squeeze preceding 0s
@@ -92,8 +92,10 @@ pub(crate) fn str_to_integer(vm: &mut Vm, s: &[u8], mut base: i64, badcheck: boo
     }
     if p == n || s[p] == b'_' {
         if badcheck { return Err(invalid_number(vm, s)); }
-        return Ok(0);
+        return Ok(Value::Int(0));
     }
+    // the digits start here; a value too wide for `i64` is read from them again as a BigInt
+    let p2 = p;
     let mut acc: i64 = 0;
     while p < n {
         if s[p] == b'_' {
@@ -110,11 +112,7 @@ pub(crate) fn str_to_integer(vm: &mut Vm, s: &[u8], mut base: i64, badcheck: boo
         if badcheck && s[p] == 0 { return Err(vm.raise_arg("string contains null byte")); }
         let c = conv_digit(s[p]);
         if c < 0 || c >= base { break; }
-        let too_big = |vm: &mut Vm| -> VmError {
-            let text = alloc::string::String::from_utf8_lossy(s).into_owned();
-            vm.raise(vm.core.range_error, &format!("string ({text}) too big for integer"))
-        };
-        acc = match acc.checked_mul(base) { Some(m) => m, None => return Err(too_big(vm)) };
+        acc = match acc.checked_mul(base) { Some(m) => m, None => return too_wide(vm, s, p2, p, base, sign, badcheck) };
         if i64::MAX - c < acc {
             if !sign && i64::MAX - acc == c - 1 {
                 // MRB_INT_MIN: the reference breaks out here without consuming the digit, so
@@ -124,13 +122,34 @@ pub(crate) fn str_to_integer(vm: &mut Vm, s: &[u8], mut base: i64, badcheck: boo
                 sign = true;
                 break;
             }
-            return Err(too_big(vm));
+            return too_wide(vm, s, p2, p, base, sign, badcheck);
         }
         acc += c;
         p += 1;
     }
     if badcheck && trailing_bad(s, p) { return Err(invalid_number(vm, s)); }
-    Ok(if sign { acc } else { acc.wrapping_neg() })
+    Ok(Value::Int(if sign { acc } else { acc.wrapping_neg() }))
+}
+
+/// The overflow exit of `mrb_str_len_to_integer`: the digits are read again as a wide
+/// integer. `badcheck` still looks at where the accumulation stopped, not at the end of the
+/// digits, which is why `Integer("18446744073709551616")` is an ArgumentError on the
+/// reference while `"18446744073709551616".to_i` is the number.
+fn too_wide(vm: &mut Vm, s: &[u8], p2: usize, stop: usize, base: i64, sign: bool, badcheck: bool) -> VmResult<Value> {
+    let mut p3 = p2;
+    while p3 < s.len() {
+        let c = s[p3];
+        if c != b'_' {
+            let d = conv_digit(c);
+            if d < 0 || d >= base { break; }
+        }
+        p3 += 1;
+    }
+    if badcheck && trailing_bad(s, stop) { return Err(invalid_number(vm, s)); }
+    match crate::bigint::BigInt::from_str(&s[p2..p3], base as u32) {
+        Some(b) => Ok(vm.bint_value(if sign { b } else { b.neg() })),
+        None => Ok(Value::Int(0)),
+    }
 }
 
 /// `mrb_read_float`: the span of a decimal number at the start of `s` (leading blanks, sign,
@@ -182,7 +201,8 @@ pub(crate) fn str_to_dbl(vm: &mut Vm, s: &[u8], badcheck: bool) -> VmResult<f64>
     let p2 = p;
     if n - p > 2 && s[p] == b'0' && (s[p + 1] == b'x' || s[p + 1] == b'X') {
         if !badcheck { return Ok(0.0); }
-        return Ok(str_to_integer(vm, &s[p..], 0, badcheck)? as f64);
+        let v = str_to_integer(vm, &s[p..], 0, badcheck)?;
+        return Ok(numeric::num_f64(vm, v).unwrap_or(0.0));
     }
     let mut pend = n;
     let mut nocopy = false;
@@ -264,14 +284,14 @@ fn kernel_integer(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Va
         }
         v => {
             if let Some(b) = vm.str_bytes(v).map(|b| b.to_vec()) {
-                return Ok(Value::Int(str_to_integer(vm, &b, base, true)?));
+                return str_to_integer(vm, &b, base, true);
             }
             if base != 0 {
                 // `mrb_obj_as_string`: a base needs text
                 let to_s = vm.intern("to_s");
                 let t = vm.funcall(v, to_s, &[], Value::Nil)?;
                 if let Some(b) = vm.str_bytes(t).map(|b| b.to_vec()) {
-                    return Ok(Value::Int(str_to_integer(vm, &b, base, true)?));
+                    return str_to_integer(vm, &b, base, true);
                 }
                 return Err(base_error(vm));
             }

@@ -149,6 +149,14 @@ fn random_rand_impl(vm: &mut Vm, t: &mut RandState, a: &[Value]) -> VmResult<Val
         Value::Float(f) => Ok(random_rand(t, f as i64)),
         Value::Int(i) => Ok(random_rand(t, i)),
         Value::Obj(o) if matches!(vm.heap.get(o).kind, ObjKind::Range { .. }) => random_range(vm, t, arg),
+        v if vm.is_bigint(v) => {
+            // `mrb_bint_from_bytes`: as many random bytes as the limit takes, modulo it
+            let limit = vm.as_bigint(v).unwrap();
+            if limit.sign() < 0 { return Err(vm.raise_arg("negative value as random limit")); }
+            let bytes: alloc::vec::Vec<u8> = (0..limit.byte_size()).map(|_| t.uint32() as u8).collect();
+            let r = crate::bigint::BigInt::from_bytes_le(&bytes).mod_floor(&limit);
+            Ok(vm.bint_value(r))
+        }
         v => Err(range_error(vm, v)),
     }
 }

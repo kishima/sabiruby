@@ -8,6 +8,7 @@ use alloc::vec::Vec;
 
 use hashbrown::HashMap;
 
+use crate::bigint::BigInt;
 use crate::error::VmResult;
 use crate::symbol::Sym;
 use crate::value::{ObjId, Slot, Value};
@@ -144,6 +145,9 @@ pub enum ObjKind {
     Exception,
     /// `RFiber`: index of the fiber's context in `Vm::contexts` (`usize::MAX` = not initialized).
     Fiber(usize),
+    /// mruby `RBigint`: an Integer too wide for `Value::Int`. Its class is `Integer`, and a
+    /// value that fits in an `i64` is never stored as one (`bint_norm`, see `docs/gems.md`).
+    BigInt(BigInt),
 }
 
 pub struct HeapObject {
@@ -192,6 +196,7 @@ fn payload_bytes(kind: &ObjKind) -> usize {
         ObjKind::String(s) => s.len(),
         ObjKind::Array(a) => 16 * a.len(),
         ObjKind::Hash(h) => 40 * h.entries.len(),
+        ObjKind::BigInt(b) => 4 * b.mag.len(),
         _ => 0,
     }
 }
@@ -299,7 +304,7 @@ impl Heap {
             if o.class.0 != u32::MAX { mark(Value::Obj(o.class)); }
             for (_, v) in &o.ivars { mark(v.get()); }
             match &o.kind {
-                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception => {}
+                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) => {}
                 ObjKind::Break { value, .. } => mark(*value),
                 ObjKind::Array(a) => { for v in a { mark(v.get()); } }
                 ObjKind::Hash(h) => {
@@ -381,6 +386,12 @@ impl Heap {
             e.1 = Slot::from(v);
         } else {
             o.ivars.push((name, Slot::from(v)));
+        }
+    }
+    pub fn bigint(&self, id: ObjId) -> Option<&BigInt> {
+        match &self.get(id).kind {
+            ObjKind::BigInt(b) => Some(b),
+            _ => None,
         }
     }
     pub fn string(&self, id: ObjId) -> Option<&[u8]> {

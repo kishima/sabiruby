@@ -49,6 +49,8 @@ fn set(vm: &mut Vm, v: Value, b: Vec<u8>) -> VmResult<()> {
 pub fn index_args(vm: &mut Vm, len: usize, a: &[Value]) -> VmResult<Option<(usize, usize)>> {
     let norm = |i: i64| -> Option<usize> { let i = if i < 0 { i + len as i64 } else { i }; if i < 0 || i as usize > len { None } else { Some(i as usize) } };
     let a: Vec<Value> = a.iter().map(|v| match v { Value::Float(f) => Value::Int(*f as i64), v => *v }).collect();
+    // an index too wide for `i64` is out of range, not a type error (`mrb_as_int`)
+    for v in &a { if vm.is_bigint(*v) { vm.expect_int(*v, "index")?; } }
     match &a[..] {
         [Value::Int(i)] => Ok(norm(*i).filter(|&i| i < len).map(|i| (i, 1))),
         [Value::Int(i), Value::Int(n)] => { if *n < 0 { return Ok(None); } Ok(norm(*i).map(|i| (i, (*n as usize).min(len - i)))) }
@@ -74,7 +76,9 @@ fn find(hay: &[u8], needle: &[u8], from: usize) -> Option<usize> {
     hay[from..].windows(needle.len()).position(|w| w == needle).map(|p| p + from)
 }
 
-pub(crate) fn to_i(b: &[u8], base: u32) -> i64 {
+/// `String#to_i`: the value of the number at the start of the text; a value too wide for
+/// `i64` becomes a wide integer (`mrb_str_to_integer`'s overflow arm).
+pub(crate) fn to_i(vm: &mut Vm, b: &[u8], base: u32) -> Value {
     let s = String::from_utf8_lossy(b);
     let s = s.trim_start();
     let mut end = 0;
@@ -87,7 +91,14 @@ pub(crate) fn to_i(b: &[u8], base: u32) -> i64 {
     }
     while end < cs.len() && (cs[end].is_digit(base) || (cs[end] == '_' && end > 0 && cs[end - 1] != '_')) { end += 1; }
     let t: String = cs[..end].iter().filter(|c| **c != '_').collect();
-    i64::from_str_radix(t.trim_start_matches('+'), base).unwrap_or(0)
+    let t = t.trim_start_matches('+');
+    match i64::from_str_radix(t, base) {
+        Ok(v) => Value::Int(v),
+        Err(_) => match crate::bigint::BigInt::from_str(t.as_bytes(), base) {
+            Some(v) => vm.bint_value(v),
+            None => Value::Int(0),
+        },
+    }
 }
 
 fn to_f(b: &[u8]) -> f64 {
@@ -122,7 +133,7 @@ pub fn init(vm: &mut Vm) {
         ("inspect", |vm, s, _a, _b| { let i = str_inspect(&bytes(vm, s)); Ok(vm.str_new(&i)) }),
         ("to_sym", |vm, s, _a, _b| { let b = bytes(vm, s); Ok(Value::Sym(vm.syms.intern(&b))) }),
         ("intern", |vm, s, _a, _b| { let b = bytes(vm, s); Ok(Value::Sym(vm.syms.intern(&b))) }),
-        ("to_i", |vm, s, a, _b| { argc!(vm, a, 0, 1); let base = if a.len() == 1 { vm.expect_int(a[0], "base")? as u32 } else { 10 }; if !(2..=36).contains(&base) { return Err(vm.raise_arg(&format!("invalid radix {base}"))); } Ok(Value::Int(to_i(&bytes(vm, s), base))) }),
+        ("to_i", |vm, s, a, _b| { argc!(vm, a, 0, 1); let base = if a.len() == 1 { vm.expect_int(a[0], "base")? as u32 } else { 10 }; if !(2..=36).contains(&base) { return Err(vm.raise_arg(&format!("invalid radix {base}"))); } { let b = bytes(vm, s); Ok(to_i(vm, &b, base)) } }),
         ("to_f", |vm, s, _a, _b| Ok(Value::Float(to_f(&bytes(vm, s))))),
         ("size", |vm, s, _a, _b| Ok(Value::Int(bytes(vm, s).len() as i64))),
         ("length", |vm, s, _a, _b| Ok(Value::Int(bytes(vm, s).len() as i64))),

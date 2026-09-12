@@ -90,6 +90,8 @@ fn out_of_range(vm: &mut Vm, v: Value) -> VmError {
 fn to_time_t(vm: &mut Vm, v: Value, usec: Option<&mut i64>) -> VmResult<i64> {
     match v {
         Value::Int(i) => { if let Some(u) = usec { *u = 0; } Ok(i) }
+        // `mrb_bint_as_int64`: a wide integer is out of the range of a time
+        _ if vm.is_bigint(v) => { if let Some(u) = usec { *u = 0; } vm.expect_int(v, "time") }
         Value::Float(f) => {
             if !f.is_finite() { return Err(vm.raise(vm.core.float_domain_error, &super::numeric::float_to_s(f))); }
             if f >= (i64::MAX as f64) - 1.0 || f < (i64::MIN as f64) + 1.0 { return Err(out_of_range(vm, v)); }
