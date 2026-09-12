@@ -45,12 +45,13 @@
 ## 2. 順序（決定）
 
 ```
-pack → rational → complex（+ cmath）→ eval／binding／proc-binding → UTF-8（utf8-plan.md）→ regexp → task
-bigint は著者判断（4.3）
+bigint → rational → complex（+ cmath）→ pack → eval／binding／proc-binding → UTF-8（utf8-plan.md）→ regexp → task
 ```
 
-pack は依存が無く自己完結で、着手に最適。rational／complex は core の Integer／Float 演算に分岐を足す作業で、
-eval より小さい。eval はコンパイラ側の C パッチを伴うので独立した節にする。regexp は UTF-8 の後。
+bigint は著者決定（2026-09-12「入れましょう」）。bigint、rational、complex は core の Integer／Float 演算の同じ場所に
+「相手の型で分岐する」コードを足す作業なので、本家 `numeric.c` の `#ifdef` の並び（BIGINT → RATIONAL → COMPLEX）と同じ順で
+入れる。pack は依存が無いが `Q`／`J`（符号なし 64bit）の読み出しが bigint を要るので bigint の後。
+eval はコンパイラ側の C パッチを伴うので独立した節にする。regexp は UTF-8 の後。
 
 ## 3. 各 gem の指示
 
@@ -108,16 +109,67 @@ eval より小さい。eval はコンパイラ側の C パッチを伴うので�
   `env` の扱い（`docs/fibers.md`、`vm.rs` の `call_proc_inner`）を先に読む。
 * `mrb_f_eval` の `file`／`line` 引数はデバッグ情報にだけ効く。`__FILE__` の期待があれば DBG のファイル名に入れる。
 
-### 3.4 mruby-bigint（著者判断）
+### 3.4 mruby-bigint（6409 C / 0 Ruby / 529 test）— 入れる（著者決定 2026-09-12）
 
-* `MRB_USE_BIGINT` は Integer の溢れの意味を変える（RangeError → bigint に昇格）。**参照イメージには bigint が入っている**
-  （2026-09-12 確認: `2**63` が `9223372036854775808`、`2**64 * 2**64` も答える）。つまり SabiRuby が今
-  RangeError にしている溢れは参照イメージとの差異であり、本家テストの `skip: needs mruby-bigint`（array、gc、integer、
-  literals の 4 件）は SabiRuby 側の skip。リテラル `9223372036854775808` は RITE の pool 型 `IREP_TT_BIGINT`（7）で来て、
-  `src/rite.rs` は `Pool::BigInt(raw)` として読むが復号していない（`bad pool type` は型番の読み違いではなく、
-  型 7 の後の長さ／基数ヘッダの扱いを見直す）。入れるかどうかは著者判断。
-* 入れる場合の形: `Value::Int` の溢れを `ObjKind::Object` + 隠し ivar ではなく **`ObjKind::BigInt(Vec<u32>)`** にする
-  （演算のたびに ivar を読むのは遅すぎる）。`core/` の多倍長演算（6409 行）は写す。
+**根拠**: 参照イメージ `kishima/mruby:4.1.0-rc` は bigint 入り（`2**63` → `9223372036854775808`、`2**64 * 2**64`、
+`to_s(36)`、`pow(3, 1000)`、`divmod(-7)` の床除算まで答える。2026-09-12 確認）。SabiRuby の「溢れは RangeError」は
+参照イメージとの差異で、本家テストの skip 4 件（array、gc、integer、literals）はそのために skip している。
+rational、pack の照合も bigint がある前提の方が楽。
+
+**表現（決定）**
+* `ObjKind::BigInt(BigInt)` を足す。`BigInt { neg: bool, mag: Vec<u32> }`（絶対値を 32bit limb の little-endian、先頭ゼロなし、
+  ゼロは `mag` 空）。本家の `mpz_t`（32bit limb、`sn`、`sz`）と同じ粒度。埋め込み最適化（`RBIGINT_EMBED_SIZE_MAX`）は写さない。
+* クラスは `Integer`（`Value::Obj` だが `class_of` は `core.integer`）。`frozen?` は本家どおり **false**（RBigint は凍結されない。
+  `(2**62).frozen?` は本家では RInteger で true だが SabiRuby は即値なので true。既存の差異のまま）。
+* **正規化**: 多倍長の演算結果が `i64` に収まれば必ず `Value::Int` に戻す（本家 `bint_norm`）。`Value::Int` の範囲の値が
+  `BigInt` として存在することは無い（`==`／`eql?`／`hash`／Hash のキーがこれに依存する）。
+* 隠し ivar 方式は使わない（演算のたびに ivar を引くのは遅い）。`ObjKind` を増やすので `dup`（object.rs）、`inspect.rs`、
+  `object.rs` の mark（辺は無い）、`ext_objectspace.rs` の `T_BIGINT`（`MRB_TT_BIGINT` = 27 番目、`T_RATIONAL` の後）、
+  `count_objects` の表を更新する。
+
+**手順**
+1. **ローダー**（`src/rite.rs`）: pool 型 7 は「長さ 1 バイト、基数 1 バイト、数字列（長さバイト分）」。本家 `load.c` の
+   `pool_data_len = len + 2` は長さバイト自身を含む。今のコードは長さバイトを読んだ後に `len + 2` バイト読むので 1 バイト多く、
+   次の pool の型バイトを数字 `'8'`（56）として読んで `bad pool type 56` になる。長さバイトの後は `len + 1` バイトが正しい。
+   `Pool::BigInt` は `(base: u8, digits: Vec<u8>)` にし、`OP_LOADL` で `BigInt::from_str(digits, base)` を作る（毎回作る。
+   本家も pool から `mrb_bint_new_str` で作る）。`tools/mrbtest.sh` の literals テストで確かめる。
+2. **`src/bigint.rs`**（VM 側、no_std）: 本家 `core/bigint.c` の順で写す。加減算（limb 単位の桁上がり）、乗算（本家は
+   schoolbook + 大きい時 Karatsuba。schoolbook だけで始め、`docs/bench.md` に測って足りなければ Karatsuba）、
+   除算（Knuth D、`mrb_bint_divmod` の床除算と `rem` の切り捨て）、`pow`、`powm`、`sqrt`（Newton）、シフト、
+   ビット演算（負数は 2 の補数の意味。本家 `mrb_bint_2comp` の手順）、比較、`to_s(base)`／`from_str(base)`
+   （2〜36。本家は `mrb_bint_to_s` で基数ごとの分割）、`as_float`（丸めは本家 `mrb_bint_as_float` の方法に合わせ、
+   `2**64 == 18446744073709551616.0` が true になること）、`hash`（`mrb_bint_hash`: limb 列のバイトハッシュ。値が同じなら同じ）、
+   `gcd`／`lcm`。関数名は `mrb_bint_*` に対応させて `bint_add` などとし、`docs/gems.md` に対応表を書く。
+3. **core の分岐**（`src/builtins/numeric.rs`、`vm.rs` の算術命令）: 本家 `numeric.c` の `#ifdef MRB_USE_BIGINT` 62 か所に相当。
+   * `+ - *`: `checked_*` が None なら多倍長へ昇格して計算（今の RangeError を置き換える）。相手が BigInt なら多倍長。
+   * `/ % divmod`: `MRB_INT_MIN / -1` は多倍長。`Float` が相手なら Float。
+   * `**`: 負の指数は Float（変更なし）、溢れは多倍長（`int_pow` の RangeError を置き換え）。
+   * `<=> == eql? hash`: BigInt と Int の比較（正規化により同値なら必ず同じ表現なので、Int と BigInt が等しくなることは無い）。
+     Float との比較は本家 `mrb_bint_cmp`（`integer.rb` の「mrb_int より広い整数と NaN」テスト）。
+   * `& | ^ ~ << >>`: 溢れる左シフトは多倍長。`~x` は `-x-1`。
+   * `to_s(base)`、`inspect`、`to_f`、`to_i`（Float → Integer で `1e30.to_i` は多倍長。`expect_int` の RangeError 経路を確認）、
+     `Integer#size`（本家は limb 数×4。`docs/gems.md` に差異があれば記録）、`digits`、`bit_length`、`pow(b, m)`、
+     `gcd`、`lcm`、`even?`／`odd?`、`abs`、`-@`、`succ`／`pred`、`times`／`upto`（mrblib は `+` で回るので分岐不要）、
+     `Integer.sqrt`、`chr`（多倍長は RangeError）、`Integer()`／`String#to_i`（`str_to_integer` の overflow 経路を多倍長へ。
+     ただし本家は `Integer("18446744073709551616")` を ArgumentError にする（badcheck 経路の癖）。同じにする）、
+     `Comparable`、`Array#[]`（添字が多倍長なら RangeError、本家 `[][hi]` の挙動）、`Array#first(bigint)`。
+   * `vm.rs` の `OP_ADD`／`OP_SUB`／`OP_MUL` などの高速経路は今の `checked_*` のまま。None のときだけ `numeric.rs` の関数へ
+     落とす（本家と同じ形。高速経路は変えない）。
+   * 他 gem: `ext_random.rs`（`rand(bigint)`: 本家は `mrb_bint_from_bytes` で乱数バイト列から作って `mod`）、`ext_time.rs`
+     （`Time.at(bigint)` は `mrb_bint_as_int64` で RangeError）、`ext_kernel.rs`（`Integer()`）、`ext_numeric.rs`（`pow`、
+     `digits`、`bit_length`、`gcd`／`lcm`、`Integer.sqrt` の bigint 分岐は本家 `numeric_ext.c` にそのままある）。
+4. **テスト**: `tools/mrbtest.sh` の `GEMS` に `mruby-bigint`（`test/bigint.rb` 529 行）。今 skip している 4 件が通ることを確認
+   （array、gc「OP_ADD does not retain an overflowed Integer」、integer、literals）。`tests/mrbtest/notes.tsv` の
+   「needs mruby-bigint」を消す。`SABIRUBY_GC_STRESS=1` で bigint のファイル。
+5. **照合**: 参照イメージと次を比べるスクリプトを `docs/gems.md` に残す。`2**63`、`2**64 * 2**64`、`-(2**64) / 7` と
+   `divmod(-7)`、`(2**64).to_s(2).size`、`to_s(36)`、`pow(3, 1000)`、`(1 << 64) >> 63`、`~(2**64)`、`(2**64) & (2**63)`、
+   `2**64 == 18446744073709551616.0`、`(2**64).to_f.to_i == 2**64`、`{2**64 => 1}[2**64]`、`"%d" % 2**64`、
+   `Integer.sqrt(10**40)`、`(10**40).digits.size`、`(2**63).frozen?`（false）、`"18446744073709551616".to_i`。
+6. **性能**: `tools/bench.sh` で fib など整数ベンチが変わらないこと（高速経路に触らない）。
+
+**差異として書くもの**: 埋め込み最適化なし。`Integer#size` の多倍長の答え（本家は確保サイズ）。`(2**62).equal?(2**62)`
+（本家 false、SabiRuby true。即値の幅の違い）。`(2**62).dup` が本家で 0 になるのは本家の不具合と見て合わせない
+（`docs/gems.md` と本の corelib 章のメモに記録する）。
 
 ### 3.5 UTF-8 文字列
 
