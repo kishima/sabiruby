@@ -86,9 +86,8 @@ eval より小さい。eval はコンパイラ側の C パッチを伴うので�
   **rational と complex は同じコミットでテストを通す**。cmath（425 C / 41 test、`default.gembox` 外）は complex の直後に。
 * 検証: 本家テストに加え、`Rational(1, 3) + 1`、`1 / 3r`、`(1 + 2i) * (3 - 1i)`、`Complex(1, 2).abs`、
   `2 ** -1`（rational があると本家は Rational を返す。`gem_numeric_ext_numeric` の `Integer#pow` の期待が変わらないか確認）を
-  本家イメージと照合。**参照イメージには rational／complex が入っていない可能性がある**（`default.gembox` に
-  無い gem は入っていない。`docker run --rm kishima/mruby:4.1.0-rc mruby -e 'p 1r'` で確かめる）。
-  入っていなければ照合は本家のテストと C ソースの読みだけで行い、その旨を `docs/gems.md` に書く。
+  本家イメージと照合。参照イメージには rational が入っている（`docker run --rm kishima/mruby:4.1.0-rc mruby -e 'p 1r'`
+  が `(1/1)` を返す。2026-09-12 確認）。complex と cmath も同様に `p 2i` で確かめてから照合する。
 
 ### 3.3 mruby-eval、mruby-binding、mruby-proc-binding
 
