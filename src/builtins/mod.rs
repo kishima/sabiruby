@@ -19,6 +19,9 @@ pub mod ext_objectspace;
 pub mod ext_catch;
 pub mod ext_math;
 pub mod ext_random;
+pub mod ext_struct;
+pub mod ext_data;
+pub mod ext_set;
 pub mod ext_method;
 pub mod ext_proc;
 pub mod ext_range;
@@ -69,6 +72,9 @@ pub fn init(vm: &mut Vm) {
     ext_catch::init(vm);
     ext_math::init(vm);
     ext_random::init(vm);
+    ext_struct::init(vm);
+    ext_data::init(vm);
+    ext_set::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers
@@ -78,7 +84,12 @@ impl Vm {
     pub fn inspect(&mut self, v: Value) -> VmResult<Vec<u8>> {
         if let Value::Obj(o) = v {
             if self.inspect_guard.contains(&o) {
-                return Ok(match self.heap.get(o).kind { ObjKind::Array(_) => b"[...]".to_vec(), ObjKind::Hash(_) => b"{...}".to_vec(), _ => b"...".to_vec() });
+                // the core containers' own recursion marks; anything else (a Struct, a Set,
+                // whose storage is array- or hash-shaped) answers through its own `inspect`
+                let (ary, hash) = (self.core.array, self.core.hash);
+                if self.obj_is_kind_of(v, ary) { return Ok(b"[...]".to_vec()); }
+                if self.obj_is_kind_of(v, hash) { return Ok(b"{...}".to_vec()); }
+                if !matches!(self.heap.get(o).kind, ObjKind::Array(_) | ObjKind::Hash(_)) { return Ok(b"...".to_vec()); }
             }
             self.inspect_guard.push(o);
             let r = self.funcall(v, self.s.inspect, &[], Value::Nil);

@@ -250,6 +250,10 @@ pub struct Vm {
     /// Objects the host keeps across calls (`mrb_gc_register`).
     #[doc(hidden)]
     pub gc_registered: Vec<ObjId>,
+    /// The name the native being dispatched was called by (`Struct` accessors read it to
+    /// find their member); valid at the native's entry only.
+    #[doc(hidden)]
+    pub native_mid: Option<Sym>,
     /// `catch` tags in flight: (tag, context, depth of the block's frame); `throw` searches it
     /// innermost first (mruby-catch, `ext_catch.rs`).
     #[doc(hidden)]
@@ -403,7 +407,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
         };
         // Constants for the core classes, Object includes Kernel.
@@ -443,7 +447,7 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_METHOD_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
         Ok(())
@@ -1012,6 +1016,7 @@ impl Vm {
             Some((Method::Native(f), _)) => {
                 // native -> native recursion (e.g. inspect of nested containers) also uses the host stack
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
+                self.native_mid = Some(mid);
                 self.native_depth += 1;
                 let direct = core::mem::replace(&mut self.direct_send, false);
                 let r = self.call_native(f, recv, args, blk);
@@ -2733,6 +2738,7 @@ impl Vm {
         };
         match m {
             Method::Native(f) => {
+                self.native_mid = Some(mid);
                 if core::ptr::fn_addr_eq(f, crate::builtins::object::send as crate::object::NativeFn) {
                     // `send`/`__send__` from bytecode re-dispatches in this frame
                     // (mruby `mrb_f_send` → `mrb_exec_irep`): no native boundary,

@@ -17,6 +17,7 @@ gem_array 82
 gem_catch 8
 gem_class 3
 gem_compar 3
+gem_data 14
 gem_enum 38
 gem_enum_chain 6
 gem_enumerator 52
@@ -37,9 +38,11 @@ gem_objectspace 4
 gem_proc 9
 gem_random 13
 gem_range 10
+gem_set 41
 gem_sprintf 10
 gem_string 64
 gem_string_ext_range 4
+gem_struct 41
 gem_symbol 11
 gem_toplevel 1
 hash 44

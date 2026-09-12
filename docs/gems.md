@@ -157,6 +157,28 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   sequence repeats across runs until `srand`; `srand` without a seed mixes the host's
   `gc_clock` when there is one.
 
+* **mruby-struct** (`ext_struct.rs`) — a struct instance is the reference's `MRB_TT_STRUCT`, an
+  array-shaped object whose class is the struct class: here an `ObjKind::Array` with that class,
+  so `mrb_ary_set`/`mrb_ary_replace` are the array operations on it (VM paths keyed on the array
+  kind, such as a splat, see the members, as the reference's `to_a` gives them anyway). The member
+  accessors are one native each way that reads the name it was called by (`Vm::native_mid`, set
+  at every native dispatch) instead of the reference's per-member C procs carrying an index. The
+  constructor logic (`struct_init_body`, the overridden-`initialize` bridge `__struct_init_fwd`,
+  `keyword_init`) is the reference's; "keywords given" is the pending-kdict rule. A struct's
+  recursive `inspect` uncovered a shortcut in `Vm::inspect`: the recursion mark was chosen by
+  storage kind (`[...]` for anything array-shaped); it now goes by class, so a Struct or Set
+  answers through its own `inspect`.
+* **mruby-data** (`ext_data.rs`) — the same shape, frozen once built; `Data.define`, keyword
+  construction (`missing keyword`/`unknown keyword` are ArgumentErrors), `with`, the bridge
+  `__init_with_kw` for an overridden `initialize`.
+* **mruby-set** (`ext_set.rs`) — a Set is a Hash-shaped object (`ObjKind::Hash`, element => true)
+  with the class `Set` (`instance_kind`), so membership follows the Hash's `hash`/`eql?` rule and
+  elements come out in insertion order (the reference's khash walks its buckets). Deviations: an
+  unfrozen String element is stored as a frozen copy (the Hash key rule); the reference's
+  "uninitialized Set" state and its rebuild-during-`eql?` RuntimeError (GHSA-4jw6-mq65-g3c8,
+  one failing assertion) do not exist here, the lookup simply finishes. `Set#hash` is the
+  reference's xor fold over 32-bit element hashes.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -176,14 +198,11 @@ The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ex
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
-class-ext, numeric-ext, catch, objectspace, math, random (24). Sizes are lines of the
-reference C / mrblib Ruby / test.
+class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set (27). Sizes
+are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
-| 3 | mruby-struct | 909 / 77 / 504 | – | `Struct` (used by mruby-process, mruby-data is its sibling) |
-| 3 | mruby-data | 639 / 9 / 143 | – | `Data.define` |
-| 3 | mruby-set | 1552 / 325 / 807 | enumerator, hash-ext | `Set` (Hash-backed) |
 | 3 | mruby-time | 1738 / 0 / 313 | – | `Time`: needs a clock from the host (no_std: a `Host` hook, like the compiler); `localtime` is POSIX, use UTC only and record the deviation |
 | 4 | mruby-eval | 417 / 0 / 333 | binding, compiler | `docs/eval-require-plan.md`; `tests/custom` cases wait for it |
 | 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |

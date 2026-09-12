@@ -96,4 +96,7 @@ pub const MRBLIB_SYMBOL_EXT_MRB: &[u8] = include_bytes!("mrblib_symbol-ext.mrb")
 pub const MRBLIB_OBJECT_EXT_MRB: &[u8] = include_bytes!("mrblib_object-ext.mrb");
 pub const MRBLIB_NUMERIC_EXT_MRB: &[u8] = include_bytes!("mrblib_numeric-ext.mrb");
 pub const MRBLIB_CATCH_MRB: &[u8] = include_bytes!("mrblib_catch.mrb");
+pub const MRBLIB_SET_MRB: &[u8] = include_bytes!("mrblib_set.mrb");
+pub const MRBLIB_STRUCT_MRB: &[u8] = include_bytes!("mrblib_struct.mrb");
+pub const MRBLIB_DATA_MRB: &[u8] = include_bytes!("mrblib_data.mrb");
 pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib_toplevel-ext.mrb");
