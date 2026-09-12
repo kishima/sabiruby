@@ -48,7 +48,10 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   and Symbol methods and `$~`; its pattern engine is Rust's `regex-automata` rather than a port
   of the reference's NFA, so backreference, lookaround, atomic group and subexpression call are
   refused with `RegexpError` (the list is in
-  [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md), "Deviations kept"). The numeric tower is complete: **mruby-bigint**
+  [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md), "Deviations kept").
+  **`require`/`load`** are there too (mruby has none; the shape is PicoRuby's, the file reading is
+  the host's, and `$LOAD_PATH` is the program's directory and the working directory for the
+  `sabiruby` command). The numeric tower is complete: **mruby-bigint**
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
@@ -71,7 +74,7 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
 
 Not yet: `$!` (nil even inside `rescue`; use
-`rescue => e`), `require` (design notes below), the remaining mrbgems (`io`, …),
+`rescue => e`), the remaining mrbgems (`io`, …),
 encodings other than UTF-8 (`Encoding` and `force_encoding` come with mruby-encoding;
 `String#b` is here). Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
@@ -158,7 +161,7 @@ tried by changing `value.rs` alone. Predictions and measurements: [`docs/perform
 Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github.com/kishima/sabiruby/blob/main/docs/exceptions.md).
 Compiler: [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md) (the plan: [`docs/compiler-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler-plan.md)).
 GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc-plan.md)).
-`eval` and `Binding` (done; `require` is the half still open, with PicoRuby's approach as the reference): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
+`eval`, `Binding` and `require` (the plan they were built from; `require` follows PicoRuby's approach): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
 Looking inside the VM (snapshots, the trace of events, the DBG line numbers; what the playground's
 debugger reads): [`docs/inspect.md`](https://github.com/kishima/sabiruby/blob/main/docs/inspect.md).
 Strings as characters, and what each build answers: [`docs/utf8.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8.md)

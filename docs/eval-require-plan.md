@@ -217,7 +217,14 @@ GC: `native_active > 0` の間は回収しない約束（`docs/gc.md`）があ�
    `local_variable_get/set/defined?`、`local_variables`、`receiver`、`source_location`、`Binding#eval`。
    `expand_lvspace`（eval で増えた変数を binding に足す）は、SabiRuby では「binding が持つ env の `values` を伸ばし、名前表を binding 側で持つ」形になる。1〜2 日。
 
-## 5. require／load の設計
+## 5. require／load の設計 — **済み（2026-09-13）**
+
+実装は `src/mrblib_require.rb`（Ruby 側）と `src/builtins/ext_require.rs`（3 つのネイティブ）、
+`Vm::set_load_path`、CLI の `-r` と `$LOAD_PATH`。テストは `tests/require.rs`（10 件、期待値は CRuby 3.2 で実測）と
+`cli/tests/cli.rs` の 2 件。設計との違いは 2 つだけ:
+
+* 拡張子を持つ名前（`require "./x.rb"`）は付け足さずにそのまま探す（CRuby と同じ）。
+* 例外が出たら `$LOADED_FEATURES` から取り消す（CRuby と同じ）。再送は `raise e`（`$!` が無いため裸の `raise` は使えない）。
 
 Ruby 側は PicoRuby の `require.rb` を土台にする（MIT。`$LOADED_FEATURES`、`$LOAD_PATH`、`require_file` の探索順 `.mrb` → `.rb`、`LoadError` の文言）。
 SabiRuby 向けの違い:

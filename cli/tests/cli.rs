@@ -110,10 +110,29 @@ fn version_copyright_and_verbose() {
 }
 
 #[test]
-fn require_is_reported_as_not_implemented() {
-    let o = sabiruby(&["-r", "json", "-e", "p 1"]);
-    assert!(err(&o).contains("-r is not implemented"), "{}", err(&o));
+fn minus_r_loads_a_library_first() {
+    // the reference `mruby` loads each -r file before the program; here that is `Kernel#load`
+    let lib = Temp::new("rlib.rb", b"p :lib\nLIB = 1\n");
+    let o = sabiruby(&["-r", lib.path(), "-e", "p LIB"]);
+    assert_eq!(out(&o), ":lib\n1\n", "{}", err(&o));
+    assert_eq!(code(&o), 0);
+    // a library that is not there is a LoadError before the program runs
+    let o = sabiruby(&["-r", "/no/such/lib.rb", "-e", "p 1"]);
+    assert!(err(&o).contains("cannot load such file -- /no/such/lib.rb"), "{}", err(&o));
     assert_eq!(code(&o), 1);
+}
+
+#[test]
+fn require_searches_the_programs_directory() {
+    // `$LOAD_PATH` is the program's own directory and the working directory
+    let dir = std::env::temp_dir().join(format!("sabiruby-cli-{}-req", std::process::id()));
+    std::fs::create_dir_all(&dir).expect("mkdir");
+    std::fs::write(dir.join("helper.rb"), b"HELPER = :here\n").expect("write");
+    std::fs::write(dir.join("prog.rb"), b"p require('helper')\np HELPER\np require('helper')\n").expect("write");
+    let o = sabiruby(&[dir.join("prog.rb").to_str().unwrap()]);
+    assert_eq!(out(&o), "true\n:here\nfalse\n", "{}", err(&o));
+    assert_eq!(code(&o), 0);
+    let _ = std::fs::remove_dir_all(&dir);
 }
 
 #[test]

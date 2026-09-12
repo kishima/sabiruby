@@ -401,8 +401,21 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     redefines `allocate` decides what `new` makes. SabiRuby's native allocated directly; it
     now dispatches (skipping the dispatch when `allocate` is still the built-in one, so the
     benchmarks do not move). mruby-binding's test found this.
-  * Not done: **`require`** (`docs/eval-require-plan.md` §5) — the `Host` already has
-    `read_file`/`file_exists` for it.
+  * **`require`/`load`** (`src/mrblib_require.rb`, `src/builtins/ext_require.rs`,
+    `docs/eval-require-plan.md` §5) — mruby has none of it, so the shape is picoruby-require's
+    (MIT), with three differences. There is no `extern`: the gems are all linked from the start,
+    so their names are in `$LOADED_FEATURES` from the first line and `require 'fiber'` answers
+    false. There is no `File`: a path is built as a string in Ruby (`"#{dir}/#{name}.rb"`, no
+    `expand_path`) and handed to the two natives `__file_exist?` and `__load_file`, which are the
+    host's `file_exists`/`read_file` — so a build with no host has no `require` either and the VM
+    stays `no_std`. And there is no Sandbox: `__exec_file` runs the file in a top-level frame of
+    its own (`Vm::run_irep`), a `RITE` file as it stands (a version this VM does not read is a
+    LoadError) and Ruby source through the host's compiler. `$LOAD_PATH` comes from the host
+    (`Vm::set_load_path`; the `sabiruby` command uses the program's directory and the working
+    directory, and `-r` loads a library first). The feature is recorded *before* the file runs,
+    so a cycle stops instead of repeating, and taken back out if the file raises — CRuby does
+    both, picoruby-require records afterwards and loops. `tests/require.rs` holds the cases,
+    every expectation measured with CRuby 3.2 on the same files.
 
 * **mruby-regexp** (`src/regexp/mod.rs`, `src/builtins/ext_regexp.rs`) — `Regexp`, `MatchData`
   and the String and Symbol methods whose regexp form the gem answers. The reference carries its
@@ -473,7 +486,7 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 Order and instructions for the rest: `docs/gems-plan.md`. Order 5 (the numeric tower and
 mruby-pack), order 4 (eval, binding, proc-binding), UTF-8 strings (`docs/utf8.md`) and order 6
-(regexp) are done; `require` is the half of `docs/eval-require-plan.md` still open. Next: task.
+(regexp) are done, and so is `require` (`docs/eval-require-plan.md` §5). Next: task.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,

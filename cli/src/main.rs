@@ -54,7 +54,7 @@ struct Cli {
     /// one line of script (may be given more than once)
     #[arg(short = 'e', value_name = "command")]
     commands: Vec<String>,
-    /// load the library before executing your script (not implemented)
+    /// load the library before executing your script
     #[arg(short = 'r', value_name = "library")]
     requires: Vec<String>,
     /// print version number, then run in verbose mode
@@ -173,8 +173,17 @@ fn dump(bin: &[u8]) -> ExitCode {
     }
 }
 
-/// Runs a RITE binary with `ARGV` = `argv` and `$DEBUG` = `debug`.
-fn run(bin: &[u8], argv: &[String], stats: bool, debug: bool) -> ExitCode {
+/// The directory of the program and the working directory, which is what `require` searches.
+fn program_load_path(programfile: &str) -> Vec<String> {
+    match std::path::Path::new(programfile).parent().map(|d| d.to_string_lossy().into_owned()) {
+        Some(d) if !d.is_empty() && d != "." => vec![d, String::from(".")],
+        _ => vec![String::from(".")],
+    }
+}
+
+/// Runs a RITE binary with `ARGV` = `argv` and `$DEBUG` = `debug`. `load_path` becomes
+/// `$LOAD_PATH` (where `require` looks) and `requires` are the `-r` libraries, loaded first.
+fn run(bin: &[u8], argv: &[String], stats: bool, debug: bool, load_path: &[String], requires: &[String]) -> ExitCode {
     let mut vm = sabiruby::Vm::new();
     vm.set_gc_stress(gc_stress());
     // `eval` (and later `require`) compiles through the reference compiler of this build
@@ -189,6 +198,21 @@ fn run(bin: &[u8], argv: &[String], stats: bool, debug: bool) -> ExitCode {
     vm.heap.class_mut(vm.core.object).consts.insert(n, sabiruby::value::Slot::from(argv));
     let d = vm.intern("$DEBUG");
     vm.globals.insert(d, sabiruby::value::Slot::from(sabiruby::Value::bool(debug)));
+    // where `require` looks: the directory of the program and the working directory
+    let paths: Vec<&str> = load_path.iter().map(|p| p.as_str()).collect();
+    vm.set_load_path(&paths);
+    // `-r lib`: the reference `mruby` loads each library file before the program
+    for lib in requires {
+        let path = vm.str_new(lib.as_bytes());
+        let m = vm.intern("load");
+        let recv = sabiruby::Value::Obj(vm.top_self);
+        if let Err(e) = vm.funcall(recv, m, &[path], sabiruby::Value::Nil) {
+            let out = std::io::stdout();
+            out.lock().write_all(vm.take_output().as_slice()).ok();
+            eprintln!("{}", vm.describe_error(&e));
+            return ExitCode::from(1);
+        }
+    }
     let (gc0, gct0) = (vm.gc_count, vm.gc_time_ns);
     let started = std::time::Instant::now();
     let result = vm.load_and_run(bin);
@@ -221,10 +245,11 @@ fn program(cli: Cli) -> ExitCode {
         println!("{}", version_line());
         if cli.version { return ExitCode::SUCCESS; }
     }
-    if let Some(lib) = cli.requires.first() {
-        eprintln!("sabiruby: -r is not implemented yet (require {lib}); see docs/eval-require-plan.md");
-        return ExitCode::from(1);
-    }
+    // where `require` looks: the program's own directory first, then the working directory
+    let load_path = match cli.program.as_deref().filter(|_| cli.commands.is_empty()) {
+        Some(p) => program_load_path(p),
+        None => vec![String::from(".")],
+    };
     // -e wins over a program file, which then becomes the first argument (as mruby)
     let (bin, argv) = if !cli.commands.is_empty() {
         let src = cli.commands.join("\n");
@@ -250,7 +275,7 @@ fn program(cli: Cli) -> ExitCode {
         let code = dump(&bin);
         if code != ExitCode::SUCCESS { return code; }
     }
-    run(&bin, &argv, cli.stats, cli.debug)
+    run(&bin, &argv, cli.stats, cli.debug, &load_path, &cli.requires)
 }
 
 /// `sabiruby mrbtest [-v] assert.mrb t/*.mrb`: one fresh VM per file, a
@@ -312,7 +337,7 @@ fn real_main() -> ExitCode {
     match cli.command {
         None => program(cli),
         Some(Command::Run { stats, programfile, args }) => {
-            match load_program(&programfile, false) { Ok(bin) => run(&bin, &args, stats, false), Err(code) => code }
+            match load_program(&programfile, false) { Ok(bin) => { let lp = program_load_path(&programfile); run(&bin, &args, stats, false, &lp, &[]) } Err(code) => code }
         }
         Some(Command::Compile { output, debug_info, check, remove_lv, no_ext_ops, no_optimize, programfile }) =>
             compile_cmd(programfile, output, debug_info, check, remove_lv, no_ext_ops, no_optimize),

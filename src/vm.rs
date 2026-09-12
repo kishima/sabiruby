@@ -507,7 +507,20 @@ impl Vm {
         // names of the String methods mrblib defines in Ruby (`sub`, `gsub`, which mix character
         // and byte units there) as well as the ones the natives hold
         crate::builtins::ext_regexp::init(vm);
+        // `require`/`load` last: it is SabiRuby's own Ruby part and reads the gems' names into
+        // `$LOADED_FEATURES` (`docs/eval-require-plan.md` 5)
+        vm.load_and_run(crate::MRBLIB_REQUIRE_MRB)?;
         Ok(())
+    }
+
+    /// Where `require` looks (`$LOAD_PATH`). The host decides: the `sabiruby` command uses the
+    /// directory of the program and the working directory, an embedder whatever it serves files
+    /// from. Empty by default, which makes every `require` of a plain name a LoadError.
+    pub fn set_load_path(&mut self, paths: &[&str]) {
+        let items: Vec<Value> = paths.iter().map(|p| self.str_new(p.as_bytes())).collect();
+        let ary = self.ary_new(items);
+        let n = self.intern("$LOAD_PATH");
+        self.globals.insert(n, Slot::from(ary));
     }
 
     // ------------------------------------------------------------------ output
