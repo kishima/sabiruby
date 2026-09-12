@@ -5,7 +5,6 @@
 # Fixed on mruby master by 300cc9532 (2026-09-06, "give a string class_eval a
 # scope of its own instead of the caller's env"); no stable tag has it yet.
 # expected-from: CRuby 3.2 (the master fix targets the same behaviour; not run)
-# pending: eval
 class K; end
 def f
   K.class_eval "def hi; :hi; end"

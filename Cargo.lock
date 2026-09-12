@@ -177,6 +177,7 @@ version = "0.2.0"
 dependencies = [
  "hashbrown",
  "libm",
+ "sabiruby-compiler",
 ]
 
 [[package]]
@@ -193,6 +194,7 @@ name = "sabiruby-compiler"
 version = "0.1.1"
 dependencies = [
  "cc",
+ "sabiruby",
 ]
 
 [[package]]

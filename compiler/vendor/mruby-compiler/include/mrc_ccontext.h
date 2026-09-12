@@ -26,6 +26,20 @@ typedef struct mrc_filename_table {
   uint32_t start;
 } mrc_filename_table;
 
+#if defined(SABIRUBY_EVAL_SCOPES)
+/* One enclosing scope: `names` in the order of the irep's `lv` (an empty name is a
+   hole, an unnamed parameter), so that a position is the register index. */
+struct sabiruby_eval_scope {
+  size_t count;
+  const char **names;
+  const size_t *lengths;
+};
+struct sabiruby_eval_scopes {
+  size_t count;
+  const struct sabiruby_eval_scope *scopes;
+};
+#endif
+
 typedef struct mrc_ccontext {
   mrb_state *mrb;
   struct mrc_jmpbuf *jmp;
@@ -45,6 +59,11 @@ typedef struct mrc_ccontext {
   mrc_bool no_ext_ops:1;
 #if defined(MRC_TARGET_MRUBY)
   const struct RProc *upper;
+#endif
+#if defined(SABIRUBY_EVAL_SCOPES)
+  /* SabiRuby: the enclosing local variable names, for compiling an eval string
+     without the VM's RProc chain (see vendor/VENDOR.md). scopes[0] is the caller. */
+  const struct sabiruby_eval_scopes *eval_scopes;
 #endif
 
   // TODO

@@ -14,9 +14,15 @@ links = "sabiruby_mrc"
 include = ["/src/**/*", "/csrc/**/*", "/vendor/**/*", "/build.rs", "/README.md"]
 
 [features]
+# `Compiler`: the `sabiruby::Host` the VM asks to compile an `eval` string (and to read a
+# file for `require`). Off by default so the crate stays usable without the VM.
+host = ["dep:sabiruby"]
 # `ast()`: Prism's pretty-printed syntax tree (the format of the debug `mrbc --verbose`).
 # Off by default, so the default build is the reference mrbc's configuration.
 ast = []
+
+[dependencies]
+sabiruby = { version = "0.2.0", path = "..", optional = true, default-features = false }
 
 [build-dependencies]
 cc = "1"

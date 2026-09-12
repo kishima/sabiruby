@@ -177,6 +177,8 @@ fn dump(bin: &[u8]) -> ExitCode {
 fn run(bin: &[u8], argv: &[String], stats: bool, debug: bool) -> ExitCode {
     let mut vm = sabiruby::Vm::new();
     vm.set_gc_stress(gc_stress());
+    // `eval` (and later `require`) compiles through the reference compiler of this build
+    vm.set_host(Box::new(sabiruby_compiler::Compiler::new()));
     if stats { vm.gc_clock = Some(clock_ns); }
     vm.wall_clock = Some(wall_clock);
     if let Err(e) = vm.load_mrblib() { eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e)); return ExitCode::from(1); }
@@ -262,7 +264,8 @@ fn mrbtest(verbose: bool, files: &[String]) -> ExitCode {
     for f in &files[1..] {
         let bin = match std::fs::read(f) { Ok(b) => b, Err(e) => { eprintln!("{f}: {e}"); return ExitCode::from(1); } };
         let name = std::path::Path::new(f).file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
-        let sum = match sabiruby::mrbtest::run_file_cfg(&assert_mrb, &bin, cap, verbose, gc_stress()) {
+        let host = Box::new(sabiruby_compiler::Compiler::new());
+        let sum = match sabiruby::mrbtest::run_file_host(&assert_mrb, &bin, cap, verbose, gc_stress(), Some(host)) {
             Ok(s) => s,
             Err(e) => { eprintln!("{name}: {e}"); return ExitCode::from(1); }
         };

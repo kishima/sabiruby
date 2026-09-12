@@ -35,6 +35,9 @@ fn main() {
         // as mrbgems/mruby-compiler/mrbgem.rake for an mrbc build without MRC_DEBUG;
         // no MRC_TARGET_MRUBY / MRC_TARGET_MRUBYC: the standalone path of mrc_common.h
         .define("PRISM_XALLOCATOR", None)
+        // SabiRuby's only change to the vendored compiler: an eval string can be compiled
+        // with the enclosing local variable names (vendor/VENDOR.md)
+        .define("SABIRUBY_EVAL_SCOPES", None)
         .define("PRISM_DEPTH_MAXIMUM", "256")
         // as the reference build (`-std=gnu99`); strict c99 hides POSIX declarations such as
         // memccpy (used by compile.c) in wasi-libc

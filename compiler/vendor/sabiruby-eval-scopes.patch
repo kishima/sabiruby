@@ -1,0 +1,182 @@
+diff --git a/compiler/vendor/mruby-compiler/include/mrc_ccontext.h b/compiler/vendor/mruby-compiler/include/mrc_ccontext.h
+index 571d05e..569430f 100644
+--- a/compiler/vendor/mruby-compiler/include/mrc_ccontext.h
++++ b/compiler/vendor/mruby-compiler/include/mrc_ccontext.h
+@@ -26,6 +26,20 @@ typedef struct mrc_filename_table {
+   uint32_t start;
+ } mrc_filename_table;
+ 
++#if defined(SABIRUBY_EVAL_SCOPES)
++/* One enclosing scope: `names` in the order of the irep's `lv` (an empty name is a
++   hole, an unnamed parameter), so that a position is the register index. */
++struct sabiruby_eval_scope {
++  size_t count;
++  const char **names;
++  const size_t *lengths;
++};
++struct sabiruby_eval_scopes {
++  size_t count;
++  const struct sabiruby_eval_scope *scopes;
++};
++#endif
++
+ typedef struct mrc_ccontext {
+   mrb_state *mrb;
+   struct mrc_jmpbuf *jmp;
+@@ -46,6 +60,11 @@ typedef struct mrc_ccontext {
+ #if defined(MRC_TARGET_MRUBY)
+   const struct RProc *upper;
+ #endif
++#if defined(SABIRUBY_EVAL_SCOPES)
++  /* SabiRuby: the enclosing local variable names, for compiling an eval string
++     without the VM's RProc chain (see vendor/VENDOR.md). scopes[0] is the caller. */
++  const struct sabiruby_eval_scopes *eval_scopes;
++#endif
+ 
+   // TODO
+   //size_t parser_nerr;
+diff --git a/compiler/vendor/mruby-compiler/src/codegen.c b/compiler/vendor/mruby-compiler/src/codegen.c
+index 14e0ebd..c19404a 100644
+--- a/compiler/vendor/mruby-compiler/src/codegen.c
++++ b/compiler/vendor/mruby-compiler/src/codegen.c
+@@ -1119,6 +1119,25 @@ search_upvar(mrc_codegen_scope *s, mrc_sym id, int *idx)
+   }
+ #endif
+ 
++#if defined(SABIRUBY_EVAL_SCOPES)
++  /* SabiRuby: the same walk over the name table of the enclosing scopes. The index is the
++     position in the irep's `lv` (1-based) and the depth is `lv - 1`, as above. */
++  if (s->c->eval_scopes && id != PM_CONSTANT_ID_UNSET && id <= s->c->p->constant_pool.size) {
++    pm_constant_t *constant = pm_constant_pool_id_to_constant(&s->c->p->constant_pool, id);
++    if (lv < 1) lv = 1;
++    for (size_t si = 0; si < s->c->eval_scopes->count; si++, lv++) {
++      const struct sabiruby_eval_scope *sc = &s->c->eval_scopes->scopes[si];
++      for (size_t j = 0; j < sc->count; j++) {
++        if (sc->lengths[j] == constant->length &&
++            memcmp(sc->names[j], constant->start, constant->length) == 0) {
++          *idx = (int)j + 1;
++          return lv - 1;
++        }
++      }
++    }
++  }
++#endif
++
+   if (id == MRC_OPSYM_2(and)) {
+     codegen_error(s, "No anonymous block parameter");
+   }
+@@ -2455,6 +2474,42 @@ mrc_mruby_numbered_parameter_upvar(mrc_codegen_scope *s, mrc_sym id, int *lv, in
+ }
+ #endif
+ 
++#if defined(SABIRUBY_EVAL_SCOPES)
++/* SabiRuby: `_1`..`_9` of an enclosing block, from the name table. */
++static mrc_bool
++sabiruby_numbered_parameter_upvar(mrc_codegen_scope *s, mrc_sym id, int *lv, int *idx)
++{
++  if (s->c->eval_scopes == NULL) return FALSE;
++  if (id == PM_CONSTANT_ID_UNSET || id > s->c->p->constant_pool.size) return FALSE;
++
++  pm_constant_t *constant = pm_constant_pool_id_to_constant(&s->c->p->constant_pool, id);
++  if (constant->length != 2 || constant->start[0] != '_' ||
++      constant->start[1] < '1' || constant->start[1] > '9') {
++    return FALSE;
++  }
++  int number = constant->start[1] - '0';
++  *lv = 0;
++  for (size_t si = 0; si < s->c->eval_scopes->count; si++, (*lv)++) {
++    const struct sabiruby_eval_scope *sc = &s->c->eval_scopes->scopes[si];
++    mrc_bool named = FALSE;
++    for (size_t j = 0; j < sc->count; j++) {
++      if (sc->lengths[j] > 0) named = TRUE;
++      if (sc->lengths[j] == constant->length &&
++          memcmp(sc->names[j], constant->start, constant->length) == 0) {
++        *idx = (int)j + 1;
++        return TRUE;
++      }
++    }
++    /* a block that takes numbered parameters has unnamed locals: `_1` is register `number` */
++    if (!named && (size_t)number <= sc->count) {
++      *idx = number;
++      return TRUE;
++    }
++  }
++  return FALSE;
++}
++#endif
++
+ /* Attribute assignment (`recv.attr = v`, `recv[i] = v`) as an expression.
+    Prism bundles the RHS as the last positional argument of the call node.
+    The whole expression must evaluate to that RHS, not to the setter's
+@@ -2568,6 +2623,17 @@ gen_call(mrc_codegen_scope *s, mrc_node *tree, int val, int safe)
+       return;
+     }
+   }
++#elif defined(SABIRUBY_EVAL_SCOPES)
++  if (cast->receiver == NULL && cast->arguments == NULL && cast->block == NULL) {
++    int lv, idx;
++    if (sabiruby_numbered_parameter_upvar(s, sym, &lv, &idx)) {
++      if (val) {
++        genop_3(s, OP_GETUPVAR, cursp(), idx, lv);
++        push();
++      }
++      return;
++    }
++  }
+ #endif
+ 
+   if (cast->receiver == NULL) {
+diff --git a/compiler/vendor/mruby-compiler/src/compile.c b/compiler/vendor/mruby-compiler/src/compile.c
+index c31abbe..bb26e32 100644
+--- a/compiler/vendor/mruby-compiler/src/compile.c
++++ b/compiler/vendor/mruby-compiler/src/compile.c
+@@ -174,6 +174,40 @@ mrc_pm_options_init(mrc_ccontext *cc)
+ }
+ #endif
+ 
++#if defined(SABIRUBY_EVAL_SCOPES)
++/* SabiRuby: the shape `mrc_pm_options_init()` builds from the RProc chain, built from the
++   name table instead. Prism wants the outermost scope first and one empty scope more. */
++static void
++sabiruby_pm_options_init(mrc_ccontext *cc)
++{
++  if (cc->options) return;
++  if (cc->eval_scopes == NULL || cc->eval_scopes->count == 0) return;
++
++  pm_options_t *options = (pm_options_t *)mrc_calloc(cc, 1, sizeof(pm_options_t));
++  pm_string_constant_init(&options->encoding, "UTF-8", 5);
++
++  size_t n = cc->eval_scopes->count;
++  pm_options_scopes_init(options, n + 1); /* Prism requires one more scope */
++  for (size_t i = 0; i < n; i++) {
++    const struct sabiruby_eval_scope *src = &cc->eval_scopes->scopes[i];
++    size_t named = 0;
++    for (size_t j = 0; j < src->count; j++) {
++      if (src->lengths[j] > 0) named++;
++    }
++    pm_options_scope_t *scope = &options->scopes[n - 1 - i];
++    pm_options_scope_init(scope, named);
++    size_t k = 0;
++    for (size_t j = 0; j < src->count; j++) {
++      if (src->lengths[j] == 0) continue;
++      uint8_t *copy = (uint8_t *)mrc_malloc(cc, src->lengths[j]);
++      memcpy(copy, src->names[j], src->lengths[j]);
++      pm_string_constant_init(&scope->locals[k++], (const char *)copy, src->lengths[j]);
++    }
++  }
++  cc->options = options;
++}
++#endif
++
+ static void
+ mrc_pm_parser_init(mrc_parser_state *p, uint8_t **source, size_t size, mrc_ccontext *cc)
+ {
+@@ -182,6 +216,8 @@ mrc_pm_parser_init(mrc_parser_state *p, uint8_t **source, size_t size, mrc_ccont
+   cb->callback = partial_hook;
+ #if defined(MRC_TARGET_MRUBY)
+   mrc_pm_options_init(cc);
++#elif defined(SABIRUBY_EVAL_SCOPES)
++  sabiruby_pm_options_init(cc);
+ #endif
+   pm_parser_init(p, *source, size, cc->options);
+   p->lex_callback = cb;

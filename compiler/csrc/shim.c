@@ -130,6 +130,101 @@ sabiruby_mrc_compile(const uint8_t *src, size_t len, const char *filename, unsig
   return result;
 }
 
+/* Compiles an eval string: like sabiruby_mrc_compile, plus the enclosing local variable
+   names (so that the string can read and write the caller's variables) and the line the
+   string starts at. `scopes` is a flat blob, little-endian:
+
+     scopes := nscopes * scope
+     scope  := u32 count, count * (u16 length, length bytes)
+
+   scope 0 is the caller, each next one is further out; a zero-length name is a hole in the
+   caller's local variable table (an unnamed parameter), which keeps the positions right.
+   `filename` shows in diagnostics and in the debug info. */
+int
+sabiruby_mrc_compile_eval(const uint8_t *src, size_t len, const char *filename, uint32_t line,
+                          unsigned flags, const uint8_t *scopes, size_t scopes_len, uint32_t nscopes,
+                          uint8_t **out, size_t *out_len, char **diag)
+{
+  *out = NULL; *out_len = 0; *diag = NULL;
+
+  /* unpack the blob into the compiler's view of it */
+  struct sabiruby_eval_scope *tab = NULL;
+  const char **names = NULL;
+  size_t *lengths = NULL;
+  size_t total = 0;
+  const uint8_t *p = scopes, *end = scopes + scopes_len;
+  if (nscopes > 0) {
+    /* first pass: how many names */
+    for (uint32_t i = 0; i < nscopes; i++) {
+      if (p + 4 > end) return SHIM_NO_MEMORY;
+      uint32_t count = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+      p += 4;
+      for (uint32_t j = 0; j < count; j++) {
+        if (p + 2 > end) return SHIM_NO_MEMORY;
+        size_t l = (size_t)p[0] | ((size_t)p[1] << 8);
+        p += 2 + l;
+        if (p > end) return SHIM_NO_MEMORY;
+      }
+      total += count;
+    }
+    tab = (struct sabiruby_eval_scope *)calloc(nscopes, sizeof(*tab));
+    names = (const char **)calloc(total ? total : 1, sizeof(*names));
+    lengths = (size_t *)calloc(total ? total : 1, sizeof(*lengths));
+    if (!tab || !names || !lengths) { free(tab); free(names); free(lengths); return SHIM_NO_MEMORY; }
+    p = scopes;
+    size_t at = 0;
+    for (uint32_t i = 0; i < nscopes; i++) {
+      uint32_t count = (uint32_t)p[0] | ((uint32_t)p[1] << 8) | ((uint32_t)p[2] << 16) | ((uint32_t)p[3] << 24);
+      p += 4;
+      tab[i].count = count;
+      tab[i].names = names + at;
+      tab[i].lengths = lengths + at;
+      for (uint32_t j = 0; j < count; j++) {
+        size_t l = (size_t)p[0] | ((size_t)p[1] << 8);
+        p += 2;
+        names[at] = (const char *)p;
+        lengths[at] = l;
+        at++;
+        p += l;
+      }
+    }
+  }
+  struct sabiruby_eval_scopes all = { nscopes, tab };
+
+  mrc_ccontext *c = mrc_ccontext_new(NULL);
+  if (!c) { free(tab); free(names); free(lengths); return SHIM_NO_MEMORY; }
+  if (filename && !mrc_ccontext_filename(c, filename)) { mrc_ccontext_free(c); free(tab); free(names); free(lengths); return SHIM_NO_MEMORY; }
+  c->no_exec = 1;
+  c->no_optimize = 1; /* as the reference's eval (mruby-eval/src/eval.c) */
+  c->lineno = (uint16_t)line;
+  if (nscopes > 0) c->eval_scopes = &all;
+
+  uint8_t *buf = (uint8_t *)malloc(len + 1);
+  if (!buf) { mrc_ccontext_free(c); free(tab); free(names); free(lengths); return SHIM_NO_MEMORY; }
+  if (len) memcpy(buf, src, len);
+  buf[len] = '\0';
+  const uint8_t *source = buf;
+
+  int result;
+  mrc_irep *irep = mrc_load_string_cxt(c, &source, len);
+  *diag = collect_diagnostics(c);
+  if (!irep) {
+    result = SHIM_COMPILE_ERROR;
+  }
+  else {
+    uint8_t *bin = NULL;
+    size_t size = 0;
+    int n = mrc_dump_irep(c, irep, (flags & SHIM_DEBUG_INFO) ? MRC_DUMP_DEBUG_INFO : 0, &bin, &size);
+    if (n == MRC_DUMP_OK) { *out = bin; *out_len = size; result = SHIM_OK; }
+    else { free(bin); result = SHIM_DUMP_ERROR; }
+    mrc_irep_free(c, irep);
+  }
+  mrc_ccontext_free(c);
+  free(buf);
+  free(tab); free(names); free(lengths);
+  return result;
+}
+
 #ifdef SABIRUBY_SHIM_AST
 /* Prism's pretty-printed tree of the source (what a debug mrbc prints for --verbose, and what
    mruby's code generator walks). Parsed as mrc parses it: no options, the file name as the

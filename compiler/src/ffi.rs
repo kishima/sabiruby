@@ -15,6 +15,9 @@ pub const NO_MEMORY: c_int = 3;
 unsafe extern "C" {
     fn sabiruby_mrc_compile(src: *const u8, len: usize, filename: *const c_char, flags: c_uint,
                             out: *mut *mut u8, out_len: *mut usize, diag: *mut *mut c_char) -> c_int;
+    fn sabiruby_mrc_compile_eval(src: *const u8, len: usize, filename: *const c_char, line: c_uint,
+                                 flags: c_uint, scopes: *const u8, scopes_len: usize, nscopes: c_uint,
+                                 out: *mut *mut u8, out_len: *mut usize, diag: *mut *mut c_char) -> c_int;
     fn sabiruby_mrc_free(p: *mut c_void);
     fn sabiruby_mrc_version() -> *const c_char;
     #[cfg(feature = "ast")]
@@ -32,6 +35,26 @@ pub fn ast(src: &[u8], filename: &CString) -> Option<String> {
         let s = CStr::from_ptr(p).to_string_lossy().into_owned();
         sabiruby_mrc_free(p as *mut c_void);
         Some(s)
+    }
+}
+
+/// One compilation of an `eval` string, with the enclosing scopes as the blob `csrc/shim.c`
+/// documents. Same result triple as [`compile`].
+pub fn compile_eval(src: &[u8], filename: &CString, line: u32, flags: c_uint, scopes: &[u8], nscopes: u32) -> (c_int, Vec<u8>, String) {
+    let mut out: *mut u8 = std::ptr::null_mut();
+    let mut out_len: usize = 0;
+    let mut diag: *mut c_char = std::ptr::null_mut();
+    // SAFETY: as `compile` below; the buffers outlive the call and both results are
+    // malloc'ed by the shim and released with its `free`.
+    unsafe {
+        let code = sabiruby_mrc_compile_eval(src.as_ptr(), src.len(), filename.as_ptr(), line, flags,
+                                             scopes.as_ptr(), scopes.len(), nscopes,
+                                             &mut out, &mut out_len, &mut diag);
+        let bin = if out.is_null() { Vec::new() } else { std::slice::from_raw_parts(out, out_len).to_vec() };
+        if !out.is_null() { sabiruby_mrc_free(out as *mut c_void); }
+        let text = if diag.is_null() { String::new() } else { CStr::from_ptr(diag).to_string_lossy().into_owned() };
+        if !diag.is_null() { sabiruby_mrc_free(diag as *mut c_void); }
+        (code, bin, text)
     }
 }
 

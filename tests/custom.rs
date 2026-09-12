@@ -31,6 +31,8 @@ fn run(dir: &Path, name: &str) -> Result<Vec<u8>, String> {
     let mrb = std::fs::read(dir.join(format!("{name}.mrb")))
         .map_err(|_| format!("{name}.mrb missing: run tools/custom.sh"))?;
     let mut vm = sabiruby::Vm::new();
+    // the `eval` cases need a compiler (`Vm::set_host`)
+    vm.set_host(Box::new(sabiruby_compiler::Compiler::new()));
     vm.set_gc_stress(std::env::var("SABIRUBY_GC_STRESS").map(|v| !v.is_empty() && v != "0").unwrap_or(false));
     vm.load_mrblib().expect("mrblib loads");
     let result = vm.load_and_run(&mrb);

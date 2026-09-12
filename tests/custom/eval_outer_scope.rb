@@ -6,7 +6,6 @@
 # search_upvar stops at the method's SCOPE proc, so the two disagree.
 # SabiRuby hands the same table (stopping at the scope) to both.
 # expected-from: CRuby 3.2
-# pending: eval
 x = 1
 def m
   eval "x"

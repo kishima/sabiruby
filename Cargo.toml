@@ -35,3 +35,6 @@ hashbrown = { version = "0.15", default-features = false, features = ["default-h
 libm = { version = "0.2", default-features = false }
 
 [dev-dependencies]
+# The tests install the compiler as the VM's host, so that the `eval` cases and mruby's
+# `mruby-eval` tests run (the library itself never depends on it).
+sabiruby-compiler = { version = "0.1.0", path = "compiler", features = ["host"] }

@@ -1,7 +1,16 @@
 # eval と require の検討メモ
 
 作成 2026-09-12。実装指示書ではなく、検討用（著者「evalができるとRubyらしくなるし、requireとかも実装できるようになるよね？ 検討用のドキュメントを残してほしい」）。
-実装に進むときは、この文書を `compiler-plan.md` や `gc-plan.md` と同じ形の指示書に育てる。
+
+> **実装状況**（2026-09-12）: 4.4 の段階 1・2（eval）と 4（binding、`Proc#binding`）は実装済み。
+> ここに書いた設計のとおり（`Host` の差し込み口 `src/host.rs`、vendoring したコンパイラへの
+> パッチ `SABIRUBY_EVAL_SCOPES`、`src/builtins/ext_eval.rs`／`ext_binding.rs`）。
+> 本家テストは `gem_eval` 18/18、`gem_binding` 8/8、mruby-binding／mruby-proc-binding 自身の
+> テストは C 補助コードの 3 件を除いて通る。**段階 3（require／load、下記 5 節）は未着手**で、
+> `Host` には `read_file`／`file_exists` を用意してある。
+> 実装で変わった点: `Binding#eval` の `expand_lvspace` は「文字列を一度コンパイルして、その
+> irep の `lv`（＝外側で解決しなかった名前）を binding に足し、もう一度コンパイルする」形にした
+> （パーサを 2 回呼ぶ代わりにコンパイラを 2 回呼ぶ。`Host` に構文解析だけの入口を足さずに済む）。
 
 根拠にしたソース:
 

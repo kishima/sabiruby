@@ -128,6 +128,86 @@ pub fn compile(src: &[u8], opts: &Options) -> Result<Vec<u8>, CompileError> {
     }
 }
 
+/// Compiles an `eval` string: like [`compile`], plus the line it starts at and the local
+/// variable names of the enclosing scopes, so the string can read and write them. This is
+/// the only entry that uses the one change made to the vendored compiler
+/// (`SABIRUBY_EVAL_SCOPES`, `vendor/VENDOR.md`); [`compile`] is untouched by it.
+///
+/// `scopes[0]` is the caller and each next one is further out; within a scope the names are
+/// in the order of the irep's local variable table, an empty name standing for a hole (an
+/// unnamed parameter) so that a position is a register index.
+pub fn compile_eval(src: &[u8], opts: &Options, line: u32, scopes: &[Vec<Vec<u8>>]) -> Result<Vec<u8>, CompileError> {
+    let internal = |message: &str| CompileError { diagnostics: vec![Diagnostic { kind: Kind::GeneratorError, message: message.into(), filename: opts.filename.clone(), line: 0, column: 0 }] };
+    let filename = CString::new(opts.filename.as_str()).map_err(|_| internal("file name contains a NUL byte"))?;
+    let mut flags = 0;
+    if opts.debug_info { flags |= ffi::DEBUG_INFO; }
+    // the blob `csrc/shim.c` reads: per scope a u32 count, then u16-prefixed names
+    let mut blob: Vec<u8> = Vec::new();
+    for scope in scopes {
+        blob.extend_from_slice(&(scope.len() as u32).to_le_bytes());
+        for name in scope {
+            let n = name.len().min(u16::MAX as usize);
+            blob.extend_from_slice(&(n as u16).to_le_bytes());
+            blob.extend_from_slice(&name[..n]);
+        }
+    }
+    let (code, bin, diag) = {
+        let _guard = LOCK.lock().unwrap_or_else(|e| e.into_inner());
+        ffi::compile_eval(src, &filename, line, flags, &blob, scopes.len() as u32)
+    };
+    match code {
+        ffi::OK => Ok(bin),
+        ffi::COMPILE_ERROR => {
+            let diagnostics = parse_diagnostics(&diag);
+            if diagnostics.is_empty() { Err(internal("compile error")) } else { Err(CompileError { diagnostics }) }
+        }
+        ffi::DUMP_ERROR => Err(internal("could not write the RITE binary")),
+        ffi::NO_MEMORY => Err(internal("out of memory")),
+        _ => Err(internal("unexpected result from the compiler")),
+    }
+}
+
+/// The [`Host`](sabiruby::Host) the VM asks to compile an `eval` string, and to read a file
+/// for `require`. Install it with `vm.set_host(Box::new(Compiler::new()))`; the dependency
+/// points this way (compiler → VM), so the VM crate stays free of C.
+///
+/// `read_file` reads the file system, which is what the `sabiruby` command wants; a host with
+/// another idea of where files come from (a browser, a game's assets) writes its own `Host`
+/// and can still call [`compile_eval`] for the compiling half.
+#[cfg(feature = "host")]
+#[derive(Debug, Default)]
+pub struct Compiler {
+    _private: (),
+}
+
+#[cfg(feature = "host")]
+impl Compiler {
+    pub fn new() -> Compiler {
+        Compiler { _private: () }
+    }
+}
+
+#[cfg(feature = "host")]
+impl sabiruby::Host for Compiler {
+    fn compile(&mut self, src: &[u8], opts: &sabiruby::EvalOptions) -> Result<Vec<u8>, String> {
+        let o = Options { filename: opts.filename.into(), debug_info: opts.debug_info, ..Default::default() };
+        compile_eval(src, &o, opts.line, opts.scopes).map_err(|e| {
+            // the message the reference's eval puts in the SyntaxError: the first error,
+            // without the file and line it prefixes itself
+            match e.diagnostics.iter().find(|d| d.kind.is_error()) {
+                Some(d) => d.message.clone(),
+                None => "compile error".into(),
+            }
+        })
+    }
+    fn read_file(&mut self, path: &str) -> Option<Vec<u8>> {
+        std::fs::read(path).ok()
+    }
+    fn file_exists(&mut self, path: &str) -> bool {
+        std::path::Path::new(path).is_file()
+    }
+}
+
 fn parse_diagnostics(text: &str) -> Vec<Diagnostic> {
     text.split('\u{1e}')
         .filter(|r| !r.is_empty())

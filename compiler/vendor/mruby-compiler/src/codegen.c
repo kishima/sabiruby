@@ -1119,6 +1119,25 @@ search_upvar(mrc_codegen_scope *s, mrc_sym id, int *idx)
   }
 #endif
 
+#if defined(SABIRUBY_EVAL_SCOPES)
+  /* SabiRuby: the same walk over the name table of the enclosing scopes. The index is the
+     position in the irep's `lv` (1-based) and the depth is `lv - 1`, as above. */
+  if (s->c->eval_scopes && id != PM_CONSTANT_ID_UNSET && id <= s->c->p->constant_pool.size) {
+    pm_constant_t *constant = pm_constant_pool_id_to_constant(&s->c->p->constant_pool, id);
+    if (lv < 1) lv = 1;
+    for (size_t si = 0; si < s->c->eval_scopes->count; si++, lv++) {
+      const struct sabiruby_eval_scope *sc = &s->c->eval_scopes->scopes[si];
+      for (size_t j = 0; j < sc->count; j++) {
+        if (sc->lengths[j] == constant->length &&
+            memcmp(sc->names[j], constant->start, constant->length) == 0) {
+          *idx = (int)j + 1;
+          return lv - 1;
+        }
+      }
+    }
+  }
+#endif
+
   if (id == MRC_OPSYM_2(and)) {
     codegen_error(s, "No anonymous block parameter");
   }
@@ -2455,6 +2474,42 @@ mrc_mruby_numbered_parameter_upvar(mrc_codegen_scope *s, mrc_sym id, int *lv, in
 }
 #endif
 
+#if defined(SABIRUBY_EVAL_SCOPES)
+/* SabiRuby: `_1`..`_9` of an enclosing block, from the name table. */
+static mrc_bool
+sabiruby_numbered_parameter_upvar(mrc_codegen_scope *s, mrc_sym id, int *lv, int *idx)
+{
+  if (s->c->eval_scopes == NULL) return FALSE;
+  if (id == PM_CONSTANT_ID_UNSET || id > s->c->p->constant_pool.size) return FALSE;
+
+  pm_constant_t *constant = pm_constant_pool_id_to_constant(&s->c->p->constant_pool, id);
+  if (constant->length != 2 || constant->start[0] != '_' ||
+      constant->start[1] < '1' || constant->start[1] > '9') {
+    return FALSE;
+  }
+  int number = constant->start[1] - '0';
+  *lv = 0;
+  for (size_t si = 0; si < s->c->eval_scopes->count; si++, (*lv)++) {
+    const struct sabiruby_eval_scope *sc = &s->c->eval_scopes->scopes[si];
+    mrc_bool named = FALSE;
+    for (size_t j = 0; j < sc->count; j++) {
+      if (sc->lengths[j] > 0) named = TRUE;
+      if (sc->lengths[j] == constant->length &&
+          memcmp(sc->names[j], constant->start, constant->length) == 0) {
+        *idx = (int)j + 1;
+        return TRUE;
+      }
+    }
+    /* a block that takes numbered parameters has unnamed locals: `_1` is register `number` */
+    if (!named && (size_t)number <= sc->count) {
+      *idx = number;
+      return TRUE;
+    }
+  }
+  return FALSE;
+}
+#endif
+
 /* Attribute assignment (`recv.attr = v`, `recv[i] = v`) as an expression.
    Prism bundles the RHS as the last positional argument of the call node.
    The whole expression must evaluate to that RHS, not to the setter's
@@ -2561,6 +2616,17 @@ gen_call(mrc_codegen_scope *s, mrc_node *tree, int val, int safe)
   if (cast->receiver == NULL && cast->arguments == NULL && cast->block == NULL) {
     int lv, idx;
     if (mrc_mruby_numbered_parameter_upvar(s, sym, &lv, &idx)) {
+      if (val) {
+        genop_3(s, OP_GETUPVAR, cursp(), idx, lv);
+        push();
+      }
+      return;
+    }
+  }
+#elif defined(SABIRUBY_EVAL_SCOPES)
+  if (cast->receiver == NULL && cast->arguments == NULL && cast->block == NULL) {
+    int lv, idx;
+    if (sabiruby_numbered_parameter_upvar(s, sym, &lv, &idx)) {
       if (val) {
         genop_3(s, OP_GETUPVAR, cursp(), idx, lv);
         push();

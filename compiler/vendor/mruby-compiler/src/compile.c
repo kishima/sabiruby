@@ -174,6 +174,40 @@ mrc_pm_options_init(mrc_ccontext *cc)
 }
 #endif
 
+#if defined(SABIRUBY_EVAL_SCOPES)
+/* SabiRuby: the shape `mrc_pm_options_init()` builds from the RProc chain, built from the
+   name table instead. Prism wants the outermost scope first and one empty scope more. */
+static void
+sabiruby_pm_options_init(mrc_ccontext *cc)
+{
+  if (cc->options) return;
+  if (cc->eval_scopes == NULL || cc->eval_scopes->count == 0) return;
+
+  pm_options_t *options = (pm_options_t *)mrc_calloc(cc, 1, sizeof(pm_options_t));
+  pm_string_constant_init(&options->encoding, "UTF-8", 5);
+
+  size_t n = cc->eval_scopes->count;
+  pm_options_scopes_init(options, n + 1); /* Prism requires one more scope */
+  for (size_t i = 0; i < n; i++) {
+    const struct sabiruby_eval_scope *src = &cc->eval_scopes->scopes[i];
+    size_t named = 0;
+    for (size_t j = 0; j < src->count; j++) {
+      if (src->lengths[j] > 0) named++;
+    }
+    pm_options_scope_t *scope = &options->scopes[n - 1 - i];
+    pm_options_scope_init(scope, named);
+    size_t k = 0;
+    for (size_t j = 0; j < src->count; j++) {
+      if (src->lengths[j] == 0) continue;
+      uint8_t *copy = (uint8_t *)mrc_malloc(cc, src->lengths[j]);
+      memcpy(copy, src->names[j], src->lengths[j]);
+      pm_string_constant_init(&scope->locals[k++], (const char *)copy, src->lengths[j]);
+    }
+  }
+  cc->options = options;
+}
+#endif
+
 static void
 mrc_pm_parser_init(mrc_parser_state *p, uint8_t **source, size_t size, mrc_ccontext *cc)
 {
@@ -182,6 +216,8 @@ mrc_pm_parser_init(mrc_parser_state *p, uint8_t **source, size_t size, mrc_ccont
   cb->callback = partial_hook;
 #if defined(MRC_TARGET_MRUBY)
   mrc_pm_options_init(cc);
+#elif defined(SABIRUBY_EVAL_SCOPES)
+  sabiruby_pm_options_init(cc);
 #endif
   pm_parser_init(p, *source, size, cc->options);
   p->lex_callback = cb;

@@ -200,6 +200,11 @@ pub struct Syms {
     pub den: Sym,
     pub real: Sym,
     pub imag: Sym,
+    /// The instance variables of a Binding (`ext_binding.rs`).
+    pub bproc: Sym,
+    pub benv: Sym,
+    pub brecv: Sym,
+    pub bpc: Sym,
 }
 
 pub struct Vm {
@@ -280,6 +285,10 @@ pub struct Vm {
     /// Wall clock as (seconds, nanoseconds) since the Unix epoch, for `Time.now`
     /// (mruby-time); the epoch when the host sets none.
     pub wall_clock: Option<fn() -> (i64, i64)>,
+    /// What the VM asks the host for: compiling an `eval` string, reading a file
+    /// (`Vm::set_host`, `src/host.rs`). `None` means `eval` is not available.
+    #[doc(hidden)]
+    pub host: crate::host::HostBox,
     /// Recording of what the interpreter does, for debuggers (`Vm::set_trace`, `src/inspect.rs`).
     /// `None` (the default) means nothing is recorded.
     pub trace: Option<Vec<crate::inspect::TraceEvent>>,
@@ -403,6 +412,10 @@ impl Vm {
             den: syms.intern_str("__den"),
             real: syms.intern_str("__real"),
             imag: syms.intern_str("__imag"),
+            bproc: syms.intern_str("proc"),
+            benv: syms.intern_str("env"),
+            brecv: syms.intern_str("recv"),
+            bpc: syms.intern_str("pc"),
             method_missing: syms.intern_str("method_missing"),
             eq: syms.intern_str("=="),
             eqq: syms.intern_str("==="),
@@ -426,7 +439,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
         };
         // Constants for the core classes, Object includes Kernel.
@@ -1534,6 +1547,12 @@ impl Vm {
         if let Some(i) = self.gc_registered.iter().rposition(|x| *x == id) { self.gc_registered.swap_remove(i); }
     }
     /// Stress mode (mruby `MRB_GC_STRESS`): every allocation makes a collection due.
+    /// Installs the host the VM asks for compilation and files (`src/host.rs`). Without one,
+    /// `eval` raises NotImplementedError.
+    pub fn set_host(&mut self, host: alloc::boxed::Box<dyn crate::host::Host>) {
+        self.host = Some(host);
+    }
+
     pub fn set_gc_stress(&mut self, on: bool) {
         self.gc_stress = on;
         self.heap.alloc_threshold = if on { 1 } else { GC_MIN_INTERVAL.max(self.heap.allocated_since_gc + 1) };
@@ -1772,6 +1791,23 @@ impl Vm {
         }
         e
     }
+    /// The environment of the frame that called the running native, made now if it has none
+    /// (`mrb_vm_ci_env` / `mrb_env_new` of the reference's `create_proc_from_string`).
+    /// A native has no frame of its own here, so that is the current frame.
+    pub(crate) fn caller_env(&mut self) -> ObjId {
+        self.frame_env()
+    }
+
+    /// Runs an `eval` string's Proc in the caller's scope (`eval_irep`): no arguments, no
+    /// block, visibility back to the default, and the target class the caller's unless the
+    /// form says otherwise (`instance_eval`, `class_eval`).
+    pub(crate) fn run_eval(&mut self, proc_: ObjId, self_: Value, override_tc: Option<ObjId>) -> VmResult<Value> {
+        let mid = self.ci.last().and_then(|ci| ci.mid);
+        let tc = override_tc.or_else(|| self.heap.proc_data(proc_).target_class);
+        self.pending_vis_break = true;
+        self.call_proc_with(proc_, self_, &[], None, Value::Nil, mid, tc)
+    }
+
     /// Pops the current frame, detaching its environment (`cipop`).
     fn pop_frame(&mut self) -> CallInfo {
         let ci = self.ci.pop().expect("pop on empty callinfo");

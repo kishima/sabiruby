@@ -42,8 +42,8 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 * Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
   [`docs/fibers.md`](https://github.com/kishima/sabiruby/blob/main/docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
   -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method, and the
-  rest of the reference's `default.gembox` except `eval` and `regexp` and the POSIX ones
-  — 32 gems, plus mruby-cmath from outside it. The numeric tower is complete: **mruby-bigint**
+  rest of the reference's `default.gembox` except `regexp` and the POSIX ones — 35 gems, plus
+  mruby-cmath from outside it. The numeric tower is complete: **mruby-bigint**
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
@@ -55,6 +55,10 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   keeping objects across calls uses `Vm::gc_register`). `GC.start`/`enable`/`disable`,
   `interval_ratio`, `malloc_threshold`, `GC.stat[:live]` are real. `SABIRUBY_GC_STRESS=1`
   collects after every allocation. See [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md).
+* `eval`, `instance_eval`/`class_eval` with a string, `Kernel#binding`, `Binding` and
+  `Proc#binding`: the VM asks a host to compile (`Vm::set_host`, `src/host.rs`), which the
+  `sabiruby-compiler` crate provides, so a string sees and writes the caller's local
+  variables as it does in the reference.
 * Compiler: the reference `mruby-compiler` (Prism as its parser, mruby's own code generator)
   linked as C, in the `sabiruby-compiler`
   crate; the VM crate does not depend on it, the `sabiruby` command (`sabiruby-cli`) does.
@@ -62,8 +66,8 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md).
 
 Not yet: the special variables `$~`/`$_` and `$!` (nil even inside `rescue`; use
-`rescue => e`), `eval`/`require` (design notes below), the remaining mrbgems (`io`, `time`,
-`regexp`, …), encodings. Native code may re-enter the VM
+`rescue => e`), `require` (design notes below), the remaining mrbgems (`io`, `regexp`, …),
+encodings. Native code may re-enter the VM
 (`Vm::funcall`, `Vm::call_block`); the Future-native design is a later step.
 
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
@@ -88,7 +92,7 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 17 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`).
 
 mruby's own test suite (`test/t`, 833 assertions on 4.1.0-rc) plus the tests of the ported
-gems (`gem_*`, 995 assertions) passes 1787 of 1828 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
+gems (`gem_*`, 1033 assertions) passes 1819 of 1866 (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md),
 reasons for the rest in [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)); of the gem
 assertions only the two NaN identity tests fail, the C-fixture ones crash and the UTF-8/DBG
 ones skip.
@@ -144,7 +148,7 @@ tried by changing `value.rs` alone. Predictions and measurements: [`docs/perform
 Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github.com/kishima/sabiruby/blob/main/docs/exceptions.md).
 Compiler: [`docs/compiler.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler.md) (the plan: [`docs/compiler-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/compiler-plan.md)).
 GC: [`docs/gc.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/gc-plan.md)).
-eval / require (not implemented; design notes, with PicoRuby's approach as the reference): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
+`eval` and `Binding` (done; `require` is the half still open, with PicoRuby's approach as the reference): [`docs/eval-require-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/eval-require-plan.md).
 Looking inside the VM (snapshots, the trace of events, the DBG line numbers; what the playground's
 debugger reads): [`docs/inspect.md`](https://github.com/kishima/sabiruby/blob/main/docs/inspect.md).
 UTF-8 strings (not implemented; plan): [`docs/utf8-plan.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8-plan.md). Remaining gems and their order: [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md).
@@ -199,6 +203,7 @@ loop {
 | `src/bigint.rs` | integers wider than 64 bits (mruby-bigint's `mpz_*`) |
 | `src/builtins/ext_rational.rs`, `ext_complex.rs`, `ext_cmath.rs` | the rest of the numeric tower |
 | `src/builtins/ext_pack.rs` | `Array#pack` / `String#unpack` |
+| `src/host.rs`, `src/builtins/ext_eval.rs`, `ext_binding.rs` | what the VM asks its host for (compiling a string), `eval` and `Binding` |
 | `src/object.rs` | heap objects (classes, procs, envs, strings, arrays, hashes), mark & sweep |
 | `src/builtins/` | native methods per class |
 | `src/mrblib.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |

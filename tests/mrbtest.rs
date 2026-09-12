@@ -25,7 +25,8 @@ fn run_all() {
         let (Some(name), Some(min)) = (it.next(), it.next()) else { continue };
         let min: u64 = min.parse().unwrap();
         let bin = std::fs::read(dir.join(format!("{name}.mrb"))).expect("test .mrb");
-        let sum = sabiruby::mrbtest::run_file_cfg(&assert_mrb, &bin, 300_000_000, false, stress).expect("runner");
+        let host = Box::new(sabiruby_compiler::Compiler::new());
+        let sum = sabiruby::mrbtest::run_file_host(&assert_mrb, &bin, 300_000_000, false, stress, Some(host)).expect("runner");
         if sum.ok < min {
             failures.push(format!("{name}: ok {} < baseline {} ({})", sum.ok, min, sum.aborted.clone().unwrap_or_default()));
         }

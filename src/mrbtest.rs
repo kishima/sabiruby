@@ -232,8 +232,14 @@ pub fn run_file_opt(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool)
 /// `gc_stress` collects at every instruction boundary that follows an allocation
 /// (`SABIRUBY_GC_STRESS`), from the loading of mrblib on.
 pub fn run_file_cfg(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool) -> VmResult<Summary> {
+    run_file_host(assert_mrb, test_mrb, cap, verbose, gc_stress, None)
+}
+
+/// [`run_file_cfg`] with the host the `eval` tests need (`Vm::set_host`).
+pub fn run_file_host(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host>>) -> VmResult<Summary> {
     let mut vm = Vm::new();
     vm.set_gc_stress(gc_stress);
+    if let Some(h) = host { vm.set_host(h); }
     vm.load_mrblib()?;
     install(&mut vm);
     if verbose { let g = vm.intern("$mrbtest_verbose"); vm.globals.insert(g, Slot::from(Value::True)); }

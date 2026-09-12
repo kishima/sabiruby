@@ -2,7 +2,6 @@
 # through it, and a local made by one eval is visible to the next one on the
 # same binding (mruby-eval's expand_lvspace).
 # expected-from: CRuby 3.2
-# pending: binding (mruby-binding and mruby-eval are not implemented)
 def get_binding
   x = 5
   binding

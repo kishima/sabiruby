@@ -15,6 +15,8 @@ float 28
 gc 24
 gem_array 82
 gem_bigint 29
+gem_binding 8
+gem_binding_binding 5
 gem_catch 8
 gem_class 3
 gem_cmath 21
@@ -25,6 +27,7 @@ gem_data 14
 gem_enum 38
 gem_enum_chain 6
 gem_enumerator 52
+gem_eval 18
 gem_fiber 21
 gem_fiber2 4
 gem_hash 27
@@ -41,6 +44,7 @@ gem_object 5
 gem_objectspace 4
 gem_pack 49
 gem_proc 9
+gem_proc_binding 1
 gem_random 13
 gem_range 10
 gem_rational 134

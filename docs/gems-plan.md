@@ -3,8 +3,10 @@
 > **実装状況**（2026-09-12）: bigint、rational、complex、cmath 済み（数の塔が揃った。
 > `src/bigint.rs`、`src/builtins/ext_rational.rs`／`ext_complex.rs`／`ext_cmath.rs`、
 > `numeric.rs` の分岐。本家テストは 1778 件中 1738 件、4 gem のテストは全件通過。
-> 詳細と本家との差異は `docs/gems.md`）。pack も済み（2026-09-12。本家テスト 50 件中 49 件、
-> 落ちる 1 件は NaN の同一性の既存差異）。次は eval／binding／proc-binding → UTF-8 → regexp → task。
+> 詳細と本家との差異は `docs/gems.md`）。pack も済み（本家テスト 50 件中 49 件、落ちる 1 件は
+> NaN の同一性の既存差異）。順序 4（eval、binding、proc-binding）も済み（`src/host.rs` の差し込み口、
+> vendoring したコンパイラへの唯一のパッチ `SABIRUBY_EVAL_SCOPES`、`docs/eval-require-plan.md`）。
+> 残るは require（同文書 5 節）、UTF-8 → regexp → task。本家テストは 1866 件中 1819 件。
 
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に残りの本家 gem を移植できること。
 作業前に `README.md`（Rules、Verification）、`docs/gems.md`（手順と、移植済み gem が教えたこと）、
@@ -15,13 +17,13 @@
 
 * 本家は mruby 4.1.0-rc（`../../ref/mruby`）。参照バイナリは Docker イメージ `kishima/mruby:4.1.0-rc`
   （バイト列ビルド、bigint 無し）。本家テストは `tools/mrbtest.sh` で走らせ、`docs/mrbtest.md` に表を書く。
-  現在 **1828 件中 1787 件**（数の塔と pack の移植後）。落ちる 41 件の理由は `docs/mrbtest-notes.md` と
-  `tests/mrbtest/notes.tsv`。
+  現在 **1866 件中 1819 件**（数の塔、pack、eval／binding の移植後）。落ちる 47 件の理由は
+  `docs/mrbtest-notes.md` と `tests/mrbtest/notes.tsv`。
 * 移植済み: `default.gembox` の 33 gem のうち 31（fiber、enumerator、*-ext 5 種、sprintf、metaprog、proc-ext、
   method、compar-ext、toplevel-ext、enum-chain、enum-lazy、object-ext、symbol-ext、kernel-ext、class-ext、
   numeric-ext、catch、objectspace、math、random、struct、data、set、time、bigint、rational、complex）と
-  gembox 外の cmath、pack。
-* 残り: eval、binding、proc-binding（順序 4）、
+  gembox 外の cmath、pack、eval、binding、proc-binding。
+* 残り: 
   UTF-8 文字列（ビルド構成のマイルストーン、`docs/utf8-plan.md`）、regexp（順序 6）、task（順序 7）。
   io／socket／errno／dir／env／signal／process は POSIX 依存で対象外（著者決定）。
 * 本家テストを 1 件でも落とす gem を「移植済み」と呼ばない。落ちる件は理由を `notes.tsv` に書き、
@@ -100,7 +102,9 @@ eval はコンパイラ側の C パッチを伴うので独立した節にする
   本家イメージと照合。参照イメージには rational が入っている（`docker run --rm kishima/mruby:4.1.0-rc mruby -e 'p 1r'`
   が `(1/1)` を返す。2026-09-12 確認）。complex と cmath も同様に `p 2i` で確かめてから照合する。
 
-### 3.3 mruby-eval、mruby-binding、mruby-proc-binding
+### 3.3 mruby-eval、mruby-binding、mruby-proc-binding — **済み（2026-09-12、require を除く）**
+
+実装で決めたこと・分かったことは `docs/gems.md` の項と `docs/eval-require-plan.md`。以下は着手時の指示。
 
 * 設計は `docs/eval-require-plan.md` に決めてある。要点:
   VM に `Host` trait（`compile(source, scopes) -> Result<irep bytes>`、`read_file`）の差し込み口を置き、

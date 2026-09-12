@@ -1,35 +1,35 @@
-irep 0x60ebbe165750 nregs=6 nlocals=2 pools=3 syms=5 reps=1 ilen=64
+irep 0x59f67173d6e0 nregs=6 nlocals=2 pools=3 syms=5 reps=1 ilen=64
 local variable names:
   R1:b
 file: /w/binding_eval.rb
-    6 000 TDEF		R2	:get_binding	I[0]
-   10 004 SSEND0	R2	:get_binding
-   10 007 MOVE		R1	R2	; R1:b
-   11 010 MOVE		R3	R1	; R1:b
-   11 013 STRING	R4	L[0]	; x
-   11 016 SEND		R3	:eval	n=1
-   11 020 SSEND		R2	:p	n=1
-   12 024 MOVE		R2	R1	; R1:b
-   12 027 STRING	R3	L[1]	; x = 7; y = 1
-   12 030 SEND		R2	:eval	n=1
-   13 034 MOVE		R3	R1	; R1:b
-   13 037 STRING	R4	L[2]	; x + y
-   13 040 SEND		R3	:eval	n=1
-   13 044 SSEND		R2	:p	n=1
-   14 048 MOVE		R3	R1	; R1:b
-   14 051 SEND0		R3	:local_variables
-   14 054 SEND0		R3	:sort
-   14 057 SSEND		R2	:p	n=1
-   14 061 RETURN	R2	
-   14 063 STOP
+    5 000 TDEF		R2	:get_binding	I[0]
+    9 004 SSEND0	R2	:get_binding
+    9 007 MOVE		R1	R2	; R1:b
+   10 010 MOVE		R3	R1	; R1:b
+   10 013 STRING	R4	L[0]	; x
+   10 016 SEND		R3	:eval	n=1
+   10 020 SSEND		R2	:p	n=1
+   11 024 MOVE		R2	R1	; R1:b
+   11 027 STRING	R3	L[1]	; x = 7; y = 1
+   11 030 SEND		R2	:eval	n=1
+   12 034 MOVE		R3	R1	; R1:b
+   12 037 STRING	R4	L[2]	; x + y
+   12 040 SEND		R3	:eval	n=1
+   12 044 SSEND		R2	:p	n=1
+   13 048 MOVE		R3	R1	; R1:b
+   13 051 SEND0		R3	:local_variables
+   13 054 SEND0		R3	:sort
+   13 057 SSEND		R2	:p	n=1
+   13 061 RETURN	R2	
+   13 063 STOP
 
-irep 0x60ebbe166ea0 nregs=5 nlocals=3 pools=0 syms=1 reps=0 ilen=11
+irep 0x59f67173ee30 nregs=5 nlocals=3 pools=0 syms=1 reps=0 ilen=11
 local variable names:
   R2:x
 file: /w/binding_eval.rb
-    6 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
-    7 004 LOADI_5	R2	(5)	; R2:x
-    8 006 SSEND0	R3	:binding
-    8 009 RETURN	R3	
+    5 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    6 004 LOADI_5	R2	(5)	; R2:x
+    7 006 SSEND0	R3	:binding
+    7 009 RETURN	R3	
 
-/w/binding_eval.rb:7:3: syntax warning, assigned but unused variable - x
+/w/binding_eval.rb:6:3: syntax warning, assigned but unused variable - x

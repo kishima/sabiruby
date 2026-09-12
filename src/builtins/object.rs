@@ -8,6 +8,11 @@ use crate::object::{Method, ObjKind, Vis};
 use crate::value::{Slot, Value};
 use crate::vm::Vm;
 
+/// `Class#allocate`, the one `Class#new` skips the dispatch for.
+fn default_allocate(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
+    match s.obj() { Some(c) => vm.instance_alloc(c), None => Err(vm.raise_type("not a class")) }
+}
+
 pub fn init(vm: &mut Vm) {
     let c = vm.core;
     vm.define_methods(c.basic_object, &[
@@ -139,8 +144,27 @@ pub fn init(vm: &mut Vm) {
     ]);
     // Class
     vm.define_methods(c.class, &[
-        ("new", |vm, s, a, b| vm.class_new_instance(s.obj().unwrap(), a, b)),
-        ("allocate", |vm, s, _a, _b| vm.instance_alloc(s.obj().unwrap())),
+        // `Class#new` is bytecode in the reference (`new_iseq` of src/class.c): it sends
+        // `allocate` and then `initialize`, so a class that redefines `allocate` decides
+        // what its `new` makes
+        ("new", |vm, s, a, b| {
+            let c = match s.obj() { Some(c) => c, None => return Err(vm.raise_type("not a class")) };
+            let alloc = vm.intern("allocate");
+            let obj = match vm.find_method(vm.class_of(s), alloc) {
+                // the built-in allocator: no need to go through a dispatch
+                Some((crate::object::Method::Native(f), _)) if core::ptr::fn_addr_eq(f, default_allocate as crate::object::NativeFn) => vm.instance_alloc(c)?,
+                Some(_) => vm.funcall(s, alloc, &[], Value::Nil)?,
+                None => vm.instance_alloc(c)?,
+            };
+            let init = vm.s.initialize;
+            if vm.respond_to(obj, init) {
+                vm.funcall(obj, init, a, b)?;
+            } else if !a.is_empty() {
+                return Err(vm.argnum_error(a.len(), "0"));
+            }
+            Ok(obj)
+        }),
+        ("allocate", default_allocate),
         ("superclass", |vm, s, _a, _b| { let mut c = vm.heap.class(s.obj().unwrap()).superclass; while let Some(x) = c { let cd = vm.heap.class(x); if cd.iclass_of.is_none() && !cd.is_singleton { return Ok(Value::Obj(x)); } c = cd.superclass; } Ok(Value::Nil) }),
         ("inherited", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("class_variable_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(vm.heap.class(s.obj().unwrap()).cvars.get(&n).map(|s| s.get()).unwrap_or(Value::Nil)) }),

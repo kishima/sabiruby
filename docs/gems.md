@@ -324,6 +324,48 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   scripts of 60 and 40 lines (every directive, every modifier, the counts, the error cases)
   answer identically.
 
+* **mruby-eval** (`ext_eval.rs`), **mruby-binding** (`ext_binding.rs`) and
+  **mruby-proc-binding** — `Kernel#eval`, the string forms of `instance_eval` and
+  `class_eval`/`module_eval`, `Kernel#binding`, `Binding` and `Proc#binding`. These are the
+  first gems that need something the VM crate does not have: a compiler.
+
+  * **The host** (`src/host.rs`) — the VM asks a `Host` (`Vm::set_host`) to turn a string
+    into a RITE binary, handing it the file name, the line and **the local variable names of
+    the enclosing scopes**. `sabiruby-compiler` implements it (its feature `host`), so the
+    dependency points compiler → VM and the VM stays pure Rust and `no_std`; the `sabiruby`
+    command, the test runner and `tests/custom.rs` install it. Without one, `eval` raises
+    NotImplementedError.
+  * **The one patch to the vendored compiler** (`compiler/vendor/VENDOR.md`,
+    `SABIRUBY_EVAL_SCOPES`, 121 lines) — the reference's compiler reads the caller's `RProc`
+    chain to know those names (`MRC_TARGET_MRUBY`); this build has no VM to read, so the same
+    two places (`mrc_pm_options_init` for Prism, `search_upvar` for the code generator, plus
+    numbered parameters) read the name table instead. `sabiruby_mrc_compile` — the `mrbc`
+    entry the golden tests cover — is not touched.
+  * **What makes the string see the caller** — the Proc the string becomes has the caller
+    frame's *environment* as its own and the caller's Proc as its `upper`, so the
+    `GETUPVAR`/`SETUPVAR` the compiler emits at depth 0 read and write the caller's registers
+    (`create_proc_from_string`). Depth accounting follows from that: from a block inside the
+    string the caller is one step further out, which is the reference's `lv - 1`.
+  * **Binding** — the reference's four instance variables (`proc`, `env`, `recv`, `pc`) and
+    its **local variable space**: the Proc a Binding holds is not the caller's but a Proc with
+    no locals wrapped around it, with an environment of its own. `local_variable_set` of a new
+    name grows that space (`mrb_proc_merge_lvar`: the irep's table and the environment
+    together), and `dup` wraps a fresh space over the shared one — which is what makes a copy
+    see the variables set so far and not the ones set afterwards.
+  * **`Binding#eval` and the variables a string leaves behind** — the reference parses the
+    string once to find the names its top level defines and merges them into the binding
+    before compiling (`binding_eval_prepare`). Here the string is *compiled* once instead: the
+    local variable table of the result is exactly what did not resolve to an enclosing scope.
+    Those names are merged and the string is compiled again, so `b.eval("x = 2")` leaves `x`
+    in the binding and the next `b.eval("x")` finds it.
+  * **`Class#new` sends `allocate`** — in the reference `Class#new` is bytecode
+    (`new_iseq` of `src/class.c`) that sends `allocate` and then `initialize`, so a class that
+    redefines `allocate` decides what `new` makes. SabiRuby's native allocated directly; it
+    now dispatches (skipping the dispatch when `allocate` is still the built-in one, so the
+    benchmarks do not move). mruby-binding's test found this.
+  * Not done: **`require`** (`docs/eval-require-plan.md` §5) — the `Host` already has
+    `read_file`/`file_exists` for it.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
@@ -339,23 +381,21 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 ## Remaining gems (plan as of 2026-09-12)
 
-Order and instructions for the rest: `docs/gems-plan.md`. Order 5 is done: the numeric tower
-(bigint, then rational and complex together, then cmath) and mruby-pack. Next is order 4
-(eval, binding, proc-binding), then UTF-8, regexp and task.
+Order and instructions for the rest: `docs/gems-plan.md`. Order 5 (the numeric tower and
+mruby-pack) and order 4 (eval, binding, proc-binding) are done; `require` is the half of
+`docs/eval-require-plan.md` still open. Next: UTF-8 strings, then regexp, then task.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
 class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint,
-rational, complex, pack (32), plus mruby-cmath from outside the gembox.
+rational, complex, pack, eval, binding, proc-binding (35), plus mruby-cmath from outside
+the gembox. Only mruby-regexp and the POSIX gems are left.
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
 |---|---|---|---|---|
-| 4 | mruby-eval | 417 / 0 / 333 | binding, compiler | `docs/eval-require-plan.md`; `tests/custom` cases wait for it |
-| 4 | mruby-binding | 523 / 0 / 102 | – (tests: proc-ext) | with eval |
-| 4 | mruby-proc-binding | 75 / 0 / 22 | binding, proc-ext | `Proc#binding` |
 | 6 | mruby-regexp | 10940 / 42 / 10213 | enumerator, symbol-ext, string-ext | the NFA engine (4.0.0); the largest single piece, its own milestone |
 | – | mruby-io, mruby-socket, mruby-errno, mruby-dir, mruby-env, mruby-signal, mruby-process | 3868+1429+334+530+223+108+1320 | POSIX | not planned: the VM is no_std; a host `Host` trait may offer `puts`-level output only. mruby-error and mruby-exit are C API helpers, not needed |
 | 7 | mruby-task | 2390 / 46 / 860 | – | not in default.gembox but planned: `Task` (priority queues, `Task.pass`/`sleep`/`join`/`Task::Queue`, tick-based preemption) on top of the Fiber contexts and `Vm::step`; the HAL (timer tick, `sleep_us`, idle) comes from the host, like the compiler hook; the scheduler-driven GC of `docs/gc.md` is part of it. Its `mrb_task_run` blocks, so the host-loop form (`run_once`) is the one rubevy needs |

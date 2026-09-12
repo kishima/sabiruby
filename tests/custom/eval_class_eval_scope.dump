@@ -1,37 +1,37 @@
-irep 0x58c861c0b550 nregs=7 nlocals=1 pools=0 syms=7 reps=1 ilen=53
+irep 0x64a4b9dd34c0 nregs=7 nlocals=1 pools=0 syms=7 reps=1 ilen=53
 file: /w/eval_class_eval_scope.rb
-    9 000 LOADNIL	R1	(nil)
-    9 002 LOADNIL	R2	(nil)
-    9 004 CLASS		R1	:K
-    9 007 LOADNIL	R1	(nil)
-   10 009 TDEF		R1	:f	I[0]
-   14 013 SSEND0	R1	:f
-   15 016 GETCONST	R2	K
-   15 019 SEND0		R2	:new
-   15 022 LOADSYM	R3	:g
-   15 025 LOADTRUE	R4	(true)
-   15 027 SEND		R2	:respond_to?	n=2
-   15 031 GETCONST	R3	Object
-   15 034 SEND0		R3	:new
-   15 037 LOADSYM	R4	:g
-   15 040 LOADTRUE	R5	(true)
-   15 042 SEND		R3	:respond_to?	n=2
-   15 046 SSEND		R1	:p	n=2
-   15 050 RETURN	R1	
-   15 052 STOP
+    8 000 LOADNIL	R1	(nil)
+    8 002 LOADNIL	R2	(nil)
+    8 004 CLASS		R1	:K
+    8 007 LOADNIL	R1	(nil)
+    9 009 TDEF		R1	:f	I[0]
+   13 013 SSEND0	R1	:f
+   14 016 GETCONST	R2	K
+   14 019 SEND0		R2	:new
+   14 022 LOADSYM	R3	:g
+   14 025 LOADTRUE	R4	(true)
+   14 027 SEND		R2	:respond_to?	n=2
+   14 031 GETCONST	R3	Object
+   14 034 SEND0		R3	:new
+   14 037 LOADSYM	R4	:g
+   14 040 LOADTRUE	R5	(true)
+   14 042 SEND		R3	:respond_to?	n=2
+   14 046 SSEND		R1	:p	n=2
+   14 050 RETURN	R1	
+   14 052 STOP
 
-irep 0x58c861c0cc80 nregs=5 nlocals=2 pools=1 syms=3 reps=1 ilen=20
+irep 0x64a4b9dd4bf0 nregs=5 nlocals=2 pools=1 syms=3 reps=1 ilen=20
 file: /w/eval_class_eval_scope.rb
-   10 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
-   11 004 GETCONST	R2	K
-   11 007 STRING	R3	L[0]	; def hi; :hi; end
-   11 010 SEND		R2	:class_eval	n=1
-   12 014 TDEF		R2	:g	I[0]
-   12 018 RETURN	R2	
+    9 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   10 004 GETCONST	R2	K
+   10 007 STRING	R3	L[0]	; def hi; :hi; end
+   10 010 SEND		R2	:class_eval	n=1
+   11 014 TDEF		R2	:g	I[0]
+   11 018 RETURN	R2	
 
-irep 0x58c861c0e410 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+irep 0x64a4b9dd6380 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
 file: /w/eval_class_eval_scope.rb
-   12 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
-   12 004 LOADI_2	R2	(2)
-   12 006 RETURN	R2	
+   11 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   11 004 LOADI_2	R2	(2)
+   11 006 RETURN	R2	
 
