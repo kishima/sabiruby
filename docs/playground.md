@@ -35,6 +35,7 @@ browser main thread                    Web Worker
   | `sabi_stats(insns, live, gc)` | three u64 out-parameters |
   | `sabi_trace(on)` | `Vm::set_trace`: record the events of `inspect.rs` |
   | `sabi_step_until(mode, budget) -> status` | 0 one instruction, 1 step over, 2 step into, 3 step out, 4 `budget` instructions (Continue, what Run uses). Step over keeps going while the frame is deeper than it was; step out until it is shallower. The loop is on the Rust side |
+  | `sabi_step_program_only(on)` | stop only in the program's own ireps: mrblib and the gems are stepped through without stopping, where the listing has no row to show |
   | `sabi_state(regs_frames, len_out) -> ptr` | `Vm::snapshot` as JSON |
   | `sabi_take_trace(len_out) -> ptr` | the events since the last call, as JSON |
   | `sabi_gc_collect()` / `sabi_gc_stress(on)` | collect now; collect after every allocation |
@@ -68,9 +69,15 @@ the ones Visual Studio and VS Code use. The editor is read-only while a session 
   `debug-gc {collect | stress}`, `debug-stop`, `op-counts`. **続行** streams output and progress
   the way Run does, so an endless loop still stops with the worker.
 * The bytecode pane is built from `sabi_dump_json` as rows (`web/debug.js`): the running
-  instruction gets `.current`, the frames below it `.caller`, and the pane scrolls to follow. When
-  the VM is inside mrblib or a gem — an irep loaded before the program — the pane says so instead
-  of highlighting the wrong row. The editor marks the current line (from the DBG section).
+  instruction gets `.current`, the frames below it `.caller`, and the pane scrolls to follow. The
+  editor marks the current line (from the DBG section).
+* **Inside mrblib the listing has nothing to show**, and that is most of the time: `3.times { }`
+  is 50 instructions, 40 of them in `Integer#times`, which is Ruby in mrblib and was loaded before
+  the program (its irep is below `offset`). Stepping there used to blank the highlight and look
+  frozen, so now the call the VM is running keeps a dashed mark (`.calling`) and a banner above the
+  listing names it with its irep, pc and line — numbers that change at every step. The
+  **mrblib に入る** toggle turns it off: `sabi_step_program_only` then runs those ireps to their end
+  instead of stopping inside them, and only the program's own instructions are stepped through.
 * The "VM インスペクタ" pane has six tabs, all drawn from the snapshot and the trace
   ([`inspect.md`](inspect.md)): **コールスタック** (the frames and the registers of the selected
   one, named from `lv`), **スコープ（環境）** (the environments, attached or moved to the heap, and
@@ -84,7 +91,7 @@ the ones Visual Studio and VS Code use. The editor is read-only while a session 
   session starts: `vm_closure.rb` for the environment tab, `cg_rescue.rb` for exceptions,
   `vm_fiber*.rb` for fibers, `gc_churn.rb` (this repository's own sample) for the GC tab.
 
-The whole debugger adds 69,805 bytes to the module (16,542 gzipped): the JSON writer, the
+The whole debugger adds 69,913 bytes to the module (16,580 gzipped): the JSON writer, the
 snapshot and the DBG reader. The plan's budget was 100 KB.
 
 ## Building the compiler for wasm
@@ -106,7 +113,7 @@ wasi-sdk's clang (see `compiler.md`):
   until `SystemStackError` (`NATIVE_DEPTH_MAX`) and 250 nested literals (Prism's depth limit is
   256), already pass with the default 1 MB.
 
-Module as deployed: 1,303,787 bytes after `wasm-opt -Oz`, 438,027 over gzip (Pages compresses it;
+Module as deployed: 1,303,895 bytes after `wasm-opt -Oz`, 438,065 over gzip (Pages compresses it;
 1,169,017 / 421,881 before the AST pane and the debugger).
 Page ready (navigation start to the Run button enabled: fonts, CodeMirror, the module, the worker,
 the VM with mrblib) on the deployed site in a fresh headless Chromium: 0.43–1.46 s over three runs
@@ -120,7 +127,7 @@ What a browser downloads (the gzip column; Pages and npm CDNs serve wasm compres
 | module | contents | bytes | gzip -9 |
 |---|---|---:|---:|
 | `picoruby.wasm`, npm `@picoruby/wasm-wasi` 4.0.3 (as published) | mruby VM (C), compiler, many gems, JavaScript bridge | 2,104,568 | 871,069 |
-| this playground's `sabiruby.wasm` (VM + compiler + AST + debugger, local build) | SabiRuby, reference compiler (C), `pm_prettyprint`, `inspect.rs` and the JSON writer | 1,303,787 | 438,027 |
+| this playground's `sabiruby.wasm` (VM + compiler + AST + debugger, local build) | SabiRuby, reference compiler (C), `pm_prettyprint`, `inspect.rs` and the JSON writer | 1,303,895 | 438,065 |
 | SabiRuby VM only (probe below) | `sabiruby` 0.2.0 incl. the embedded mrblib | 783,729 | 281,054 |
 | mruby/edge VM only (probe below) | `mrubyedge` 1.1.12, default features (`wasi`, `mrubyedge-debug`) | 562,560 | 185,343 |
 | `mrbc.wasm`, npm `@picoruby/mrbc` 4.0.3 (as published) | compiler only | 519,224 | 157,505 |
