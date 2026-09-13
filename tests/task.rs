@@ -118,3 +118,26 @@ fn a_task_that_raises_keeps_the_scheduler_going() {
     "#);
     assert_eq!(String::from_utf8_lossy(&vm.take_output()), ":other\n[RuntimeError, \"boom\", :DORMANT]\n");
 }
+
+#[test]
+fn a_call_that_parks_answers_its_own_value() {
+    // the switch is deferred to the next instruction boundary, as the reference defers it, so the
+    // value the native returned is stored first (`docs/gems.md`, mruby-task)
+    let mut vm = vm_with(r#"
+      done = Task.new(name: "done") { :done_now }
+      Task.run
+      a = Task.new(name: "a") { sleep(0.05); :done_a }
+      Task.new(name: "b") { p [Task.pass, sleep(0.01), a.join, done.join] }
+      Task.run
+      begin; a.join; rescue => e; p [e.class, e.message]; end
+      begin; Task.new { }.join; rescue => e; p e.class; end
+    "#);
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        // Task.pass is nil, sleep answers the seconds asked for, a join that waited answers the
+        // result as it stood (nil), a join on a task already done answers its result
+        "[nil, 0, nil, :done_now]\n\
+         [RuntimeError, \"join can only be called from running task\"]\n\
+         RuntimeError\n"
+    );
+}

@@ -79,6 +79,9 @@ fn refusals() {
     assert!(err("a*+").contains("possessive"));
     assert!(err("(a)\\g<1>").contains("subexpression call"));
     assert!(err("(?~a)").contains("absent"));
+    // the reference is built without the property tables: `\p{…}` raises there too
+    assert!(err("\\p{L}").contains("character property"));
+    assert!(err("[\\p{Hiragana}]").contains("character property"));
     // the limits the surface reports, and the parser's complaints in the reference's wording
     assert!(err("a{32769}").contains("too big number for repeat range"));
     assert_eq!(err(&"(a)".repeat(32)), "too many capture groups are specified");

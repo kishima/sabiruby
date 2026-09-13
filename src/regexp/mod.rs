@@ -172,7 +172,7 @@ fn unsupported<T>(what: &str) -> Result<T, String> {
 /// Ruby's pattern syntax as `regex-syntax`'s. Three kinds of work: what the two spell differently
 /// is rewritten (`\h`, `\uXXXX`, octal escapes, `(?'name'…)`, the ASCII shorthands), what only
 /// Ruby has is refused by name, and the rest is passed through, `regex-syntax` reading it the
-/// same way (`[[:alpha:]]`, `[a-z&&[^aeiou]]`, `(?<name>…)`, `\p{…}`, `{n,m}`, `*?`).
+/// same way (`[[:alpha:]]`, `[a-z&&[^aeiou]]`, `(?<name>…)`, `{n,m}`, `*?`).
 struct Tr {
     /// the build reads a string as characters and the pattern is not byte-read
     unicode: bool,
@@ -785,12 +785,10 @@ fn translate_escape(
         // them is read the way the pattern's own bytes are, so `\xC4\x80+` repeats the whole of
         // what the two spell rather than its last byte
         b'x' => push_escape_bytes(src, i, false, tr, out, raw),
-        // `\p{…}`; a bare `\p` names no property and is the letter, as it is in CRuby
-        b'p' | b'P' if src.get(i + 2) == Some(&b'{') => {
-            out.push('\\');
-            out.push(c as char);
-            Ok(i + 2)
-        }
+        // `\p{…}` names a Unicode property, which the reference's engine is built without
+        // ("character property is not supported"). A bare `\p` names no property and is the
+        // letter, as it is in CRuby, and falls through to the arm below.
+        b'p' | b'P' if src.get(i + 2) == Some(&b'{') => unsupported("character property"),
         _ => {
             if c.is_ascii_alphabetic() && !matches!(c, b'a' | b'f' | b'n' | b'r' | b't' | b'v') {
                 // an escape neither engine reads is the letter itself, which is what CRuby reads

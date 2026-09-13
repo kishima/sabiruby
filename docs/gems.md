@@ -87,6 +87,11 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   | conditional `(?(…)…)` | 1 | — |
   | nesting past `regex-syntax`'s depth limit | 1 | — |
 
+  `\p{…}` is refused on both sides, so it is not in that table: the reference's engine is built
+  without the Unicode property tables (`character property is not supported: /\p{L}/`) and this
+  one refuses it in the same place, in this engine's wording (`character property is not supported
+  by this engine: /\p{L}/`). A bare `\p`, and `\pL`, are the letter in both, as they are in CRuby.
+
   What the two engines answer differently where both compile the pattern (39 assertions, most of
   them in `regexp_syntax.rb`): `\Z` is `\z` here, so it does not match before a trailing newline
   (writing it takes a lookahead); `^` matches after a trailing newline, where Ruby opens no line
@@ -553,6 +558,20 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   * The C test helpers (`test/tasktest.c`) are in `src/mrbtest.rs`: the scheduler hook probes,
     `run_once`, `reinit_context`, `run_sync`, and `block_then_raise`, whose busy-wait is replaced
     by saying outright that the timeslice expired — the state the test is about.
+  * **The root context is not a task**, as it is not in the reference: `Task.current` answers a
+    "main" wrapper there that the scheduler never runs. Nothing runs a task until the root asks —
+    `Task.run` runs them all to the end, `Task.pass` from the root runs one ready task for one
+    timeslice (`task_run_one_iteration`) — and `Task#join` from the root raises `RuntimeError`,
+    `join can only be called from running task`, the reference's words. Wait for a result with
+    `Task.run` and read it with `Task#value`.
+  * **A call that parks still answers its own value**, because the switch is deferred exactly as
+    the reference defers it: the native raises a flag (`switching_ = TRUE`) and returns, the SEND
+    stores what it returned, and the context goes at the next instruction boundary. So
+    `Task.pass` is nil, `sleep(sec)` in a task is the seconds it asked for (the reference's
+    `ms / 1000`), and `Task#join` is the joined task's result *as it stood when join was called* —
+    the result where the task had already finished, nil where the wait was real. The gem's own
+    tests call none of these for their value, so this was found by reading `task.c` rather than by
+    a failing assertion.
   * **What a host drives it with** (`Vm::task_*`, checked by `tests/task.rs`): `task_spawn` makes
     a task out of a compiled program rather than out of a Ruby block (`mrb_create_task` takes an
     `RProc`), `task_run_once` is `mrb_task_run_once`, and `task_run_budget` is one turn of a frame

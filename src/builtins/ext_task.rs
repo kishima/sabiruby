@@ -296,17 +296,12 @@ fn wake_join_waiters(vm: &mut Vm, done: ObjId) {
     }
 }
 
-/// Suspends the running task and returns to the scheduler, the way `Fiber.yield` returns to the
-/// resumer. The native that called this must return its value as it stands.
-fn yield_to_scheduler(vm: &mut Vm) -> VmResult<Value> {
-    let c = vm.cur;
-    let prev = vm.contexts[c].prev.take().unwrap_or(ROOT);
-    vm.contexts[c].status = FiberState::Suspended;
-    vm.contexts[c].pending_reg = Some(vm.native_ret_reg);
-    let vmexec = core::mem::take(&mut vm.contexts[c].vmexec);
-    vm.switch_context(prev, SwitchKind::Yield);
-    if vmexec { vm.loop_exit = Some(Value::Nil); }
-    Ok(Value::Nil)
+/// Hands the CPU back to the scheduler, which the reference does by raising a flag the run loop
+/// reads at the next instruction boundary (`switching_ = TRUE`) rather than by switching inside
+/// the native. Doing the same here is what lets a parking call still answer a value: the SEND
+/// stores what the native returned, and only then does the context go (`Vm::exec_frames`).
+fn park(vm: &mut Vm) {
+    vm.task.switching = true;
 }
 
 // ------------------------------------------------------------------ the scheduler
@@ -482,7 +477,8 @@ fn task_pass(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> 
         return Err(vm.raise(vm.core.runtime_error, "can't switch task across C function boundary"));
     }
     set_status(vm, t, READY);
-    yield_to_scheduler(vm)
+    park(vm);
+    Ok(Value::Nil)
 }
 
 fn task_stat(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
@@ -802,7 +798,7 @@ pub fn init(vm: &mut Vm) {
             if td(vm, o).status == DORMANT { return Ok(s); }
             let running = current_task(vm) == Some(o);
             set_status(vm, o, SUSPENDED);
-            if running { yield_to_scheduler(vm)?; }
+            if running { park(vm); }
             Ok(s)
         }),
         ("resume", |vm, s, a, _b| {
@@ -850,13 +846,18 @@ pub fn init(vm: &mut Vm) {
         ("join", |vm, s, a, _b| {
             argc!(vm, a, 0);
             let o = live(vm, s)?;
-            let Some(me) = current_task(vm) else { return Ok(s) };
-            if me == o { return Err(vm.raise(vm.core.runtime_error, "cannot join the current task")); }
-            if td(vm, o).status == DORMANT { return Ok(s); }
+            // the root has no task to suspend, which the reference says in these words
+            let Some(me) = current_task(vm) else {
+                return Err(vm.raise(vm.core.runtime_error, "join can only be called from running task"));
+            };
+            if me == o { return Err(vm.raise_arg("can't join self")); }
+            if td(vm, o).status == DORMANT { return Ok(td(vm, o).result.get()); }
             { let t = td_mut(vm, me); t.reason = REASON_JOIN; t.join = Some(o); }
             set_status(vm, me, WAITING);
-            yield_to_scheduler(vm)?;
-            Ok(s)
+            park(vm);
+            // the result as it stands, which is nil where the wait is real: the value is stored
+            // before the context goes, as it is in the reference (`docs/gems.md`)
+            Ok(td(vm, o).result.get())
         }),
         ("value", |vm, s, a, _b| { argc!(vm, a, 0); let o = task_id(vm, s)?; Ok(td(vm, o).result.get()) }),
     ]);
@@ -907,7 +908,8 @@ fn kernel_sleep(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Valu
             return Err(vm.raise(vm.core.runtime_error, "can't sleep across C function boundary"));
         }
         set_status(vm, t, SUSPENDED);
-        return yield_to_scheduler(vm);
+        park(vm);
+        return Ok(Value::Nil);
     }
     let secs = match a[0] {
         Value::Int(i) => i as f64,
@@ -952,5 +954,6 @@ fn sleep_us(vm: &mut Vm, micros: u64) -> VmResult<Value> {
     }
     set_status(vm, t, WAITING);
     note_wakeup(vm, deadline);
-    yield_to_scheduler(vm)
+    park(vm);
+    Ok(Value::Nil)
 }
