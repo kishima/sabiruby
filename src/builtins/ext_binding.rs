@@ -173,7 +173,12 @@ fn proc_binding(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value
     match (env, upper) {
         (Some(env), Some(upper)) => {
             let recv = env_get(vm, env, 0);
-            Ok(new_binding(vm, upper, recv, env, None))
+            let b = new_binding(vm, upper, recv, env, None);
+            // `Proc#binding` records where the *proc* was written, not where `binding` was called
+            // (`mrb_proc_binding` sets the ivar and `binding_source_location` answers from it)
+            let loc = super::ext_proc::source_location_of(vm, p);
+            if let Some(o) = b.obj() { let k = vm.intern("@source_location"); vm.heap.ivar_set(o, k, loc); }
+            Ok(b)
         }
         _ => {
             // no scope to bind to: a Binding with only its own space (`env = NULL`)
@@ -277,6 +282,11 @@ pub fn init(vm: &mut Vm) {
         }),
         ("receiver", |vm, s, _a, _b| { let _ = parts(vm, s)?; Ok(s.obj().map(|o| vm.heap.ivar_get(o, vm.s.brecv)).unwrap_or(Value::Nil)) }),
         ("source_location", |vm, s, _a, _b| {
+            // a Binding that was told where it came from answers that (`Proc#binding`)
+            let k = vm.intern("@source_location");
+            if let Some(o) = s.obj() {
+                if vm.heap.get(o).ivars.iter().any(|(n, _)| *n == k) { return Ok(vm.heap.ivar_get(o, k)); }
+            }
             let (p, _) = parts(vm, s)?;
             let pc = s.obj().map(|o| vm.heap.ivar_get(o, vm.s.bpc)).unwrap_or(Value::Nil);
             let upper = vm.heap.proc_data(p).upper;

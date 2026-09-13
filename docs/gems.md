@@ -61,6 +61,12 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
 
 * NaN identity: every NaN is one immediate here, the reference allocates one object per NaN
   (`[nan].uniq`, `[nan].count(nan)`, `[nan] - [nan]`, two `"…".unpack1("E")` of a NaN).
+* `Exception#backtrace` is kept as the frames rather than as text (`Vm::keep_backtrace`, the
+  hidden `@__bt`): a program that uses exceptions for control raises far more often than it reads
+  the backtrace, so the strings are built only when `backtrace` is called. The text is the format
+  `caller` uses and matches the reference's byte for byte on the same script; a re-raise keeps the
+  first record, as `mrb_keep_backtrace` does. `MRUBY_REVISION` is this repository's commit
+  (`build.rs`), `HEAD` where the build had no git — the reference's own default.
 * The differences a character-indexed String brings with it are their own list, in
   [`utf8.md`](utf8.md) ("Deviations kept").
 * **mruby-regexp**: the engine is `regex-automata`, not the reference's NFA, so what a finite
@@ -527,12 +533,12 @@ tests from source so it has them too. Reading LVAR uncovered a bug of the loader
 count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 
-## Remaining gems (plan as of 2026-09-12)
+## Remaining gems (none, as of 2026-09-13)
 
-Order and instructions for the rest: `docs/gems-plan.md`. Order 5 (the numeric tower and
-mruby-pack), order 4 (eval, binding, proc-binding), UTF-8 strings (`docs/utf8.md`) and order 6
-(regexp) and 7 (task) are done, and so is `require` (`docs/eval-require-plan.md` §5). What is
-left of the plan is the POSIX gems, which are not planned.
+The plan is finished: `docs/gems-plan.md` (orders 4 to 7, UTF-8 strings and `require`/`load`) is
+marked done, and nothing of it is left. The seven POSIX gems below were never part of it — the VM
+is `no_std`, so a host offers what it can through the `Host` trait instead. What comes after the
+gems is `docs/after-gems-plan.md`.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,

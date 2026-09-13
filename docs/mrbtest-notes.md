@@ -25,12 +25,10 @@ Categories:
 |---|---|---|---|
 | array | 1 crash | C fixture | `Array shared from an emptied heap array keeps a buffer` needs the `AryShared` class of `mruby-test/ary_shared.c`. The reference `mruby` crashes here too (62/63). |
 | env | 8 crash | C fixture | Every test calls `__env_svar?`, `__env_len`, `__env_cfunc_proc`, ... from `mruby-test/env.c`, probing REnv slot internals. The reference `mruby` crashes on all 8 too. |
-| exception | 2 skip | build | `GC in rescue` and `Method call in rescue` skip when `backtrace_available?` is false. SabiRuby does not read the DBG section, so `Exception#backtrace` is empty. |
 | float | 1 KO (3 assertions) | deviation | `a NaN is the object it is and no other`: SabiRuby Floats are immediates, so two NaNs made separately are `equal?` and have the same `object_id`. mruby with Word Boxing allocates each NaN on the heap. |
 | literals | 1 skip | build | `Literals Numerical without Float` skips because Float is defined (the reference skips it too, 11/12). |
 | syntax | 1 KO (2 assertions) | deviation | `pattern matching - a key that moves the subject`: a hash pattern whose key's `hash`/`eql?` mutates the subject is not detected (mruby raises RuntimeError from the hash iteration guard). The reference `mruby` command has 3 KO here of its own: tests reading `__FILE__`/`__LINE__` see the concatenated runner script. |
 | sysfail | 1 crash | C fixture | `TestSysFail` of `mruby-test/sysfail.c` (`mrb_sys_fail`). Reference `mruby` crashes too. |
-| version | 1 skip | build | `MRUBY_REVISION` is `"HEAD"` in SabiRuby, and the test skips itself for a build without a revision. The reference binary carries the commit hash and passes. |
 | vformat | 1 crash | C fixture | `TestVFormat` of `mruby-test/vformat.c` (`mrb_vformat`). Reference `mruby` crashes too. |
 | regexperror | 0 assertions | — | The file's one test is commented out on the reference (`# TODO broken ATM`), so it reports 0 there too. |
 | codegen | 1 KO (2 assertions) | gem | `register window of calls (#3783)` expects `/static/` to raise NoMethodError, which holds only where the build has no `Regexp` class. mruby-regexp is not in any gembox, so the reference's `mrbtest` never links it; the reference `mruby` command, which does, answers as SabiRuby does. |
@@ -39,16 +37,14 @@ Categories:
 | gem_enum | 1 KO (2 assertions) | deviation | `Array#count with a NaN`: same NaN identity. |
 | gem_enum_chain | 1 KO | reference too | `Enumerator::Chain#size`: `[1,2,3].chain(3..4).size` is 5 once mruby-range-ext gives `Range#size`, and the test expects nil. The reference `mruby` (default gembox) fails the same assertion (6/7). |
 | gem_set | 1 KO | deviation | `Set#include? with an element that changes the Set`: the reference raises RuntimeError from the khash rebuild guard (GHSA-4jw6-mq65-g3c8); the Hash-shaped Set here has no such state and finishes the lookup. |
-| gem_binding_binding | 1 KO, 2 crash, 1 skip | C fixture | `binding_in_c` and the `__binding_env_*` helpers are `mruby-binding/test/binding.c`; the reference `mruby` command fails them too. The skip is `Binding#source_location`, which asks for `Proc#source_location` first (nil here, no DBG-based location yet). |
-| gem_proc_binding | 1 crash, 1 skip | C fixture | `proc_in_c` of `mruby-proc-binding/test/binding.c`; same skip. |
+| gem_binding_binding | 1 KO, 2 crash | C fixture | `binding_in_c` and the `__binding_env_*` helpers are `mruby-binding/test/binding.c`; the reference `mruby` command fails them too. |
+| gem_proc_binding | 1 crash | C fixture | `proc_in_c` of `mruby-proc-binding/test/binding.c`. |
 | gem_pack | 1 KO | deviation | `unpack a NaN that signals`: two unpacked NaNs are the same immediate here, so `equal?` is true. Same NaN identity as `float`. |
 | gem_string | 3 skip (9 as bytes) | build | Each build skips what only the other answers, as the reference does: the UTF-8 build skips the three tests written for a byte-string one, and the byte-string build skips `swapcase`/`casecmp?` Unicode and the six `scrub` tests (`UNICODECASE` false). |
 | gem_fiber2 | (all pass) | — | Needs the six natives of `mruby-fiber/test/fibertest.c`; SabiRuby provides them in `src/mrbtest.rs`. The reference `mruby` command lacks them and crashes on all 4. |
 | gem_array | (C helper) | — | `__unshift_from_c` of `mruby-array-ext/test/array.c` is provided by `src/mrbtest.rs`. |
 | gem_sprintf | 1 skip (3 as bytes) | build | `what the string sprintf builds claims` asks for `String#encoding`, which comes with mruby-encoding (not ported, and absent from the reference build too). The two `%c` tests skip themselves in the byte-string build, where `__ENCODING__` is `"ASCII-8BIT"`. |
 | gem_proc | 2 crash | C fixture | `ProcExtTest.mrb_proc_new_cfunc_with_env` / `mrb_cfunc_env_get` test the C closure API of `mruby-proc-ext/test/proc.c`; there is no C closure here. The reference `mruby` crashes too. |
-| gem_proc | 1 skip | build | `Proc#source_location` skips when no debug info is available (DBG is not read). |
-| gem_method | 2 skip | build | `Method#source_location` / `UnboundMethod#source_location`: same DBG reason. |
 | gem_regexp | 1 crash | engine | `Regexp#to_s` folds a leading option group by trial-compiling what it encloses, and the pattern there is `(?=a)`. |
 | gem_regexp_syntax | 25 KO, 55 crash | engine | The crashes are lookbehind (18), backreference (11), lookahead (9), `\k` (8), possessive (3), atomic, absent, conditional and one nesting depth. The KO are `\Z`, `^` after a trailing newline, an empty iteration's capture, `/i` over `\w` and over a class the reference closes once, the step and stack limits, and the parser's wording for constructs neither engine compiles. |
 | gem_regexp_call | 12 crash, 2 KO | engine | The file is about `\g<…>`, the subexpression call. |
@@ -62,9 +58,12 @@ Categories:
 | gem_gc_task | 2 KO | deviation | `GC.scheduler_driven` is there and the scheduler collects from its idle points, but `GC.generational_mode` is always false (the collector marks and sweeps in one go, `docs/gc.md`) and both assertions turn on it being on. |
 | gem_proc_set_stack | 0 assertions | — | Both tests ask `TaskTest.respond_to?` first and skip themselves: they probe how mruby sizes a task's stack allocation, which a growable vector has no equivalent of. |
 
-Summary (2026-09-13, after mruby-regexp and mruby-task): 2484 assertions in the default build,
-2313 pass (2429 and 2236 without the feature `utf8`). mruby-task's own files add 72, of which 70
-pass (`gem_task` 43/43, `gem_queue` 23/23, `gem_gc_task` 4/6).
+Summary (2026-09-13, after mruby-regexp, mruby-task and the source-location/backtrace work):
+2484 assertions in the default build, 2321 pass (2429 and 2244 without the feature `utf8`).
+mruby-task's own files add 72, of which 70 pass (`gem_task` 43/43, `gem_queue` 23/23,
+`gem_gc_task` 4/6). The eight assertions that used to skip for want of debug information now run:
+`Proc`/`Method`/`UnboundMethod`/`Binding#source_location`, `Proc#inspect`, the two `exception`
+tests that read `Exception#backtrace`, and `MRUBY_REVISION`.
 Not passing: 100 crashes and 50 KO, of which mruby-regexp's engine accounts for 82 crashes and
 39 KO; the rest are the 17 crashes (16 C fixtures, 1 core-test-vs-gem conflict the reference
 shares) and 11 KO (NaN identity ×5, the pattern-matching guard, the Set rebuild guard,

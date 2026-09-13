@@ -231,7 +231,16 @@ pub fn init(vm: &mut Vm) {
         ("==", method_eql), ("eql?", method_eql), ("to_s", method_to_s), ("inspect", method_to_s),
         ("super_method", super_method),
         ("arity", |vm, s, _a, _b| Ok(Value::Int(method_arity(vm, s)))),
-        ("source_location", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("source_location", |vm, s, _a, _b| {
+            // the Proc the Method wraps answers for it; a native (or a `method_missing` stand-in)
+            // has no irep and answers nil, as the reference does
+            let i = ivs(vm);
+            if iv(vm, s, i.missing).truthy() { return Ok(Value::Nil); }
+            match iv(vm, s, i.proc_) {
+                Value::Obj(p) => Ok(super::ext_proc::source_location_of(vm, p)),
+                _ => Ok(Value::Nil),
+            }
+        }),
         ("parameters", parameters),
         ("owner", |vm, s, _a, _b| { let i = ivs(vm); Ok(iv(vm, s, i.owner)) }),
         ("name", |vm, s, _a, _b| { let i = ivs(vm); Ok(iv(vm, s, i.name)) }),

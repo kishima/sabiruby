@@ -105,8 +105,8 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 18 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`); `utf8.rb` is compared with
 the image of the build's own reading (`kishima/mruby:4.1.0-rc-utf8` by default).
 
-mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 2313 of
-2484 in the default build and 2236 of 2429 in a byte-string one — each build runs the
+mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 2321 of
+2484 in the default build and 2244 of 2429 in a byte-string one — each build runs the
 assertions written for it and has its own floor (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md)
 and [`docs/mrbtest-bytes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-bytes.md), reasons for the rest in
 [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)).

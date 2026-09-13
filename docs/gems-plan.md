@@ -1,34 +1,26 @@
 # gem 移植 実装指示書（順序 4 以降）
 
-> **実装状況**（2026-09-12）: bigint、rational、complex、cmath 済み（数の塔が揃った。
-> `src/bigint.rs`、`src/builtins/ext_rational.rs`／`ext_complex.rs`／`ext_cmath.rs`、
-> `numeric.rs` の分岐。本家テストは 1778 件中 1738 件、4 gem のテストは全件通過。
-> 詳細と本家との差異は `docs/gems.md`）。pack も済み（本家テスト 50 件中 49 件、落ちる 1 件は
-> NaN の同一性の既存差異）。順序 4（eval、binding、proc-binding）も済み（`src/host.rs` の差し込み口、
-> vendoring したコンパイラへの唯一のパッチ `SABIRUBY_EVAL_SCOPES`、`docs/eval-require-plan.md`）。
-> UTF-8 文字列も済み（feature `utf8` 既定 on、`docs/utf8.md`。文字ビルドで 1877/1916、
-> バイトビルドで 1819/1866、baseline は 2 本）。残るは require（同文書 5 節）、regexp → task。
+> 2026-09-13 実装済み（順序 4〜7 と UTF-8 文字列、require／load）。実装の説明と、この指示書から変えた点（理由付き）は
+> [`gems.md`](gems.md)。移植後の作業は [`after-gems-plan.md`](after-gems-plan.md)。
 
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に残りの本家 gem を移植できること。
 作業前に `README.md`（Rules、Verification）、`docs/gems.md`（手順と、移植済み gem が教えたこと）、
 `docs/gc.md`（ネイティブから見た GC の約束）を読むこと。設計判断はここに書いたとおりにし、
 変えたい場合は理由を `docs/gems.md` に残す。
 
-## 0. 前提と現状（2026-09-12）
+## 0. 前提と現状（着手時 2026-09-12、完了時の値を併記）
 
 * 本家は mruby 4.1.0-rc（`../../ref/mruby`）。参照バイナリは Docker イメージ `kishima/mruby:4.1.0-rc`
   （バイト列ビルド、bigint 無し）。本家テストは `tools/mrbtest.sh` で走らせ、`docs/mrbtest.md` に表を書く。
   文字としての String は `kishima/mruby:4.1.0-rc-utf8`（同じ木を `MRB_UTF8_STRING` で建てたもの）と
   突き合わせる（`tools/mrbtest.sh` は既定が文字、`--bytes` がバイト）。
-  現在 **文字ビルド 1916 件中 1877 件／バイトビルド 1866 件中 1819 件**。落ちる件の理由は
-  `docs/mrbtest-notes.md` と `tests/mrbtest/notes.tsv`。
-* 移植済み: `default.gembox` の 33 gem のうち 31（fiber、enumerator、*-ext 5 種、sprintf、metaprog、proc-ext、
-  method、compar-ext、toplevel-ext、enum-chain、enum-lazy、object-ext、symbol-ext、kernel-ext、class-ext、
-  numeric-ext、catch、objectspace、math、random、struct、data、set、time、bigint、rational、complex）と
-  gembox 外の cmath、pack、eval、binding、proc-binding。
-* 残り: 
-  UTF-8 文字列（ビルド構成のマイルストーン、`docs/utf8-plan.md`）、regexp（順序 6）、task（順序 7）。
-  io／socket／errno／dir／env／signal／process は POSIX 依存で対象外（著者決定）。
+  着手時は文字ビルド 1916 件中 1877 件／バイトビルド 1866 件中 1819 件。
+  **完了時は文字ビルド 2484 件中 2313 件／バイトビルド 2429 件中 2236 件**（`docs/mrbtest.md`、`docs/mrbtest-bytes.md`）。
+  落ちる件の理由は `docs/mrbtest-notes.md` と `tests/mrbtest/notes.tsv`。
+* 移植済み（完了時）: `default.gembox` の 33 gem のうち POSIX 依存の 7 つ（io／socket／errno／dir／env／signal／process）を
+  除く全部と、gembox 外の cmath、pack、eval、binding、proc-binding、regexp、task。
+  加えて UTF-8 文字列（ビルド構成、`docs/utf8.md`）と require／load（`docs/eval-require-plan.md` 5 節）。
+* 残り: 無い。POSIX 依存の 7 gem は対象外（著者決定）。
 * 本家テストを 1 件でも落とす gem を「移植済み」と呼ばない。落ちる件は理由を `notes.tsv` に書き、
   意図した差異なら `docs/gems.md` の「Deviations kept」にも書く。
 

@@ -1,11 +1,9 @@
 array	crash: `AryShared` (mruby-test C fixture `ary_shared.c`)
 env	all 8 need the `__env_*` natives of mruby-test `env.c` (REnv internals)
-exception	2 skips: `backtrace_available?` is false (no DBG section, no backtrace)
 float	deliberate deviation: a NaN has no identity (Floats are immediates)
 literals	skip: Float is defined (same as reference)
 syntax	deliberate deviation: a hash pattern whose key mutates the subject is not detected
 sysfail	needs `TestSysFail` of mruby-test `sysfail.c`
-version	skip: `MRUBY_REVISION` is "HEAD" (no revision compiled in); the reference has a hash
 vformat	needs `TestVFormat` of mruby-test `vformat.c`
 regexperror	0 assertions: the file's one test is commented out on the reference (`# TODO broken ATM`)
 range	crash: `(1..).last` raises RangeError with mruby-range-ext loaded; the reference `mruby` crashes here too (21/22)
@@ -13,13 +11,12 @@ gem_array	deliberate deviation: NaN identity (`[nan].uniq`, `- [nan]`, `include?
 gem_enum	deliberate deviation: NaN identity (`[nan].count(nan)`)
 gem_string	skips: what only the other build answers (9 of them in the byte-string build, 3 in the UTF-8 one), as on the reference
 gem_sprintf	skips: `%c` and `__ENCODING__` tests the other build answers, and one needing mruby-encoding (`String#encoding`), as on the reference
-gem_proc	2 crashes: `ProcExtTest` is the C fixture of mruby-proc-ext (`mrb_proc_new_cfunc_with_env`); skip: `source_location` needs DBG
-gem_method	2 skips: `source_location` needs the DBG section (not read)
+gem_proc	2 crashes: `ProcExtTest.mrb_proc_new_cfunc_with_env` / `mrb_cfunc_env_get` test the C closure API of mruby-proc-ext (`test/proc.c`); there is no C closure here
 gem_enum_chain	ko: `[1,2,3].chain(3..4).size` is 5, not nil, with mruby-range-ext loaded (`Range#size`); the reference `mruby` fails the same assertion (6/7)
 gem_set	ko: a Set changed by an `eql?` during a lookup is a RuntimeError on the reference (khash rebuild guard, GHSA-4jw6-mq65-g3c8); the Hash-shaped Set here has no such state to guard and finishes the lookup
 gem_pack	deliberate deviation: NaN identity (two `unpack1("E")` of a signalling NaN are `equal?`)
-gem_binding_binding	C fixtures of mruby-binding's `test/binding.c` (`binding_in_c`, `__binding_env_*`); the skip is `Binding#source_location`, which needs `Proc#source_location`
-gem_proc_binding	crash: `proc_in_c` of mruby-proc-binding's `test/binding.c`; the skip is `Binding#source_location`
+gem_binding_binding	C fixtures of mruby-binding's `test/binding.c` (`binding_in_c`, `__binding_env_*`)
+gem_proc_binding	crash: `proc_in_c` of mruby-proc-binding's `test/binding.c`
 codegen	ko: `/static/` raises NoMethodError only where the build has no Regexp class; this one has mruby-regexp, as the reference's own `mruby` does
 gem_regexp	crash: `Regexp#to_s` folding a leading `(?=a)`, a construct the engine refuses (`docs/gems.md`, "Deviations kept")
 gem_regexp_syntax	the engine is `regex-automata`: the crashes are patterns using a construct a finite automaton has none of (lookbehind, backreference, lookahead, `\k`, possessive, atomic, absent, conditional, a nesting depth), the ko are what the reference's backtracking answers or words differently

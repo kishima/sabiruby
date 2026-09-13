@@ -9,7 +9,7 @@ comparable 7
 ensure 5
 enumerable 22
 env 0
-exception 33
+exception 35
 false 6
 float 28
 gc 24
@@ -20,7 +20,7 @@ gem_backref_scope 64
 gem_backtracking_stack 0
 gem_bigint 29
 gem_binding 8
-gem_binding_binding 5
+gem_binding_binding 6
 gem_catch 8
 gem_class 3
 gem_cmath 21
@@ -41,7 +41,7 @@ gem_lazy 10
 gem_match_data 53
 gem_math 30
 gem_metaprog 33
-gem_method 30
+gem_method 32
 gem_module 6
 gem_nil 4
 gem_numeric 1
@@ -49,8 +49,8 @@ gem_numeric_ext_numeric 13
 gem_object 5
 gem_objectspace 4
 gem_pack 49
-gem_proc 9
-gem_proc_binding 1
+gem_proc 10
+gem_proc_binding 2
 gem_proc_set_stack 0
 gem_queue 23
 gem_random 13
@@ -102,5 +102,5 @@ sysfail 0
 true 6
 typeerror 1
 unicode 3
-version 0
+version 1
 vformat 0

@@ -195,7 +195,10 @@ pub fn init(vm: &mut Vm) {
     vm.define_methods(msc, &[("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b"main"))), ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"main")))]);
     // Version constants (src/version.c). MRUBY_PLATFORM names this implementation.
     for (name, v) in [("RUBY_VERSION", "4.1"), ("RUBY_ENGINE", "mruby"), ("RUBY_ENGINE_VERSION", "4.1.0"), ("MRUBY_VERSION", "4.1.0"),
-                      ("MRUBY_PLATFORM", "rust-sabiruby"), ("MRUBY_RELEASE_DATE", "2026-09-04"), ("MRUBY_REVISION", "HEAD"),
+                      ("MRUBY_PLATFORM", "rust-sabiruby"), ("MRUBY_RELEASE_DATE", "2026-09-04"),
+                      // the commit this VM was built from (`build.rs`); `HEAD` where there was no git,
+                      // which is the reference's own default too
+                      ("MRUBY_REVISION", option_env!("SABIRUBY_REVISION").unwrap_or("HEAD")),
                       ("MRUBY_DESCRIPTION", "mruby 4.1.0RC (2026-09-04)"), ("MRUBY_COPYRIGHT", "mruby - Copyright (c) 2010-2026 mruby developers")] {
         let s = vm.str_new(v.as_bytes());
         if let Some(o) = s.obj() { vm.heap.get_mut(o).frozen = true; }

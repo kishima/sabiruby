@@ -1634,6 +1634,43 @@ impl Vm {
         out
     }
 
+    /// Where an exception was raised, kept as the frames rather than as text (`mrb_keep_backtrace`):
+    /// a program that uses exceptions for control raises far more often than it reads
+    /// `Exception#backtrace`, so the strings are built only when they are asked for. The record is
+    /// a flat Array of `[irep, pc, mid]` triples, innermost frame first; `mid` is `-1` for a frame
+    /// with no method name (a block). An exception that carries one already keeps it: a re-raise
+    /// does not move where it came from.
+    fn keep_backtrace(&mut self, exc: ObjId) {
+        let k = self.intern("@__bt");
+        if self.heap.get(exc).ivars.iter().any(|(n, _)| *n == k) { return; }
+        let mut flat: Vec<Value> = Vec::with_capacity(self.ci.len() * 3);
+        for ci in self.ci.iter().rev() {
+            flat.push(Value::Int(ci.irep as i64));
+            flat.push(Value::Int(ci.pc as i64));
+            flat.push(Value::Int(ci.mid.map(|m| m.0 as i64).unwrap_or(-1)));
+        }
+        let a = self.ary_new(flat);
+        self.heap.ivar_set(exc, k, a);
+    }
+
+    /// The text of a record [`Vm::keep_backtrace`] made, in the format `caller` uses. Frames the
+    /// build kept no line numbers for are left out, as they are there.
+    pub fn backtrace_text(&self, flat: &[i64]) -> Vec<String> {
+        let mut out = Vec::new();
+        for f in flat.chunks(3) {
+            let [irep, pc, mid] = *f else { continue };
+            let Some(ir) = self.ireps.get(irep as usize) else { continue };
+            if ir.lines.is_empty() { continue; }
+            let file = ir.filename.as_deref().unwrap_or("(unknown)");
+            // `pc` is past the instruction that raised
+            let line = ir.line_of((pc as usize).saturating_sub(1)).unwrap_or(0);
+            let mut s = format!("{file}:{line}");
+            if mid >= 0 { s.push_str(":in "); s.push_str(&self.syms.name_str(crate::symbol::Sym(mid as u32))); }
+            out.push(s);
+        }
+        out
+    }
+
     /// Source line of the instruction the innermost frame is at (`None` without debug info).
     pub fn current_line(&self) -> Option<u32> {
         let ci = self.ci.last()?;
@@ -2154,7 +2191,13 @@ impl Vm {
             match r {
                 Ok(v) => return Ok(v),
                 Err(VmError::Raise(exc)) => {
-                    if let Value::Obj(o) = exc { if matches!(self.heap.get(o).kind, ObjKind::Exception) { let k = self.intern("@__raised"); self.heap.ivar_set(o, k, Value::True); } }
+                    if let Value::Obj(o) = exc {
+                        if matches!(self.heap.get(o).kind, ObjKind::Exception) {
+                            let k = self.intern("@__raised");
+                            self.heap.ivar_set(o, k, Value::True);
+                            self.keep_backtrace(o);
+                        }
+                    }
                     // Unwind: look for a catch handler in frames >= stop_depth.
                     if self.handle_raise(exc, stop_depth, lc) {
                         continue;

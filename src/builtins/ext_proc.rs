@@ -1,7 +1,7 @@
 //! mruby-proc-ext (`mrbgems/mruby-proc-ext/src/proc.c`); its Ruby part
 //! (`curry`, `<<`, `>>`, `===`, `yield`, `to_proc`) is `src/mrblib_proc-ext.mrb`.
 
-use alloc::{format, vec, vec::Vec};
+use alloc::{format, string::String, vec, vec::Vec};
 
 use crate::error::VmResult;
 use crate::object::ObjKind;
@@ -58,8 +58,36 @@ fn proc_inspect(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Valu
     let base = super::object::any_to_s(vm, s);
     let strict = s.obj().map(|o| vm.heap.proc_data(o).strict).unwrap_or(false);
     let body = &base[..base.len() - 1];
-    let text = format!("{body} -:-{}>", if strict { " (lambda)" } else { "" });
+    // where the body begins, or `-:-` where the build kept no line numbers (`proc_inspect`)
+    let where_ = match s.obj().map(|o| source_location_of(vm, o)) {
+        Some(Value::Obj(a)) => match &vm.heap.get(a).kind {
+            ObjKind::Array(v) if v.len() == 2 => {
+                let file = vm.str_bytes(v[0].get()).map(|b| String::from_utf8_lossy(b).into_owned());
+                match (file, v[1].get()) {
+                    (Some(f), Value::Int(l)) => format!("{f}:{l}"),
+                    _ => String::from("-:-"),
+                }
+            }
+            _ => String::from("-:-"),
+        },
+        _ => String::from("-:-"),
+    };
+    let text = format!("{body} {where_}{}>", if strict { " (lambda)" } else { "" });
     Ok(vm.str_from(text))
+}
+
+/// `[filename, line]` of where a Proc's body begins, or nil where the build kept no debug
+/// information (`mrb_proc_source_location`). A native has no irep and answers nil there; here a
+/// Proc is always an irep, and an alias shares the irep of the method it was made from, so the
+/// reference's walk over `upper` has nothing to do.
+pub fn source_location_of(vm: &mut Vm, p: ObjId) -> Value {
+    if !matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) { return Value::Nil; }
+    let irep = vm.heap.proc_data(p).irep;
+    let (line, file) = { let ir = &vm.ireps[irep]; (ir.line_of(0), ir.filename.clone()) };
+    match (line, file) {
+        (Some(line), Some(file)) => { let f = vm.str_from(file); vm.ary_new(vec![f, Value::Int(line as i64)]) }
+        _ => Value::Nil,
+    }
 }
 
 pub fn init(vm: &mut Vm) {
@@ -69,7 +97,7 @@ pub fn init(vm: &mut Vm) {
         ("to_s", proc_inspect),
         ("lambda?", |vm, s, _a, _b| Ok(Value::bool(s.obj().map(|o| vm.heap.proc_data(o).strict).unwrap_or(false)))),
         ("parameters", |vm, s, _a, _b| { let o = s.obj().unwrap(); Ok(parameters_of(vm, o)) }),
-        ("source_location", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("source_location", |vm, s, _a, _b| match s.obj() { Some(p) => Ok(source_location_of(vm, p)), None => Ok(Value::Nil) }),
     ]);
     // Kernel#proc as the gem's C function: the block itself (`&!`)
     let k = vm.core.kernel;
