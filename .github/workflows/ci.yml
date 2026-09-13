@@ -16,10 +16,17 @@ jobs:
       - run: tools/check_no_std.sh
       # the VM library, pure Rust (the C compiler is only in sabiruby-compiler / sabiruby-cli)
       - run: cargo build -p sabiruby --lib --target wasm32-unknown-unknown
-      # what docs.rs and crates.io will get (sabiruby-compiler, sabiruby, sabiruby-cli, in that order)
-      - run: cargo doc --no-deps --workspace
+      # what docs.rs and crates.io will get. The libraries and the command are documented in two
+      # runs, into two directories: the CLI's binary is named `sabiruby` like the library, so one
+      # run has both writing `target/doc/sabiruby/` and they race (cargo#6313 — it was a warning
+      # until it lost the race and became "No such file or directory")
+      - run: cargo doc --no-deps --workspace --lib
         env:
           RUSTDOCFLAGS: -D warnings
+      - run: cargo doc --no-deps -p sabiruby-cli --bins
+        env:
+          RUSTDOCFLAGS: -D warnings
+          CARGO_TARGET_DIR: target/doc-cli
       - run: cargo publish --dry-run --workspace
   msrv:
     runs-on: ubuntu-latest
