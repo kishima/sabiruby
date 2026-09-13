@@ -210,3 +210,47 @@ fn the_scheduler_is_not_re_entered_from_inside_a_task() {
     // the program's own `Task.run` answered nil and went on; the host ran the other task
     assert_eq!(String::from_utf8_lossy(&vm.take_output()), "nil\nafter\na0\na1\n");
 }
+
+#[test]
+fn a_fiber_runs_inside_a_task() {
+    // The reference says not to mix the two (its `MRB2TASK` is pointer arithmetic on the running
+    // context, and a timeslice that expires inside a fiber leaves it orphaned). Neither applies
+    // here, and the gems are useful together, so this pins that it works (`docs/gems.md`).
+    let mut vm = vm_with(r#"
+      $log = []
+      Task.new(name: "a") do
+        f = Fiber.new { 3.times { |i| Fiber.yield i }; :fiber_done }
+        $log << [f.resume, f.resume, f.resume, f.resume, f.alive?]
+        e = [10, 20, 30].each            # Enumerator#next is a fiber underneath
+        $log << [e.next, e.next, e.next]
+        :a_done
+      end
+      Task.new(name: "b") { $log << :b; :b_done }
+      Task.run
+      p $log
+    "#);
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[[0, 1, 2, :fiber_done, false], [10, 20, 30], :b]\n"
+    );
+}
+
+#[test]
+fn a_task_is_not_preempted_while_it_is_inside_a_fiber() {
+    // A fiber is entered through a native frame, and the switch is deferred across one (the same
+    // rule as `task_across_c_boundary`), so the resume answers its own value instead of being cut
+    // short. The cost is fairness: the work inside a fiber is not divided into timeslices.
+    let mut vm = vm_with(r#"
+      $log = []
+      Task.new(name: "fiber") { Fiber.new { 200_000.times { |i| i }; :done }.resume; $log << :fiber_end }
+      Task.new(name: "plain") { 200_000.times { |i| i }; $log << :plain_end }
+      Task.new(name: "watch") { 6.times { |i| $log << i; Task.pass } }
+      Task.run
+      p $log
+    "#);
+    // the fiber's 200,000 instructions run in one go; the same loop outside one is preempted
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[0, :fiber_end, 1, 2, 3, 4, 5, :plain_end]\n"
+    );
+}

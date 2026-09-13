@@ -572,6 +572,19 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     the result where the task had already finished, nil where the wait was real. The gem's own
     tests call none of these for their value, so this was found by reading `task.c` rather than by
     a failing assertion.
+  * **A fiber runs inside a task here, where the reference says not to mix them.** Its README is
+    explicit ("no compatibility, do not mix in one application"), and its reasons are real: its
+    `MRB2TASK` is pointer arithmetic on the running context, so `Task.current` or `sleep` inside a
+    fiber reads an unrelated address as a task; and a timeslice that expires inside a fiber leaves
+    the run loop *in the fiber's context*, orphaning it while the task resumes as if `resume` had
+    returned. Neither can happen here: the task is found by asking whether the running context is
+    the running task's (`current_task`, which answers nothing inside a fiber), and the switch is
+    deferred across a fiber exactly as it is across a native frame, since a fiber is entered
+    through one. So `Fiber` and `Enumerator#next` work inside a task (`tests/task.rs`), with two
+    consequences to know: a task **is not preempted while it is inside a fiber** (the work in
+    there is not divided into timeslices — yield often if it is long), and inside a fiber the task
+    is not visible, so `Task.current` answers the "main" wrapper, `sleep` does not park the task
+    and `Task.pass` does nothing. Do the task's own business outside the fiber.
   * **The scheduler is not re-entered from inside a task.** `Task.run` answers nil where the
     caller is a task, as it does where the reference's own loop is already running
     (`loop_running`): a host that drives the scheduler a step at a time leaves that flag clear, so
