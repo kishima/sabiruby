@@ -1,5 +1,15 @@
 # gem 移植後の作業 実装指示書（2026-09-13）
 
+> 2026-09-13 実装済み（A〜D）。実装の説明とこの指示書から変えた点は各 docs:
+> gem は [`gems.md`](gems.md)、rubevy は `../rubevy/README.md` と `../rubevy/docs/outlook*.md`、
+> 設計の記録は本の repo の `docs/notes/rubevy-design.md` 9 節。
+> この指示書から変えたのは 3 点:
+> (1) rubevy は `.cargo/config.toml` の `paths` ではなく `Cargo.toml` の `path` で隣の VM を見る
+>     （`paths` は版の違いをまたげない。ローカルは 0.2、公開は 0.1）。
+> (2) `MRUBY_REVISION` は `--short` ではなく完全な 40 桁（本家テストが桁数を見る）。
+> (3) 時計と横取りを分けた（`Vm::task_external_clock`）。本家は 1 つのタイマーが両方を兼ねるが、
+>     エンジンに載せるときはフレーム時間で時計、命令数で横取り、が自然。
+
 対象: この文書だけを読んで、別セッションの実装者（AI）が次の 4 つの作業を順に進められること。
 作業前に `README.md`、`docs/gems.md`（移植済み gem の全体像と差異）、`docs/gc.md`、`docs/gems-plan.md`（着手時の状況）を読むこと。
 設計判断はここに書いたとおりにし、変えたい場合は理由を該当の docs に残す。

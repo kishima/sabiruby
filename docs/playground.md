@@ -151,21 +151,21 @@ What a browser downloads (the gzip column; Pages and npm CDNs serve wasm compres
   (16,272 gzipped), not the main part.
 * These compare download size only, not features or speed.
 
-**What the Unicode tables cost** (mruby-regexp, `docs/gems.md`): the engine is `regex-automata`,
-whose `unicode` feature is tied to SabiRuby's `utf8` feature, so the character build carries the
-Unicode tables and the byte-string build carries none. The same VM-only probe as above, built for
-`wasm32-unknown-unknown` with `opt-level = "z"`, `lto`, one codegen unit, `panic = "abort"` and
-`strip`, but **without** the `wasm-opt -Oz` pass the rows above had (so these two are comparable
-with each other, not with the table):
+**After the gems** (2026-09-13, measured the same way as the rows above — `wasm-opt -Oz`,
+binaryen 132):
 
-| build | bytes | gzip -9 |
-|---|---:|---:|
-| `--no-default-features` (strings as bytes, no Unicode tables) | 1,030,273 | 362,312 |
-| `--features utf8` (the default: strings as characters) | 1,356,989 | 459,938 |
+| module | contents | bytes | gzip -9 |
+|---|---|---:|---:|
+| this playground's `sabiruby.wasm` | as above, with every gem | 2,405,954 | 821,423 |
+| SabiRuby VM only, `--features utf8` (the default) | strings as characters, the Unicode tables | 1,261,940 | 464,862 |
+| SabiRuby VM only, `--no-default-features` | strings as bytes, no Unicode tables | 937,307 | 366,514 |
 
-The difference is about 98 KB gzipped, nearly all of it the `unicode-*` tables `\p{…}`, the POSIX
-brackets above ASCII and `/i` folding read. A build that reads its strings by byte pays none of
-it.
+The VM-only figure went from 281 KB gzipped to 465: the numeric tower (bigint, rational,
+complex), pack, eval and the compiler hook, UTF-8 strings, mruby-regexp with its engine, and
+mruby-task. **What the Unicode tables cost** is the last two rows: about 98 KB gzipped, nearly
+all of it what `\p{…}`, the POSIX brackets above ASCII and `/i` folding read (`regex-automata`'s
+`unicode` feature is tied to SabiRuby's `utf8`). A build that reads its strings by byte pays none
+of it.
 
 ## Verification
 
