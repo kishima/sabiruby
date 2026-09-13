@@ -31,6 +31,7 @@ browser main thread                    Web Worker
   | `sabi_take_output(len_out) -> ptr` | `Vm::take_output` |
   | `sabi_take_text(len_out) -> ptr` | diagnostics (`FILE:LINE:COL: message`) or `describe_error` |
   | `sabi_dump(len_out) -> ptr` | `sabiruby::vm::dump` of the compiled binary |
+  | `sabi_take_binary(len_out) -> ptr` | the compiled binary's bytes, for a VM elsewhere: SabiRuby Battle's browser build compiles its robots with this module |
   | `sabi_ast(src, len, len_out) -> ptr` | Prism's pretty-printed syntax tree (`sabiruby-compiler`, feature `ast`) |
   | `sabi_stats(insns, live, gc)` | three u64 out-parameters |
   | `sabi_trace(on)` | `Vm::set_trace`: record the events of `inspect.rs` |
