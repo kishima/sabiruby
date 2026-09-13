@@ -162,6 +162,9 @@ pub struct TaskData {
     pub join: Option<ObjId>,
     /// the `Task::Queue` this one is waiting on (`MRB_TASK_REASON_QUEUE`)
     pub queue: Option<ObjId>,
+    /// instructions this task has run, for a host that shows what a script spends
+    /// (`Vm::task_instructions`)
+    pub instructions: u64,
 }
 
 /// Why a `Break` object is unwinding the stack (mruby `RBREAK_TAG_*`).

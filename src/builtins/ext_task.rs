@@ -141,6 +141,30 @@ pub(crate) fn task_spawn(vm: &mut Vm, irep: crate::object::IrepId, priority: u8,
     t.obj().ok_or_else(|| vm.raise(vm.core.runtime_error, "could not create the task"))
 }
 
+/// Instructions a task has run since it was made, for a host that shows what a script spends.
+pub(crate) fn task_instructions(vm: &Vm, task: ObjId) -> u64 {
+    match &vm.heap.get(task).kind { ObjKind::Task(t) => t.instructions, _ => 0 }
+}
+
+/// Where a task stands in its own source: the innermost frame of its context that has debug
+/// info, as a file name and a line. `None` where it has run out, or where the program was
+/// compiled without it.
+pub(crate) fn task_location(vm: &Vm, task: ObjId) -> Option<(alloc::string::String, u32)> {
+    let ctx = match &vm.heap.get(task).kind { ObjKind::Task(t) => t.ctx, _ => return None };
+    if ctx == usize::MAX { return None; }
+    // the running task's frames are the VM's own; a parked one keeps them in its context
+    let frames = if ctx == vm.cur { &vm.ci } else { &vm.contexts.get(ctx)?.ci };
+    for ci in frames.iter().rev() {
+        let Some(ir) = vm.ireps.get(ci.irep) else { continue };
+        if ir.lines.is_empty() { continue; }
+        let file = ir.filename.clone().unwrap_or_else(|| alloc::string::String::from("(unknown)"));
+        // `pc` is past the instruction being executed
+        let line = ir.line_of(ci.pc.saturating_sub(1)).unwrap_or(0);
+        return Some((file, line));
+    }
+    None
+}
+
 /// What a task answered, for a host (`mrb_task_value`).
 pub(crate) fn task_result(vm: &Vm, task: ObjId) -> Value {
     match &vm.heap.get(task).kind { ObjKind::Task(t) => t.result.get(), _ => Value::Nil }
@@ -222,7 +246,10 @@ fn execute_task(vm: &mut Vm, t: ObjId) {
     vm.contexts[ctx].vmexec = true;
     vm.switch_context(ctx, SwitchKind::Resume);
     if first { start_block(vm, ctx); }
+    let before = vm.instructions;
     let r = vm.run_loop_ctx(ctx, 0);
+    let spent = vm.instructions - before;
+    td_mut(vm, t).instructions += spent;
     vm.loop_exit = None;
     vm.task.running = None;
     vm.task.switching = false;
@@ -480,7 +507,7 @@ fn create_task(vm: &mut Vm, cls: ObjId, proc_: ObjId, name: Value, priority: u8)
     let o = vm.heap.alloc(cls, ObjKind::Task(alloc::boxed::Box::new(TaskData {
         ctx: ctx_id, priority, status: READY, reason: REASON_NONE, timeslice: TIMESLICE,
         name: Slot::from(name), result: Slot::from(Value::Nil), wakeup_tick: u32::MAX,
-        join: None, queue: None,
+        join: None, queue: None, instructions: 0,
     })));
     q_insert(vm, o);
     Ok(Value::Obj(o))
@@ -497,7 +524,7 @@ fn task_current(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value
     let o = vm.heap.alloc(cls, ObjKind::Task(alloc::boxed::Box::new(TaskData {
         ctx: ROOT, priority: 0, status: RUNNING, reason: REASON_NONE, timeslice: TIMESLICE,
         name: Slot::from(name), result: Slot::from(Value::Nil), wakeup_tick: u32::MAX,
-        join: None, queue: None,
+        join: None, queue: None, instructions: 0,
     })));
     vm.task.main = Some(o);
     Ok(Value::Obj(o))

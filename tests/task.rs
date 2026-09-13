@@ -291,3 +291,42 @@ fn a_host_answers_a_script_through_a_queue() {
         "[\"tick0\", \"tick1\", \"tick2\", \"tick3\", \"tick4\", \"tick5\", [0, 100], [1, 101], [2, 102]]\n"
     );
 }
+
+#[test]
+fn a_host_can_see_what_a_task_spends_and_where_it_is() {
+    // what a game's HUD shows per script: the instructions it has run, and the line it is on —
+    // which works while it is parked as well as while it runs
+    let src = "$log = []\n\
+               Task.new(name: \"busy\") { 200.times { |i| $log << i }; :busy_done }\n\
+               Task.new(name: \"idle\") { sleep 10; :idle_done }\n";
+    let bin = sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
+        filename: "robots.rb".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.load_and_run(&bin).expect("run");
+    let (busy, idle) = {
+        let names = ["busy", "idle"];
+        let mut found = [None, None];
+        for (i, name) in names.into_iter().enumerate() {
+            let src = format!("Task.get(\"{name}\")\n");
+            let bin = sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
+                filename: "(test)".into(), debug_info: true, ..Default::default()
+            }).expect("compile");
+            found[i] = vm.load_and_run(&bin).expect("run").obj();
+        }
+        (found[0].expect("busy"), found[1].expect("idle"))
+    };
+    assert_eq!(vm.task_instructions(busy), 0, "nothing has run yet");
+
+    // the host owns the clock, so the sleeping task stays where it is instead of being woken
+    // the moment nothing else is ready
+    vm.task_external_clock(true);
+    vm.task_run_budget(50_000).expect("run");
+    assert!(vm.task_instructions(busy) > 100, "the busy task ran: {}", vm.task_instructions(busy));
+    assert!(vm.task_instructions(idle) < vm.task_instructions(busy), "the sleeping one spent less");
+
+    // the parked task is standing on the line its `sleep` is on, in the file it was compiled as
+    let (file, line) = vm.task_location(idle).expect("a location for the sleeping task");
+    assert_eq!(file, "robots.rb");
+    assert_eq!(line, 3, "the `sleep 10` line");
+}

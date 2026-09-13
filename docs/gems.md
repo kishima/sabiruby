@@ -599,7 +599,11 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     instruction count then only ends timeslices, which is what keeps one task from eating a whole
     frame, and a turn that finds nothing ready simply ends rather than jumping the clock (which is
     what `Task.run` does, since nothing else could move it there). `task_value` and
-    `task_finished` read a task back, and `task_queue_new` and `task_queue_push` are how a host
+    `task_finished` read a task back, and `task_instructions` and `task_location` are what a host
+    shows of a script: what it has spent (the difference between two frames is what it spent on
+    that frame) and where it stands in its own source — file and line, while it is parked as well
+    as while it runs, which is how a game can show the line a script is waiting on.
+    `task_queue_new` and `task_queue_push` are how a host
     answers a script that asked it for something: hand the script a `Task::Queue`, do the work
     outside (a frame later, a thread, an event loop), push the result, and the `pop` the script
     parked on returns it — an asynchronous host call without a second scheduler, and without the

@@ -646,6 +646,21 @@ impl Vm {
         crate::builtins::ext_task::task_result(self, task)
     }
 
+    /// Instructions a task has run since it was made. A host can show what each script spends —
+    /// the difference between two frames is what it spent on that frame — and see which one is
+    /// using its timeslice.
+    pub fn task_instructions(&self, task: ObjId) -> u64 {
+        crate::builtins::ext_task::task_instructions(self, task)
+    }
+
+    /// Where a task stands in its own source: the innermost frame with debug info, as a file
+    /// name and a line. Works while it is parked as well as while it runs, so a host can show
+    /// the line a script is waiting on. `None` where the program carries no debug info
+    /// (compiled without `-g`) or the task is over.
+    pub fn task_location(&self, task: ObjId) -> Option<(alloc::string::String, u32)> {
+        crate::builtins::ext_task::task_location(self, task)
+    }
+
     /// Whether a task has run to its end (`Task#status == :DORMANT`).
     pub fn task_finished(&self, task: ObjId) -> bool {
         crate::builtins::ext_task::task_is_dormant(self, task)
