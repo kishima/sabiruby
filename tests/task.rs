@@ -182,3 +182,31 @@ fn a_host_waits_on_its_own_clock() {
         "[\"slow0\", \"fast0\", \"fast1\", \"slow1\", \"fast2\", \"fast3\"]\n"
     );
 }
+
+#[test]
+fn the_scheduler_is_not_re_entered_from_inside_a_task() {
+    // `Task.run` from a task would take the head of the ready queue — the running task itself —
+    // and resume the context it is standing in. The reference's own loop says "already running"
+    // with a flag; a host that drives the scheduler a step at a time leaves that flag clear, so
+    // the caller is asked instead (`docs/gems.md`).
+    let src = r#"
+      Task.new(name: "a") { 2.times { |i| puts "a#{i}"; Task.pass }; :a }
+      p Task.run
+      puts "after"
+    "#;
+    let bin = sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    let irep = vm.load(&bin).expect("load");
+    let main = vm.task_spawn(irep, 128, Some("main")).expect("spawn");
+    vm.gc_register(main);
+    let mut turns = 0;
+    while vm.task_pending() {
+        vm.task_run_budget(100_000).expect("run");
+        turns += 1;
+        assert!(turns < 20, "the host loop did not finish");
+    }
+    // the program's own `Task.run` answered nil and went on; the host ran the other task
+    assert_eq!(String::from_utf8_lossy(&vm.take_output()), "nil\nafter\na0\na1\n");
+}

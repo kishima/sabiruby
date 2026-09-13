@@ -311,6 +311,9 @@ fn scheduler_step(vm: &mut Vm) -> Option<ObjId> {
     if let Some(f) = vm.task.hook { f(vm); }
     let t = vm.task.queues[Q_READY].first().copied()?;
     if td(vm, t).status == DORMANT { q_delete(vm, t); return Some(t); }
+    // the running task is at the head of the ready queue while it runs, so a scheduler reached
+    // from inside it would resume the context it is standing in
+    if td(vm, t).ctx == vm.cur { return None; }
     execute_task(vm, t);
     Some(t)
 }
@@ -348,7 +351,12 @@ pub(crate) fn pending(vm: &Vm) -> bool {
 
 fn task_run(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 0);
-    if vm.task.loop_running { return Ok(Value::Nil); }
+    // The scheduler is already running this caller: the reference's own loop says so with
+    // `loop_running`, and a host that drives it a step at a time (`Vm::task_run_once`, the shape
+    // a browser or a frame loop uses) leaves that flag clear — so ask the caller instead. Without
+    // this, `Task.run` from inside a task would take the head of the ready queue, which is the
+    // running task itself, and re-enter its own context.
+    if vm.task.loop_running || current_task(vm).is_some() { return Ok(Value::Nil); }
     vm.task.loop_running = true;
     loop {
         if let Some(f) = vm.task.hook { f(vm); }

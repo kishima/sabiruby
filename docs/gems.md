@@ -572,6 +572,12 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     the result where the task had already finished, nil where the wait was real. The gem's own
     tests call none of these for their value, so this was found by reading `task.c` rather than by
     a failing assertion.
+  * **The scheduler is not re-entered from inside a task.** `Task.run` answers nil where the
+    caller is a task, as it does where the reference's own loop is already running
+    (`loop_running`): a host that drives the scheduler a step at a time leaves that flag clear, so
+    a `Task.run` in the program would otherwise take the head of the ready queue — the running
+    task itself — and resume the context it is standing in. A program written for `Task.run` is
+    therefore unchanged when a host drives it instead; the call simply does nothing.
   * **What a host drives it with** (`Vm::task_*`, checked by `tests/task.rs`): `task_spawn` makes
     a task out of a compiled program rather than out of a Ruby block (`mrb_create_task` takes an
     `RProc`), `task_run_once` is `mrb_task_run_once`, and `task_run_budget` is one turn of a frame
