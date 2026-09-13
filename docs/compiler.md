@@ -122,6 +122,14 @@ browser playground runs. `wasm32-unknown-unknown` (no libc) is not supported.
 
 ## Publishing
 
-In dependency order: `sabiruby-compiler` 0.1.0, `sabiruby` 0.2.0 (the library only; since
-0.1.0: the garbage collector and storage in `Slot`), `sabiruby-cli` 0.2.0. `cargo publish
---workspace` publishes them in that order.
+In dependency order: `sabiruby` 0.3.0, `sabiruby-compiler` 0.2.0, `sabiruby-cli` 0.4.0.
+`cargo publish --workspace` publishes them in that order (the compiler's dependency on the VM
+is optional, behind the `host` feature, so the VM goes first). What 0.3.0 adds over 0.2.0 is
+the gems: the numeric tower, Struct, Set, Time, pack, eval and `binding`, UTF-8 strings,
+`require`/`load`, Regexp and the task scheduler (`docs/gems.md`); the compiler's 0.2.0 adds
+the `host` feature, which is what `eval` asks for a compile.
+
+A dev-dependency that names a version would be resolved from crates.io when the packaged crate
+is verified, so the one on `sabiruby-compiler` here carries a path and no version: a version
+would pin it to the last published compiler, which need not have the features this tree uses.
+`cargo publish --dry-run --workspace` is in CI and catches exactly that.
