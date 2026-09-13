@@ -156,16 +156,16 @@ binaryen 132):
 
 | module | contents | bytes | gzip -9 |
 |---|---|---:|---:|
-| this playground's `sabiruby.wasm` | as above, with every gem | 2,405,954 | 821,423 |
+| this playground's `sabiruby.wasm` | as above, with every gem and the compiler installed as the VM's host (`eval`) | 2,414,985 | 825,932 |
 | SabiRuby VM only, `--features utf8` (the default) | strings as characters, the Unicode tables | 1,261,940 | 464,862 |
 | SabiRuby VM only, `--no-default-features` | strings as bytes, no Unicode tables | 937,307 | 366,514 |
 
 The VM-only figure went from 281 KB gzipped to 465: the numeric tower (bigint, rational,
 complex), pack, eval and the compiler hook, UTF-8 strings, mruby-regexp with its engine, and
-mruby-task. **What the Unicode tables cost** is the last two rows: about 98 KB gzipped, nearly
-all of it what `\p{…}`, the POSIX brackets above ASCII and `/i` folding read (`regex-automata`'s
-`unicode` feature is tied to SabiRuby's `utf8`). A build that reads its strings by byte pays none
-of it.
+mruby-task. **What the Unicode tables cost** is the last two rows: about 98 KB gzipped, read by
+the POSIX brackets above ASCII, `/i` folding and `\w`/`\b` (`regex-automata`'s `unicode` feature
+is tied to SabiRuby's `utf8`; `\p{…}` is refused here, as the reference refuses it). A build that
+reads its strings by byte pays none of it.
 
 ## Verification
 
