@@ -23,7 +23,7 @@ layout (`R0` of the callee is `R[a]` of the caller), `OP_ENTER`, environments,
 the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 `Proc#call`, and so on are ported from the book's description of `src/vm.c`.
 
-## Status (2026-09-13, 0.3.0)
+## Status (2026-09-13, 0.4.0)
 
 * RITE 04.00 reader (IREP / LVAR; DBG skipped), all 119 opcodes decoded, `EXT1..3` handled.
 * Interpreter with methods, blocks/closures (attached/detached environments), `super`
