@@ -53,7 +53,7 @@ fn a_host_spawns_tasks_and_drives_the_clock() {
     // scheduler a budget per frame, and moves the clock on by the frame time
     let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
     vm.task_external_clock(true);
-    let mut spawn = |vm: &mut sabiruby::Vm, src: &str, name: &str| {
+    let spawn = |vm: &mut sabiruby::Vm, src: &str, name: &str| {
         let bin = sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
             filename: name.into(), debug_info: true, ..Default::default()
         }).expect("compile");
