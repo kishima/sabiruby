@@ -580,7 +580,11 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     instruction count then only ends timeslices, which is what keeps one task from eating a whole
     frame, and a turn that finds nothing ready simply ends rather than jumping the clock (which is
     what `Task.run` does, since nothing else could move it there). `task_value` and
-    `task_finished` read a task back. A `Vm` is `Send + Sync` so that an engine can keep one in
+    `task_finished` read a task back, and `task_next_wakeup_ticks` with `task_pending` are what a
+    host waits on: how long until the earliest sleeper is due, and whether anything is left that
+    could run. A host that has a clock and something to wait on (an event loop, a frame) can then
+    make `sleep` cost real time — which is what the browser playground's 実時間 does
+    (`docs/playground.md`). A `Vm` is `Send + Sync` so that an engine can keep one in
     its own world, which is what the `Host` trait's bound is for (`tests/send_sync.rs`).
 
 ## Compiling the tests

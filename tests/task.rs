@@ -141,3 +141,44 @@ fn a_call_that_parks_answers_its_own_value() {
          RuntimeError\n"
     );
 }
+
+#[test]
+fn a_host_waits_on_its_own_clock() {
+    // what a browser or a frame loop needs to sleep for real: the scheduler says how long it may
+    // wait and whether anything is left, and the host moves the clock (`docs/playground.md`)
+    let mut vm = vm_with(r#"
+      $log = []
+      Task.new(name: "slow") { 2.times { |i| $log << "slow#{i}"; sleep 0.1 } }
+      Task.new(name: "fast") { 4.times { |i| $log << "fast#{i}"; sleep 0.05 } }
+    "#);
+    vm.task_external_clock(true);
+    let unit = vm.task_tick_unit_ms(); // 4 ms
+    let mut clock_ms = 0u32;
+    let mut waits = 0;
+    while vm.task_pending() {
+        vm.task_run_budget(100_000).expect("run");
+        match vm.task_next_wakeup_ticks() {
+            // nothing to run: a host would wait this long before coming back, and the clock is
+            // moved by what it waited — never jumped by the scheduler itself
+            Some(ticks) if ticks > 0 => {
+                clock_ms += ticks * unit;
+                vm.task_advance_ticks(ticks);
+                waits += 1;
+                assert!(waits < 20, "the host was asked to wait too many times");
+            }
+            Some(_) => {}
+            None => break,
+        }
+    }
+    // 2 x 100 ms and 4 x 50 ms, sleeping in parallel. A wait is rounded up to whole ticks, so
+    // 50 ms is 13 of them (52 ms) and the last deadline is the fast task's 4th, at 208 ms
+    assert_eq!(clock_ms, 208);
+    let bin = sabiruby_compiler::compile(b"p $log\n", &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    vm.load_and_run(&bin).expect("run");
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[\"slow0\", \"fast0\", \"fast1\", \"slow1\", \"fast2\", \"fast3\"]\n"
+    );
+}

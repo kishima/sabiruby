@@ -327,6 +327,25 @@ fn idle(vm: &mut Vm) -> bool {
     true
 }
 
+/// Ticks until the earliest deadline, for a host that waits on a clock of its own
+/// (`Vm::task_next_wakeup_ticks`). `Some(0)` where one has passed already.
+pub(crate) fn next_wakeup_ticks(vm: &Vm) -> Option<u32> {
+    if vm.task.wakeup_tick == u32::MAX { return None; }
+    let left = vm.task.wakeup_tick.wrapping_sub(vm.task.tick) as i32;
+    Some(if left > 0 { left as u32 } else { 0 })
+}
+
+/// Whether the scheduler still has something that can run: a ready task, or one waiting for a
+/// deadline. A task that only something else could wake (suspended, joining) is not counted,
+/// which is the same test `Task.run` ends on.
+pub(crate) fn pending(vm: &Vm) -> bool {
+    if !vm.task.queues[Q_READY].is_empty() { return true; }
+    vm.task.queues[Q_WAITING].iter().any(|o| {
+        let t = td(vm, *o);
+        (t.reason == REASON_SLEEP || t.reason == REASON_QUEUE) && t.wakeup_tick != u32::MAX
+    })
+}
+
 fn task_run(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 0);
     if vm.task.loop_running { return Ok(Value::Nil); }

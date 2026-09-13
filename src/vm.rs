@@ -600,6 +600,21 @@ impl Vm {
         crate::builtins::ext_task::advance_ticks(self, n);
     }
 
+    /// Ticks until the earliest sleeping task is due, for a host that waits on a clock of its
+    /// own: `None` where nothing is waiting on a deadline, `Some(0)` where one has passed. A
+    /// host that has no work to do until then can wait that long before calling the scheduler
+    /// again ([`Vm::task_advance_ticks`] first, so the clock is current when it runs).
+    pub fn task_next_wakeup_ticks(&self) -> Option<u32> {
+        crate::builtins::ext_task::next_wakeup_ticks(self)
+    }
+
+    /// Whether the scheduler still has something that can run: a ready task, or one sleeping
+    /// until a deadline. False where every task is done, or waiting for something only another
+    /// task could do — the point at which a host loop can stop calling the scheduler.
+    pub fn task_pending(&self) -> bool {
+        crate::builtins::ext_task::pending(self)
+    }
+
     /// Milliseconds one tick stands for (`MRB_TICK_UNIT`), so a host can turn its frame time into
     /// ticks for [`Vm::task_advance_ticks`].
     pub fn task_tick_unit_ms(&self) -> u32 {
