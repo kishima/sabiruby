@@ -59,7 +59,9 @@ gem_regexp_call 1
 gem_regexp_syntax 65
 gem_regexp_utf8 26
 gem_set 41
+gem_sleep_test 6
 gem_sprintf 12
+gem_strftime 17
 gem_string 92
 gem_string_ext_range 4
 gem_string_index 40

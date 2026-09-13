@@ -54,7 +54,9 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   `sabiruby` command). **mruby-task** brings `Task`, `Task::Queue` and a task-aware `sleep`: a
   priority scheduler with preemption, each task a context of its own like a Fiber. The tick the
   reference gets from a timer is counted in instructions here, and `Vm::task_run_once` is the
-  shape a host loop wants (one task per frame) where `Task.run` runs until every task is done. The numeric tower is complete: **mruby-bigint**
+  shape a host loop wants (one task per frame) where `Task.run` runs until every task is done.
+  **mruby-sleep** and **mruby-strftime** came with them: a `sleep` outside a task waits through a
+  host hook, and `Time#strftime` is written out rather than handed to the C library. The numeric tower is complete: **mruby-bigint**
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
@@ -105,8 +107,8 @@ reference stdout, `.dump` the `mrbc --verbose` listing. `cargo test` runs every 
 on SabiRuby and compares stdout byte for byte. All 18 fixtures pass (`gc.rb` also under `SABIRUBY_GC_STRESS=1`); `utf8.rb` is compared with
 the image of the build's own reading (`kishima/mruby:4.1.0-rc-utf8` by default).
 
-mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 2321 of
-2484 in the default build and 2244 of 2429 in a byte-string one — each build runs the
+mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 2344 of
+2507 in the default build and 2267 of 2452 in a byte-string one — each build runs the
 assertions written for it and has its own floor (see [`docs/mrbtest.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest.md)
 and [`docs/mrbtest-bytes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-bytes.md), reasons for the rest in
 [`docs/mrbtest-notes.md`](https://github.com/kishima/sabiruby/blob/main/docs/mrbtest-notes.md)).

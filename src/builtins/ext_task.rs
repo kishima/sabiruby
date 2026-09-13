@@ -829,16 +829,40 @@ pub fn init(vm: &mut Vm) {
     let k = vm.core.kernel;
     vm.define_methods(k, &[
         ("sleep", kernel_sleep),
-        ("sleep_ms", |vm, _s, a, _b| { argc!(vm, a, 1); let ms = vm.expect_int(a[0], "ms")?; if ms < 0 { return Err(vm.raise_arg("time interval must be positive")); } sleep_ms(vm, ms as u32)?; Ok(Value::Nil) }),
-        ("usleep", |vm, _s, a, _b| { argc!(vm, a, 1); let us = vm.expect_int(a[0], "usec")?; if us < 0 { return Err(vm.raise_arg("time interval must be positive")); } sleep_ms(vm, (us / 1000) as u32)?; Ok(Value::Int(us)) }),
+        ("sleep_ms", |vm, _s, a, _b| {
+            argc!(vm, a, 1);
+            let ms = vm.expect_int(a[0], "ms")?;
+            if ms < 0 { return Err(vm.raise_arg("time interval must be positive")); }
+            sleep_us(vm, (ms as u64).saturating_mul(1000))?;
+            Ok(Value::Nil)
+        }),
+        ("usleep", |vm, _s, a, _b| {
+            argc!(vm, a, 1);
+            let us = vm.expect_int(a[0], "usec")?;
+            if us < 0 { return Err(vm.raise_arg("time interval must be positive")); }
+            let before = wall_micros(vm);
+            sleep_us(vm, us as u64)?;
+            // mruby-sleep answers the microseconds actually waited, mruby-task the ones asked for
+            Ok(Value::Int(match (before, wall_micros(vm)) {
+                (Some(b), Some(e)) if e >= b => (e - b) as i64,
+                _ => us,
+            }))
+        }),
     ]);
     let ksc = vm.singleton_class(Value::Obj(k)).expect("Kernel singleton");
     vm.define_methods(ksc, &[
         ("sleep", kernel_sleep),
     ]);
+    for name in ["sleep", "usleep", "sleep_ms"] {
+        let n = vm.intern(name);
+        let _ = vm.set_visibility(k, n, crate::object::Vis::Private);
+    }
 }
 
-/// `Kernel#sleep` (`mrb_f_sleep`): no argument suspends the task until someone resumes it.
+/// `Kernel#sleep` (`mrb_f_sleep` of mruby-task, `f_sleep` of mruby-sleep). Both gems define this
+/// name; the reference lets mruby-task's win where both are there (its README), and what
+/// mruby-sleep adds is what happens *outside* a task — a real wait rather than a yield. The two
+/// are one function here. No argument suspends the calling task until someone resumes it.
 fn kernel_sleep(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 0, 1);
     if a.is_empty() {
@@ -855,25 +879,35 @@ fn kernel_sleep(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Valu
         v => vm.expect_int(v, "sec")? as f64,
     };
     if secs < 0.0 { return Err(vm.raise_arg("time interval must be positive")); }
-    let ms = (secs * 1000.0) as i64;
-    sleep_ms(vm, ms.clamp(0, u32::MAX as i64) as u32)?;
-    Ok(Value::Int(ms / 1000))
+    let micros = (secs * 1_000_000.0).clamp(0.0, u32::MAX as f64) as u64;
+    let before = wall_micros(vm);
+    sleep_us(vm, micros)?;
+    // the seconds actually waited, which is what mruby-sleep answers; a task that was parked
+    // answers the seconds it asked for, since the wait is the scheduler's to measure
+    Ok(Value::Int(match (before, wall_micros(vm)) {
+        (Some(b), Some(e)) if e >= b => ((e - b) / 1_000_000) as i64,
+        _ => (micros / 1_000_000) as i64,
+    }))
 }
 
-/// The task waits until the tick reaches its deadline (`sleep_us_impl`). Outside a task there is
-/// nothing to suspend, so the clock simply moves on.
-fn sleep_ms(vm: &mut Vm, ms: u32) -> VmResult<Value> {
-    let ticks = ms.div_ceil(TICK_UNIT_MS);
-    let Some(t) = current_task(vm) else {
+/// Microseconds since the epoch, where the host lends a clock.
+fn wall_micros(vm: &Vm) -> Option<u64> {
+    let (s, ns) = vm.wall_clock?();
+    Some((s.max(0) as u64) * 1_000_000 + (ns.max(0) as u64) / 1000)
+}
+
+/// The wait itself (`sleep_us_impl`). A task is parked until the tick reaches its deadline and
+/// the scheduler takes over; anywhere else — the root context, or a task with a native frame on
+/// the host stack — the host is asked to wait for real, and the clock moves on.
+fn sleep_us(vm: &mut Vm, micros: u64) -> VmResult<Value> {
+    let in_task = current_task(vm).filter(|_| !vm.fiber_check_native(vm.cur));
+    let ticks = (micros.div_ceil(1000) as u32).div_ceil(TICK_UNIT_MS);
+    let Some(t) = in_task else {
+        if let Some(f) = vm.sleep_hook { f(micros); }
         vm.task.tick = vm.task.tick.wrapping_add(ticks);
         wake_sleepers(vm);
         return Ok(Value::Nil);
     };
-    if vm.fiber_check_native(vm.cur) {
-        vm.task.tick = vm.task.tick.wrapping_add(ticks);
-        wake_sleepers(vm);
-        return Ok(Value::Nil);
-    }
     let deadline = normalize(vm.task.tick.wrapping_add(ticks));
     {
         let d = td_mut(vm, t);

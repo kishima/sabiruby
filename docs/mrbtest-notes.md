@@ -58,8 +58,9 @@ Categories:
 | gem_gc_task | 2 KO | deviation | `GC.scheduler_driven` is there and the scheduler collects from its idle points, but `GC.generational_mode` is always false (the collector marks and sweeps in one go, `docs/gc.md`) and both assertions turn on it being on. |
 | gem_proc_set_stack | 0 assertions | — | Both tests ask `TaskTest.respond_to?` first and skip themselves: they probe how mruby sizes a task's stack allocation, which a growable vector has no equivalent of. |
 
-Summary (2026-09-13, after mruby-regexp, mruby-task and the source-location/backtrace work):
-2484 assertions in the default build, 2321 pass (2429 and 2244 without the feature `utf8`).
+Summary (2026-09-13, after mruby-regexp, mruby-task, the source-location/backtrace work and
+mruby-sleep/mruby-strftime): 2507 assertions in the default build, 2344 pass (2452 and 2267
+without the feature `utf8`). mruby-sleep (6) and mruby-strftime (17) pass whole.
 mruby-task's own files add 72, of which 70 pass (`gem_task` 43/43, `gem_queue` 23/23,
 `gem_gc_task` 4/6). The eight assertions that used to skip for want of debug information now run:
 `Proc`/`Method`/`UnboundMethod`/`Binding#source_location`, `Proc#inspect`, the two `exception`

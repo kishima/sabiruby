@@ -28,15 +28,15 @@ struct Tm {
 }
 
 /// broken-down time (`struct tm`)
-struct DateTime {
-    year: i64,
-    mon: u32, // 1..=12
-    mday: u32,
-    hour: u32,
-    min: u32,
-    sec: u32,
-    wday: u32, // 0 = Sunday
-    yday: u32, // 1-based
+pub(crate) struct DateTime {
+    pub(crate) year: i64,
+    pub(crate) mon: u32, // 1..=12
+    pub(crate) mday: u32,
+    pub(crate) hour: u32,
+    pub(crate) min: u32,
+    pub(crate) sec: u32,
+    pub(crate) wday: u32, // 0 = Sunday
+    pub(crate) yday: u32, // 1-based
 }
 
 fn is_leap(y: i64) -> bool {
@@ -68,7 +68,7 @@ fn days_from_civil(y: i64, m: u32, d: i64) -> i64 {
     era * 146097 + doe - 719468
 }
 
-fn gmtime(sec: i64) -> DateTime {
+pub(crate) fn gmtime(sec: i64) -> DateTime {
     let days = sec.div_euclid(86400);
     let rem = sec.rem_euclid(86400);
     let (year, mon, mday) = civil_from_days(days);
@@ -116,6 +116,11 @@ fn normalize(mut sec: i64, mut nsec: i64) -> (i64, i64) {
         sec += adj;
     }
     (sec, nsec)
+}
+
+/// The seconds a Time holds, for mruby-strftime (`mrb_time_get_tm`).
+pub(crate) fn seconds_of(vm: &mut Vm, s: Value) -> VmResult<i64> {
+    Ok(load(vm, s)?.sec)
 }
 
 fn load(vm: &mut Vm, s: Value) -> VmResult<Tm> {
@@ -268,8 +273,8 @@ fn time_minus(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> 
     Ok(wrap(vm, c, diff, t.nsec - usec * 1000, t.utc))
 }
 
-const WDAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
-const MON_NAMES: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
+pub(crate) const WDAY_NAMES: [&str; 7] = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+pub(crate) const MON_NAMES: [&str; 12] = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
 
 fn time_asctime(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     let t = load(vm, s)?;

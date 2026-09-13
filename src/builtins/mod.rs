@@ -10,6 +10,7 @@ pub mod exception;
 pub mod ext_array;
 pub mod ext_eval;
 pub mod ext_require;
+pub mod ext_strftime;
 pub mod ext_task;
 pub mod ext_hash;
 pub mod ext_metaprog;
@@ -95,6 +96,8 @@ pub fn init(vm: &mut Vm) {
     ext_data::init(vm);
     ext_set::init(vm);
     ext_time::init(vm);
+    // mruby-strftime adds to the Time mruby-time made, so it comes after it
+    ext_strftime::init(vm);
 }
 
 // ---------------------------------------------------------------- shared helpers

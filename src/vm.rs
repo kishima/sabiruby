@@ -340,6 +340,10 @@ pub struct Vm {
     /// Wall clock as (seconds, nanoseconds) since the Unix epoch, for `Time.now`
     /// (mruby-time); the epoch when the host sets none.
     pub wall_clock: Option<fn() -> (i64, i64)>,
+    /// What `Kernel#sleep` outside a task waits with (mruby-sleep): the library is `no_std` and
+    /// has nothing to wait on, so a host that can block lends it one. Without it a `sleep`
+    /// outside a task returns at once.
+    pub sleep_hook: Option<fn(micros: u64)>,
     /// What the VM asks the host for: compiling an `eval` string, reading a file
     /// (`Vm::set_host`, `src/host.rs`). `None` means `eval` is not available.
     #[doc(hidden)]
@@ -503,7 +507,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, host: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, ..Default::default() },
         };
@@ -1653,7 +1657,7 @@ impl Vm {
         self.heap.ivar_set(exc, k, a);
     }
 
-    /// The text of a record [`Vm::keep_backtrace`] made, in the format `caller` uses. Frames the
+    /// The text of the record `keep_backtrace` made, in the format `caller` uses. Frames the
     /// build kept no line numbers for are left out, as they are there.
     pub fn backtrace_text(&self, flat: &[i64]) -> Vec<String> {
         let mut out = Vec::new();

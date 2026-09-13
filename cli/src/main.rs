@@ -190,6 +190,7 @@ fn run(bin: &[u8], argv: &[String], stats: bool, debug: bool, load_path: &[Strin
     vm.set_host(Box::new(sabiruby_compiler::Compiler::new()));
     if stats { vm.gc_clock = Some(clock_ns); }
     vm.wall_clock = Some(wall_clock);
+    vm.sleep_hook = Some(|micros| std::thread::sleep(std::time::Duration::from_micros(micros)));
     if let Err(e) = vm.load_mrblib() { eprintln!("failed to initialize VM (mrblib): {}", vm.describe_error(&e)); return ExitCode::from(1); }
     // like the `mruby` command: ARGV holds the arguments after the program file
     let argv: Vec<sabiruby::Value> = argv.iter().map(|a| vm.str_new(a.as_bytes())).collect();

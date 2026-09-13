@@ -475,6 +475,40 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     `unicode_case`/`unicode_ctype` assert opposite things about the same patterns, so each build
     runs one pair, as the gem's `spec.build_settings` says.
 
+* **mruby-sleep** (in `ext_task.rs`, beside the task-aware `sleep`) — `Kernel#sleep(sec)` and
+  `#usleep(usec)`. Both this gem and mruby-task define these names; the reference lets
+  mruby-task's win where both are linked (its README says so and tells you to drop mruby-sleep),
+  so there is one function here with mruby-task's arity and messages. What mruby-sleep adds is
+  what happens **outside** a task: the reference blocks in `usleep(3)`, and a `no_std` VM has
+  nothing to block on, so the host lends one (`Vm::sleep_hook`, the same shape as `wall_clock`;
+  the `sabiruby` command passes `std::thread::sleep`). Without a hook the call returns at once,
+  which is what the test runner does — the reference's own suite spends a second on
+  `sleep(1)` and this one does not. The answer is the seconds (or microseconds) actually waited
+  where the host has a clock, and what was asked for where it has none.
+
+* **mruby-strftime** (`ext_strftime.rs`) — `Time#strftime`. The reference hands the format to the
+  platform's `strftime(3)`; there is no C library here, so the conversions are written out
+  against the broken-down time `ext_time.rs` already computes: `%Y %C %y %m %B %b %h %d %e %j %H
+  %I %M %S %p %A %a %w %u %Z %z %F %T %D %R %c %x %X %n %t %s %%`, with glibc's `-` (no padding),
+  `_` (spaces) and `0` (zeros) flags and an optional field width. A conversion the C library does
+  not know is copied through as written, as glibc does. `%Z` is `UTC` and `%z` is `+0000`, which
+  is what this `Time` decided (there is no time zone database). A NUL in the format is a byte like
+  any other and comes out where it stood — the reference reaches the same answer by cutting the
+  format at each NUL, calling `strftime(3)` per piece and putting the NULs back.
+
+  There is no reference image to compare with (the gem is in no gembox), so each conversion was
+  checked against CRuby, whose C-locale answers are glibc's:
+
+  ```ruby
+  t = Time.gm(2026, 9, 13, 8, 11, 32)
+  %w(%Y %C %y %m %B %b %h %d %e %j %H %I %M %S %p %A %a %w %u %Z %z %F %T %D %R %c %x %X
+     %n %t %% %-d %_d %05Y %q).each { |f| print f, "\t", t.strftime(f).inspect, "\n" }
+  t2 = Time.gm(2023, 1, 5, 0, 0, 0)
+  %w(%I %p %e %j %u %w %C %s).each { |f| print f, "\t", t2.strftime(f).inspect, "\n" }
+  ```
+
+  `sabiruby` and `ruby` print the same 43 lines.
+
 * **mruby-task** (`src/builtins/ext_task.rs`, the scheduler state in `Vm::task`) — `Task`,
   `Task::Queue`, `Task::Error` and the task-aware `sleep` family. Not in any gembox; it is here
   because it is the shape a host loop needs (`Vm::task_run_once`).
@@ -545,8 +579,8 @@ stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
 enum-ext, hash-ext, range-ext, string-ext, sprintf, metaprog, proc-ext, method,
 compar-ext, toplevel-ext, enum-chain, enum-lazy, object-ext, symbol-ext, kernel-ext,
 class-ext, numeric-ext, catch, objectspace, math, random, struct, data, set, time, bigint,
-rational, complex, pack, eval, binding, proc-binding, regexp (36), plus mruby-cmath and
-mruby-task from outside the gembox. Only the POSIX gems are left.
+rational, complex, pack, eval, binding, proc-binding, regexp (36), plus mruby-cmath,
+mruby-task, mruby-sleep and mruby-strftime from outside the gembox. Only the POSIX gems are left.
 Sizes are lines of the reference C / mrblib Ruby / test.
 
 | order | gem | C / Ruby / test | depends on | notes |
@@ -568,8 +602,8 @@ Candidates, with the reference sizes (C / Ruby / test):
 
 | gem | size | worth it? |
 |---|---|---|
-| mruby-sleep | 186 / 0 / 29 | yes, with task: `Kernel#sleep`/`usleep` via the host clock hook |
-| mruby-strftime | 118 / 0 / 152 | yes, with time: `Time#strftime` |
+| mruby-sleep | 186 / 0 / 29 | **done** (2026-09-13): `Kernel#sleep`/`usleep` outside a task, through `Vm::sleep_hook` |
+| mruby-strftime | 118 / 0 / 152 | **done** (2026-09-13): `Time#strftime`, written out rather than handed to `strftime(3)` |
 | mruby-string-bitops | 581 / 0 / 210 | maybe: `String#&`, `|`, `^`, `~` on bytes; small, self-contained |
 | mruby-os-memsize | 283 / 0 / 63 | maybe: `ObjectSpace.memsize_of`; needs per-object sizes from our heap, answers will differ from the reference (deviation) |
 | mruby-encoding | 109 / 0 / 921 | maybe: the default build now reads strings as characters (`docs/utf8.md`), so `Encoding`, `String#encoding` and `force_encoding` would have something to say; `String#b` is already here |
