@@ -600,6 +600,20 @@ impl Vm {
         crate::builtins::ext_task::advance_ticks(self, n);
     }
 
+    /// A queue a host can answer a script through (`Task::Queue`, the gem's own class). The
+    /// script waits on it with `pop`, which parks its task until something is pushed — the shape
+    /// an asynchronous host operation wants: hand the script the queue, do the work outside, push
+    /// the result. Register it with [`Vm::gc_register`] while the host holds it.
+    pub fn task_queue_new(&mut self) -> VmResult<ObjId> {
+        crate::builtins::ext_task::queue_new(self)
+    }
+
+    /// Puts `value` in a queue made by [`Vm::task_queue_new`] and makes whatever was waiting on
+    /// it ready to run again.
+    pub fn task_queue_push(&mut self, queue: ObjId, value: Value) -> VmResult<()> {
+        crate::builtins::ext_task::queue_push(self, queue, value)
+    }
+
     /// Ticks until the earliest sleeping task is due, for a host that waits on a clock of its
     /// own: `None` where nothing is waiting on a deadline, `Some(0)` where one has passed. A
     /// host that has no work to do until then can wait that long before calling the scheduler

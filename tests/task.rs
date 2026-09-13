@@ -254,3 +254,40 @@ fn a_task_is_not_preempted_while_it_is_inside_a_fiber() {
         "[0, :fiber_end, 1, 2, 3, 4, 5, :plain_end]\n"
     );
 }
+
+#[test]
+fn a_host_answers_a_script_through_a_queue() {
+    // an asynchronous host operation: the script asks, is parked on `pop`, and the host pushes
+    // the answer when it has one — several frames later, with other tasks running meanwhile
+    let mut vm = vm_with(r#"
+      $asked = []
+      def scan(q) = q.pop           # parks this task until the host answers
+      Task.new(name: "robot") do
+        3.times { |i| $asked << [i, scan($queue)] }
+        :robot_done
+      end
+      Task.new(name: "other") { 6.times { |i| $asked << "tick#{i}"; Task.pass }; :other_done }
+    "#);
+    let q = vm.task_queue_new().expect("queue");
+    vm.gc_register(q);
+    let qn = vm.intern("$queue");
+    vm.globals.insert(qn, sabiruby::value::Slot::from(sabiruby::value::Value::Obj(q)));
+
+    // the host loop: run what is ready, then answer one pending request per turn
+    for i in 0..3 {
+        vm.task_run_budget(100_000).expect("run");
+        vm.task_queue_push(q, sabiruby::value::Value::Int(100 + i)).expect("push");
+    }
+    vm.task_run_budget(100_000).expect("run");
+
+    let bin = sabiruby_compiler::compile(b"p $asked\n", &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    vm.load_and_run(&bin).expect("run");
+    // the robot parked on the first `pop`, so the other task ran to its end meanwhile; the three
+    // answers are the host's, in the order it pushed them
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[\"tick0\", \"tick1\", \"tick2\", \"tick3\", \"tick4\", \"tick5\", [0, 100], [1, 101], [2, 102]]\n"
+    );
+}

@@ -330,6 +330,36 @@ fn idle(vm: &mut Vm) -> bool {
     true
 }
 
+/// A `Task::Queue` a host can hand values to (`Vm::task_queue_new`). The Ruby side is the gem's
+/// own class, so a task waits on it with `pop` and everything the gem's tests check still holds.
+pub(crate) fn queue_new(vm: &mut Vm) -> VmResult<ObjId> {
+    let tn = vm.intern("Task");
+    let task = match vm.const_get(vm.core.object, tn) {
+        Some(Value::Obj(t)) => t,
+        _ => return Err(vm.raise(vm.core.runtime_error, "Task is not defined")),
+    };
+    let qn = vm.intern("Queue");
+    let cls = match vm.const_get(task, qn) {
+        Some(Value::Obj(c)) => c,
+        _ => return Err(vm.raise(vm.core.runtime_error, "Task::Queue is not defined")),
+    };
+    let new = vm.intern("new");
+    let q = vm.funcall(Value::Obj(cls), new, &[], Value::Nil)?;
+    q.obj().ok_or_else(|| vm.raise(vm.core.runtime_error, "could not create the queue"))
+}
+
+/// Puts a value in the queue and makes the task waiting on it ready again (`Queue#push` from the
+/// host's side): how a host answers a request a script is parked on.
+pub(crate) fn queue_push(vm: &mut Vm, queue: ObjId, value: Value) -> VmResult<()> {
+    let s = Value::Obj(queue);
+    let items = q_items(vm, s)?;
+    if q_closed(vm, s) { return Err(task_error(vm, "queue closed")); }
+    let push = vm.intern("push");
+    vm.funcall(items, push, &[value], Value::Nil)?;
+    wake_queue_waiters(vm, queue, false);
+    Ok(())
+}
+
 /// Ticks until the earliest deadline, for a host that waits on a clock of its own
 /// (`Vm::task_next_wakeup_ticks`). `Some(0)` where one has passed already.
 pub(crate) fn next_wakeup_ticks(vm: &Vm) -> Option<u32> {
