@@ -99,6 +99,69 @@ once, and the step buttons showed on a page nobody had asked to debug (`hidden` 
 The whole debugger adds 69,913 bytes to the module (16,580 gzipped): the JSON writer, the
 snapshot and the DBG reader. The plan's budget was 100 KB.
 
+## 実時間: making `sleep` cost time in a browser
+
+Off by default; the **実時間** button turns it on for Run (not for the debugger, which steps the
+root context itself). What it changes:
+
+* **The VM gets a clock.** `wall_clock` is WASI's realtime clock, which the shim answers from
+  `Date.now()`. Without it `Time.now` was 1970-01-01 and a `sleep` outside a task answered 0.
+  This part is on always, in both modes.
+* **The program runs as a task** (`sabi_start_as_task` → `Vm::task_spawn` of its top-level irep)
+  rather than on the root context, so a plain top-level `sleep 1` is the scheduler's business
+  rather than a call the VM would have to block in. The visible difference: `Task.current`
+  answers that task rather than the "main" wrapper the reference hands the root context.
+* **The host owns the clock** (`Vm::task_external_clock`). mruby-task's tick is counted in
+  instructions by default and an idle scheduler jumps the clock to the earliest deadline, which
+  is why `sleep 1` normally costs nothing here. With the host owning it, the worker moves the
+  clock from the wall clock and waits out the rest on the event loop.
+
+The loop is in `web/worker.js` (`runRealtime`), about 40 lines: catch up the clock, run a budget
+of instructions, flush the output, ask how long until the earliest sleeper is due, `await` that
+long, repeat. No thread is blocked anywhere, so none of this needs `SharedArrayBuffer`,
+cross-origin isolation, or a service worker to install the headers GitHub Pages will not send.
+
+### Why no `Atomics.wait`
+
+Because this VM does not need one. A task here is a context of the VM, as a fiber is, and the VM
+returns to JS between two instructions — so *the event loop is the idle*. The other shape of the
+same problem is FreeRTOS's Emscripten port in family-mruby (`doc/wasm/` there), where a task is a
+real pthread (a Web Worker) and the kernel is used unmodified: a context switch has to park a
+thread, which leaves `Atomics.wait` on a `SharedArrayBuffer` as the only option — and with it
+COOP/COEP headers, and on GitHub Pages a service worker that reloads the first visit to install
+them. Same problem, a VM-shaped answer instead of an OS-shaped one.
+
+### The two bugs that port already paid for
+
+Both are in its P2 report, and both are one-line mistakes with expensive symptoms:
+
+* **An idle clock never advances.** If the tick comes from running instructions, a VM where every
+  task sleeps executes nothing, so no tick is produced and nothing ever wakes (their report:
+  45 seconds without round 1). Here the catch-up is at the top of every turn of the host loop,
+  including the turns that only waited, which is the one place it cannot be skipped.
+* **A woken task loses a round.** They measured `sleep_ms(100)` ten times taking 1500 ms instead
+  of 1000: the wake-up was noticed a full loop period after it was due, and one period was added
+  to every sleep. The rule that avoids it: *advance the clock, then run* — never run and then
+  advance. `test/browser.mjs` pins the result (3 × `sleep 0.1` inside 900 ms of wall clock, and
+  the program's own `Time.now` agreeing).
+
+### Catching up from an origin
+
+`due = (now - origin) / MRB_TICK_UNIT`, and the loop supplies `due - supplied` ticks. Not
+`now - last` added up: rounding would be lost every turn and a slow turn would never be made up
+for. FreeRTOS's port measured 0.2–1.2 ms of drift over 10 seconds this way, and ours is the same
+shape. One difference worth noting: theirs has to feed the ticks **one at a time**, because the
+kernel's delayed list only walks a tick at a time; mruby-task compares deadlines (wrap-safe),
+so a batch of 25 ticks wakes exactly what 25 single ticks would.
+
+### What it costs, and what it does not do
+
+The module grows by about 3 KB gzipped (the exports and the clock). A busy task still gets the
+CPU in timeslices counted in instructions, so a tight loop cannot starve a sleeping one — but the
+*length* of a timeslice is work, not time, so one turn of the loop can overrun its deadline if
+the code between two yields is slow. Nothing here makes the page multi-threaded: one task runs at
+a time, as in the reference.
+
 ## Building the compiler for wasm
 
 `sabiruby-compiler`'s `build.rs` handles `wasm32-wasip1` when `CC_wasm32_wasip1` points at
@@ -161,7 +224,7 @@ binaryen 132):
 
 | module | contents | bytes | gzip -9 |
 |---|---|---:|---:|
-| this playground's `sabiruby.wasm` | as above, with every gem and the compiler installed as the VM's host (`eval`) | 2,414,985 | 825,932 |
+| this playground's `sabiruby.wasm` | as above, with every gem, the compiler as the VM's host (`eval`) and the real-time scheduler | 2,421,764 | 829,175 |
 | SabiRuby VM only, `--features utf8` (the default) | strings as characters, the Unicode tables | 1,261,940 | 464,862 |
 | SabiRuby VM only, `--no-default-features` | strings as bytes, no Unicode tables | 937,307 | 366,514 |
 
