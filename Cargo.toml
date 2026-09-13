@@ -45,4 +45,4 @@ regex-automata = { version = "0.4", default-features = false, features = ["alloc
 [dev-dependencies]
 # The tests install the compiler as the VM's host, so that the `eval` cases and mruby's
 # `mruby-eval` tests run (the library itself never depends on it).
-sabiruby-compiler = { version = "0.1.0", path = "compiler", features = ["host"] }
+sabiruby-compiler = { path = "compiler", features = ["host"] }
