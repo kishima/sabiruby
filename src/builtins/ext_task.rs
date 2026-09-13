@@ -165,6 +165,23 @@ pub(crate) fn task_location(vm: &Vm, task: ObjId) -> Option<(alloc::string::Stri
     None
 }
 
+/// Every frame of a task's context with debug info, innermost first, as file and line. A host
+/// that shows a script's own source wants the innermost frame *in that file*, which is not
+/// always the innermost frame — a script waiting inside a library method stands in the library.
+pub(crate) fn task_frames(vm: &Vm, task: ObjId) -> alloc::vec::Vec<(alloc::string::String, u32)> {
+    let mut out = alloc::vec::Vec::new();
+    let ctx = match &vm.heap.get(task).kind { ObjKind::Task(t) => t.ctx, _ => return out };
+    if ctx == usize::MAX { return out; }
+    let frames = if ctx == vm.cur { &vm.ci } else { match vm.contexts.get(ctx) { Some(c) => &c.ci, None => return out } };
+    for ci in frames.iter().rev() {
+        let Some(ir) = vm.ireps.get(ci.irep) else { continue };
+        if ir.lines.is_empty() { continue; }
+        let file = ir.filename.clone().unwrap_or_else(|| alloc::string::String::from("(unknown)"));
+        out.push((file, ir.line_of(ci.pc.saturating_sub(1)).unwrap_or(0)));
+    }
+    out
+}
+
 /// What a task answered, for a host (`mrb_task_value`).
 pub(crate) fn task_result(vm: &Vm, task: ObjId) -> Value {
     match &vm.heap.get(task).kind { ObjKind::Task(t) => t.result.get(), _ => Value::Nil }

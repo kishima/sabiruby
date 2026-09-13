@@ -329,4 +329,9 @@ fn a_host_can_see_what_a_task_spends_and_where_it_is() {
     let (file, line) = vm.task_location(idle).expect("a location for the sleeping task");
     assert_eq!(file, "robots.rb");
     assert_eq!(line, 3, "the `sleep 10` line");
+
+    // and the frames below it are there for a host that shows one file of several
+    let frames = vm.task_frames(idle);
+    assert_eq!(frames.first(), Some(&("robots.rb".to_string(), 3)));
+    assert!(frames.len() >= 1, "at least the frame it stands in");
 }

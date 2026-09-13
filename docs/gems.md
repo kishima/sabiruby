@@ -603,6 +603,10 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     shows of a script: what it has spent (the difference between two frames is what it spent on
     that frame) and where it stands in its own source — file and line, while it is parked as well
     as while it runs, which is how a game can show the line a script is waiting on.
+    `task_frames` is the same for every frame a task stands
+    in, innermost first, so a host showing one file of several can find the innermost frame in
+    *that* file — a script parked inside a library method stands in the library, and what its
+    author wants to see is the line of their own that is waiting.
     `task_queue_new` and `task_queue_push` are how a host
     answers a script that asked it for something: hand the script a `Task::Queue`, do the work
     outside (a frame later, a thread, an event loop), push the result, and the `pop` the script

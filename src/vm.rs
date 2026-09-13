@@ -661,6 +661,14 @@ impl Vm {
         crate::builtins::ext_task::task_location(self, task)
     }
 
+    /// Every frame of a task with debug info, innermost first, as a file name and a line. Where
+    /// [`Vm::task_location`] answers the innermost one, this lets a host find the innermost frame
+    /// *in the file it is showing* — a script parked inside a library method stands in the
+    /// library, and what its author wants to see is the line of their own that is waiting.
+    pub fn task_frames(&self, task: ObjId) -> alloc::vec::Vec<(alloc::string::String, u32)> {
+        crate::builtins::ext_task::task_frames(self, task)
+    }
+
     /// Whether a task has run to its end (`Task#status == :DORMANT`).
     pub fn task_finished(&self, task: ObjId) -> bool {
         crate::builtins::ext_task::task_is_dormant(self, task)
