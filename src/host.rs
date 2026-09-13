@@ -32,7 +32,11 @@ impl Default for EvalOptions<'_> {
 }
 
 /// The services a host offers the VM.
-pub trait Host {
+///
+/// `Send + Sync` so that a [`Vm`](crate::Vm) stays both: an engine that keeps VMs in its own
+/// world (rubevy puts one in a Bevy resource) needs that of everything the VM holds, and nothing
+/// a host does here is thread-local by nature.
+pub trait Host: Send + Sync {
     /// Ruby source to a RITE binary. `Err` is the compiler's message, which becomes the
     /// text of the SyntaxError.
     fn compile(&mut self, src: &[u8], opts: &EvalOptions) -> Result<Vec<u8>, String>;
@@ -48,4 +52,4 @@ pub trait Host {
 }
 
 /// The host a [`Vm`](crate::Vm) holds, if any.
-pub type HostBox = Option<Box<dyn Host>>;
+pub type HostBox = Option<Box<dyn Host + Send + Sync>>;

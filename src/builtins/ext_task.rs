@@ -36,7 +36,7 @@ const Q_WAITING: usize = 2;
 const Q_SUSPENDED: usize = 3;
 
 /// Milliseconds a tick stands for (`MRB_TICK_UNIT`).
-const TICK_UNIT_MS: u32 = 4;
+pub(crate) const TICK_UNIT_MS: u32 = 4;
 /// Ticks a task runs before it is preempted (`MRB_TIMESLICE_TICK_COUNT`).
 const TIMESLICE: u8 = 3;
 /// `MRB_TASK_PRIORITY_DEFAULT`.
@@ -107,7 +107,6 @@ fn is_queued(vm: &Vm, o: ObjId) -> bool {
 /// passed becomes ready. Called from the instruction loop where nothing else drives it.
 pub(crate) fn tick(vm: &mut Vm) {
     vm.task.tick_left = vm.task.tick_every;
-    vm.task.tick = vm.task.tick.wrapping_add(1);
     if let Some(r) = vm.task.running {
         if td(vm, r).status == RUNNING && td(vm, r).timeslice > 0 {
             let left = td(vm, r).timeslice - 1;
@@ -115,7 +114,41 @@ pub(crate) fn tick(vm: &mut Vm) {
             if left == 0 { vm.task.switching = true; }
         }
     }
+    // a host with a clock of its own moves it instead (`Vm::task_advance_ticks`)
+    if vm.task.clock_from_instructions { advance_ticks(vm, 1); }
+}
+
+/// Moves the clock on and wakes what was sleeping until then (the tail of `mrb_tick`).
+pub(crate) fn advance_ticks(vm: &mut Vm, n: u32) {
+    vm.task.tick = vm.task.tick.wrapping_add(n);
     wake_sleepers(vm);
+}
+
+/// A task that runs the top level of a compiled program, for a host rather than for Ruby
+/// (`mrb_create_task`, which takes an `RProc`). Ready at once; nothing runs until the scheduler
+/// is asked to.
+pub(crate) fn task_spawn(vm: &mut Vm, irep: crate::object::IrepId, priority: u8, name: Option<&str>) -> VmResult<ObjId> {
+    let proc_ = vm.heap.alloc(vm.core.proc_, ObjKind::Proc(crate::object::ProcData {
+        irep, upper: None, env: None, target_class: Some(vm.core.object),
+        strict: false, scope: true, orphan: false, mid: None,
+    }));
+    let cls = {
+        let tn = vm.intern("Task");
+        match vm.const_get(vm.core.object, tn) { Some(Value::Obj(c)) => c, _ => vm.core.object }
+    };
+    let name = match name { Some(n) => vm.str_new(n.as_bytes()), None => Value::Nil };
+    let t = create_task(vm, cls, proc_, name, priority)?;
+    t.obj().ok_or_else(|| vm.raise(vm.core.runtime_error, "could not create the task"))
+}
+
+/// What a task answered, for a host (`mrb_task_value`).
+pub(crate) fn task_result(vm: &Vm, task: ObjId) -> Value {
+    match &vm.heap.get(task).kind { ObjKind::Task(t) => t.result.get(), _ => Value::Nil }
+}
+
+/// Whether a task has run to its end, for a host.
+pub(crate) fn task_is_dormant(vm: &Vm, task: ObjId) -> bool {
+    match &vm.heap.get(task).kind { ObjKind::Task(t) => t.status == DORMANT, _ => false }
 }
 
 /// Moves every waiting task whose deadline has passed to the ready queue, and records the next
@@ -329,6 +362,9 @@ fn task_run(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
 pub(crate) fn task_run_once(vm: &mut Vm) -> VmResult<Value> {
     if let Some(f) = vm.task.hook { f(vm); }
     if vm.task.queues[Q_READY].is_empty() {
+        // where the host owns the clock, a turn that found nothing ready is simply over: moving
+        // the clock is the host's to do (`Vm::task_advance_ticks`)
+        if !vm.task.clock_from_instructions { return Ok(Value::Nil); }
         if !vm.task.queues[Q_WAITING].is_empty() && idle(vm) { return Ok(Value::True); }
         return Ok(Value::Nil);
     }

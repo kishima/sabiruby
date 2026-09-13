@@ -553,6 +553,16 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   * The C test helpers (`test/tasktest.c`) are in `src/mrbtest.rs`: the scheduler hook probes,
     `run_once`, `reinit_context`, `run_sync`, and `block_then_raise`, whose busy-wait is replaced
     by saying outright that the timeslice expired — the state the test is about.
+  * **What a host drives it with** (`Vm::task_*`, checked by `tests/task.rs`): `task_spawn` makes
+    a task out of a compiled program rather than out of a Ruby block (`mrb_create_task` takes an
+    `RProc`), `task_run_once` is `mrb_task_run_once`, and `task_run_budget` is one turn of a frame
+    loop — ready tasks, one timeslice each, until a budget of instructions is spent. A host with a
+    clock of its own says so (`task_external_clock`) and moves it with `task_advance_ticks`; the
+    instruction count then only ends timeslices, which is what keeps one task from eating a whole
+    frame, and a turn that finds nothing ready simply ends rather than jumping the clock (which is
+    what `Task.run` does, since nothing else could move it there). `task_value` and
+    `task_finished` read a task back. A `Vm` is `Send + Sync` so that an engine can keep one in
+    its own world, which is what the `Host` trait's bound is for (`tests/send_sync.rs`).
 
 ## Compiling the tests
 

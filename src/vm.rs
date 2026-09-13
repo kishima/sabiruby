@@ -106,11 +106,15 @@ pub struct TaskState {
     pub running: Option<ObjId>,
     /// Instructions between two ticks. The reference's tick comes from a timer interrupt, which
     /// a `no_std` VM has none of; here it is the instruction count, so a timeslice is a fixed
-    /// amount of work rather than of time (`docs/gems.md`). 0 turns the counting off, which a
-    /// host driving `Vm::task_tick` itself wants.
+    /// amount of work rather than of time (`docs/gems.md`). 0 turns the counting off entirely.
     pub tick_every: u64,
     /// instructions left until the next tick
     pub tick_left: u64,
+    /// Whether an instruction tick also moves the clock (`tick`) on. A host with a clock of its
+    /// own — a frame loop giving the VM its frame time — turns this off with
+    /// [`Vm::task_external_clock`] and calls [`Vm::task_advance_ticks`] instead; the instruction
+    /// count then only ends timeslices, which is what keeps one task from eating a whole frame.
+    pub clock_from_instructions: bool,
     /// `Task.current` in the root context: the task that stands for the program itself, made on
     /// first use and in no queue (`mrb->task.main_task`)
     pub main: Option<ObjId>,
@@ -509,7 +513,7 @@ impl Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
-            task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, ..Default::default() },
+            task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, ..Default::default() },
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -567,6 +571,55 @@ impl Vm {
     /// where one ran, and nil where nothing was ready.
     pub fn task_run_once(&mut self) -> VmResult<Value> {
         crate::builtins::ext_task::task_run_once(self)
+    }
+
+    /// One turn of a host loop: ready tasks get the CPU, one timeslice each, until `budget`
+    /// instructions have been spent or nothing is ready. Answers what it spent. A task that never
+    /// yields is preempted at its timeslice, so a frame cannot be lost to one.
+    pub fn task_run_budget(&mut self, budget: u64) -> VmResult<u64> {
+        let start = self.instructions;
+        loop {
+            let spent = self.instructions - start;
+            if spent >= budget { return Ok(spent); }
+            if self.task_run_once()?.is_nil() { return Ok(self.instructions - start); }
+        }
+    }
+
+    /// Makes a task that runs the top level of `irep` (`mrb_create_task`, from a compiled program
+    /// rather than from a Ruby block). The task is ready at once; nothing runs until the
+    /// scheduler is asked to. The answer is the Task object, which the caller should
+    /// [`Vm::gc_register`] while it holds it.
+    pub fn task_spawn(&mut self, irep: crate::object::IrepId, priority: u8, name: Option<&str>) -> VmResult<ObjId> {
+        crate::builtins::ext_task::task_spawn(self, irep, priority, name)
+    }
+
+    /// Moves mruby-task's clock on by `n` ticks and wakes what was sleeping until then
+    /// (`mrb_tick`'s second half). For a host that has a clock of its own; see
+    /// [`Vm::task_external_clock`].
+    pub fn task_advance_ticks(&mut self, n: u32) {
+        crate::builtins::ext_task::advance_ticks(self, n);
+    }
+
+    /// Milliseconds one tick stands for (`MRB_TICK_UNIT`), so a host can turn its frame time into
+    /// ticks for [`Vm::task_advance_ticks`].
+    pub fn task_tick_unit_ms(&self) -> u32 {
+        crate::builtins::ext_task::TICK_UNIT_MS
+    }
+
+    /// Says the host moves the clock itself ([`Vm::task_advance_ticks`]); the instruction count
+    /// then only ends timeslices.
+    pub fn task_external_clock(&mut self, yes: bool) {
+        self.task.clock_from_instructions = !yes;
+    }
+
+    /// What a task answered, or the exception it did not handle (`Task#value`).
+    pub fn task_value(&self, task: ObjId) -> Value {
+        crate::builtins::ext_task::task_result(self, task)
+    }
+
+    /// Whether a task has run to its end (`Task#status == :DORMANT`).
+    pub fn task_finished(&self, task: ObjId) -> bool {
+        crate::builtins::ext_task::task_is_dormant(self, task)
     }
 
     /// Where `require` looks (`$LOAD_PATH`). The host decides: the `sabiruby` command uses the
@@ -1695,7 +1748,7 @@ impl Vm {
     /// Stress mode (mruby `MRB_GC_STRESS`): every allocation makes a collection due.
     /// Installs the host the VM asks for compilation and files (`src/host.rs`). Without one,
     /// `eval` raises NotImplementedError.
-    pub fn set_host(&mut self, host: alloc::boxed::Box<dyn crate::host::Host>) {
+    pub fn set_host(&mut self, host: alloc::boxed::Box<dyn crate::host::Host + Send + Sync>) {
         self.host = Some(host);
     }
 

@@ -48,6 +48,67 @@ fn a_timeslice_is_a_fixed_amount_of_work() {
 }
 
 #[test]
+fn a_host_spawns_tasks_and_drives_the_clock() {
+    // the shape a frame loop wants: the host makes the tasks out of compiled programs, gives the
+    // scheduler a budget per frame, and moves the clock on by the frame time
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    let mut spawn = |vm: &mut sabiruby::Vm, src: &str, name: &str| {
+        let bin = sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
+            filename: name.into(), debug_info: true, ..Default::default()
+        }).expect("compile");
+        let irep = vm.load(&bin).expect("load");
+        let t = vm.task_spawn(irep, 128, Some(name)).expect("spawn");
+        vm.gc_register(t);
+        t
+    };
+    let a = spawn(&mut vm, "$order = ($order || []) << :a_start\nsleep 0.1\n$order << :a_woke\n:a_done\n", "a");
+    let b = spawn(&mut vm, "$order = ($order || []) << :b\n:b_done\n", "b");
+
+    // frame 1: both run, `a` parks on its sleep and `b` finishes
+    vm.task_run_budget(100_000).expect("frame");
+    assert!(!vm.task_finished(a), "a must be sleeping, not done");
+    assert!(vm.task_finished(b));
+    assert_eq!(vm.inspect_str(vm.task_value(b)).unwrap(), ":b_done");
+
+    // a few frames of 16 ms each: nothing is ready until the sleep is over
+    let per_frame = 16 / vm.task_tick_unit_ms();
+    for _ in 0..3 {
+        vm.task_advance_ticks(per_frame);
+        vm.task_run_budget(100_000).expect("frame");
+    }
+    assert!(!vm.task_finished(a), "0.1 s has not passed yet");
+    for _ in 0..4 {
+        vm.task_advance_ticks(per_frame);
+        vm.task_run_budget(100_000).expect("frame");
+    }
+    assert!(vm.task_finished(a), "the sleep should be over");
+    assert_eq!(vm.inspect_str(vm.task_value(a)).unwrap(), ":a_done");
+
+    let bin = sabiruby_compiler::compile(b"p $order\n", &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    vm.load_and_run(&bin).expect("run");
+    assert_eq!(String::from_utf8_lossy(&vm.take_output()), "[:a_start, :b, :a_woke]\n");
+}
+
+#[test]
+fn a_budget_bounds_one_turn_of_a_host_loop() {
+    // a task that never yields is preempted at its timeslice, so a frame is not lost to it
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    let bin = sabiruby_compiler::compile(b"i = 0\nwhile true\n  i += 1\nend\n", &sabiruby_compiler::Options {
+        filename: "spin".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    let irep = vm.load(&bin).expect("load");
+    let t = vm.task_spawn(irep, 128, Some("spin")).expect("spawn");
+    vm.gc_register(t);
+    let spent = vm.task_run_budget(50_000).expect("frame");
+    assert!(spent >= 50_000 && spent < 200_000, "spent {spent}");
+    assert!(!vm.task_finished(t));
+}
+
+#[test]
 fn a_task_that_raises_keeps_the_scheduler_going() {
     let mut vm = vm_with(r#"
       t = Task.new { raise "boom" }

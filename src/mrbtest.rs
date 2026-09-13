@@ -365,14 +365,14 @@ pub fn run_file_cfg(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool,
 }
 
 /// [`run_file_cfg`] with the host the `eval` tests need (`Vm::set_host`).
-pub fn run_file_host(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host>>) -> VmResult<Summary> {
+pub fn run_file_host(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host + Send + Sync>>) -> VmResult<Summary> {
     run_file_prelude(assert_mrb, &[], test_mrb, cap, verbose, gc_stress, host)
 }
 
 /// The same with a prelude loaded after `assert.mrb`: the reference's driver links every test
 /// file into one program, so a helper one file defines is there for the next; a file at a time
 /// needs the shared helpers handed to it (`tools/mrbtest.sh` extracts them).
-pub fn run_file_prelude(assert_mrb: &[u8], prelude: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host>>) -> VmResult<Summary> {
+pub fn run_file_prelude(assert_mrb: &[u8], prelude: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host + Send + Sync>>) -> VmResult<Summary> {
     let mut vm = Vm::new();
     vm.set_gc_stress(gc_stress);
     if let Some(h) = host { vm.set_host(h); }
