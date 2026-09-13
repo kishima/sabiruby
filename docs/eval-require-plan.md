@@ -219,7 +219,7 @@ GC: `native_active > 0` の間は回収しない約束（`docs/gc.md`）があ�
 
 ## 5. require／load の設計 — **済み（2026-09-13）**
 
-実装は `src/mrblib_require.rb`（Ruby 側）と `src/builtins/ext_require.rs`（3 つのネイティブ）、
+実装は `src/mrblib/require.rb`（Ruby 側）と `src/builtins/ext_require.rs`（3 つのネイティブ）、
 `Vm::set_load_path`、CLI の `-r` と `$LOAD_PATH`。テストは `tests/require.rs`（10 件、期待値は CRuby 3.2 で実測）と
 `cli/tests/cli.rs` の 2 件。設計との違いは 2 つだけ:
 

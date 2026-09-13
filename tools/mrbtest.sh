@@ -36,7 +36,7 @@ if [ "${1:-}" = "-v" ]; then
 fi
 # copy sources (they are MIT, from mruby test/) and compile.
 # Gem tests (mrbgems/<gem>/test/*.rb) are copied as gem_<file>.rb; the gem's
-# mrblib is compiled into src/mrblib_<gem>.mrb and loaded by Vm::with_mrblib.
+# mrblib is compiled into src/mrblib/<gem>.mrb and loaded by Vm::with_mrblib.
 GEMS="mruby-sprintf mruby-metaprog mruby-proc-ext mruby-method mruby-fiber mruby-enumerator mruby-array-ext mruby-enum-ext mruby-hash-ext mruby-range-ext mruby-string-ext mruby-compar-ext mruby-toplevel-ext mruby-enum-chain mruby-enum-lazy mruby-object-ext mruby-symbol-ext mruby-kernel-ext mruby-class-ext mruby-numeric-ext mruby-catch mruby-objectspace mruby-math mruby-random mruby-struct mruby-data mruby-set mruby-time mruby-bigint mruby-rational mruby-complex mruby-cmath mruby-pack mruby-eval mruby-binding mruby-proc-binding mruby-regexp mruby-task mruby-sleep mruby-strftime"
 # the gem test files are copied afresh (the collision rule below looks at what this run copied)
 rm -f $DIR/src/gem_*.rb $DIR/gem_*.mrb
@@ -54,8 +54,8 @@ for g in $GEMS; do
   done
   if ls "$MRUBY"/mrbgems/$g/mrblib/*.rb >/dev/null 2>&1; then
     cat "$MRUBY"/mrbgems/$g/mrblib/*.rb > target/mrblib/mrblib_$short.rb
-    docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/mrblib_$short.mrb /w/mrblib_$short.rb
-    cp target/mrblib/mrblib_$short.mrb src/mrblib_$short.mrb
+    docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/$short.mrb /w/mrblib_$short.rb
+    cp target/mrblib/$short.mrb src/mrblib/$short.mrb
   fi
 done
 # The helpers the gem test files share. The reference's driver links every test file into one

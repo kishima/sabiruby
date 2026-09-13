@@ -2,7 +2,7 @@
 //! `pow(b, m)`, `digits`, `size`, `bit_length`, `odd?`, `even?`, `gcd`, `lcm`, `modulo`,
 //! `Integer.sqrt`; `Float#remainder`, `modulo` and the `Float::RADIX`.. constants. Its Ruby
 //! part (`Numeric#zero?`, `nonzero?`, `positive?`, `negative?`, `integer?`, `Integer#allbits?`,
-//! `anybits?`, `nobits?`, `ceildiv`) is `src/mrblib_numeric-ext.mrb`.
+//! `anybits?`, `nobits?`, `ceildiv`) is `src/mrblib/numeric-ext.mrb`.
 
 use alloc::{format, vec, vec::Vec};
 

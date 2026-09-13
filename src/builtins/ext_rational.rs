@@ -1,5 +1,5 @@
 //! mruby-rational (`mrbgems/mruby-rational/src/rational.c`): `Rational`. Its Ruby part
-//! (`inspect`, `to_s`, `<=>`, `Numeric#to_r`) is `src/mrblib_rational.mrb`.
+//! (`inspect`, `to_s`, `<=>`, `Numeric#to_r`) is `src/mrblib/rational.mrb`.
 //!
 //! A Rational keeps its two halves in hidden instance variables (`__num`, `__den`) instead of
 //! the reference's `MRB_TT_RATIONAL` payload, the way Random and Time keep theirs. Both are

@@ -1,5 +1,5 @@
 //! mruby-catch (`mrbgems/mruby-catch/src/catch.c`): `Kernel#catch`/`throw`. Its Ruby part
-//! (`UncaughtThrowError`) is `src/mrblib_catch.mrb`.
+//! (`UncaughtThrowError`) is `src/mrblib/catch.mrb`.
 //!
 //! The reference's `catch` is a bytecode method (`r2.call(r1)`) that `throw` recognises on the
 //! call stack by its proc; `throw` then raises an `RBreak` aimed at that frame, so `ensure`

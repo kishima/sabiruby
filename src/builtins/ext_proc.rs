@@ -1,5 +1,5 @@
 //! mruby-proc-ext (`mrbgems/mruby-proc-ext/src/proc.c`); its Ruby part
-//! (`curry`, `<<`, `>>`, `===`, `yield`, `to_proc`) is `src/mrblib_proc-ext.mrb`.
+//! (`curry`, `<<`, `>>`, `===`, `yield`, `to_proc`) is `src/mrblib/proc-ext.mrb`.
 
 use alloc::{format, string::String, vec, vec::Vec};
 

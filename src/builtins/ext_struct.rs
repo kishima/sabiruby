@@ -1,5 +1,5 @@
 //! mruby-struct (`mrbgems/mruby-struct/src/struct.c`): `Struct`. Its Ruby part (`each`,
-//! `each_pair`, `select`, `dig`, `to_s`, `__struct_init_fwd`) is `src/mrblib_struct.mrb`.
+//! `each_pair`, `select`, `dig`, `to_s`, `__struct_init_fwd`) is `src/mrblib/struct.mrb`.
 //!
 //! A struct instance is the reference's `MRB_TT_STRUCT`, an array-shaped object whose class
 //! is the struct class: here an `ObjKind::Array` with that class. The member accessors are

@@ -1,5 +1,5 @@
 //! mruby-hash-ext (`mrbgems/mruby-hash-ext/src/hash_ext.c`) plus the core
-//! `__compact` its Ruby part (`src/mrblib_hash-ext.mrb`) relies on.
+//! `__compact` its Ruby part (`src/mrblib/hash-ext.mrb`) relies on.
 
 use alloc::{format, vec, vec::Vec};
 

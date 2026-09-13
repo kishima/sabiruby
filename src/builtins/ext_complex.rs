@@ -1,6 +1,6 @@
 //! mruby-complex (`mrbgems/mruby-complex/src/complex.c`): `Complex`. Its Ruby part
 //! (`inspect`, `to_s`, `abs`, `arg`, `polar`, `conjugate`, `Numeric#to_c`, …) is
-//! `src/mrblib_complex.mrb`.
+//! `src/mrblib/complex.mrb`.
 //!
 //! A Complex keeps its two parts in hidden instance variables (`__real`, `__imag`), each of
 //! them whatever member of the numeric tower it was given (Integer of any width, Rational or

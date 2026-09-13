@@ -8,7 +8,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
    `fiber.rs`), registered after the core natives in `builtins::init` so they replace core
    natives of the same name, as the gem's `mrb_..._gem_init` does in the reference.
 2. **Ruby part**: `tools/mrbtest.sh` concatenates the gem's `mrblib/*.rb`, compiles it with the
-   reference `mrbc` into `src/mrblib_<gem>.mrb`, and `Vm::with_mrblib` loads it after the core
+   reference `mrbc` into `src/mrblib/<gem>.mrb`, and `Vm::with_mrblib` loads it after the core
    mrblib **in the order of `mrbgems/default.gembox`** (`lib.rs`, `vm.rs`). The order matters
    when two gems define the same method: mruby-enumerator's `Enumerable#zip` replaces
    mruby-enum-ext's because it is initialised later.
@@ -412,7 +412,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     redefines `allocate` decides what `new` makes. SabiRuby's native allocated directly; it
     now dispatches (skipping the dispatch when `allocate` is still the built-in one, so the
     benchmarks do not move). mruby-binding's test found this.
-  * **`require`/`load`** (`src/mrblib_require.rb`, `src/builtins/ext_require.rs`,
+  * **`require`/`load`** (`src/mrblib/require.rb`, `src/builtins/ext_require.rs`,
     `docs/eval-require-plan.md` §5) — mruby has none of it, so the shape is picoruby-require's
     (MIT), with three differences. There is no `extern`: the gems are all linked from the start,
     so their names are in `$LOADED_FEATURES` from the first line and `require 'fiber'` answers
@@ -549,7 +549,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     reached (`mrb_env_detach_all`). Without it a closure written inside a task read freed memory
     after `Task#close`, which is what three of the gem's tests are about.
   * **`Task::Queue`** is the gem's own Ruby part (`mrblib/queue.rb`, loaded as
-    `src/mrblib_task.mrb`) over five natives; the items are an ivar Array rather than a `DATA_PTR`
+    `src/mrblib/task.mrb`) over five natives; the items are an ivar Array rather than a `DATA_PTR`
     struct. A blocking `pop` parks the task with reason `QUEUE` and answers the `WAIT_RETRY`
     sentinel, which the Ruby loop retries once a push or a close made it ready again.
   * **`GC.scheduler_driven`** turns the collector over to the scheduler's idle points, and
@@ -644,7 +644,7 @@ clocks, done 2026-09-12) → 4 (eval, with the compiler hook) → 5 (numeric tow
 (`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
 6 (regexp, on top of UTF-8, done 2026-09-13 — the engine is Rust's, only the surface is ported)
 → 7 (task).
-Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib_<gem>.mrb`,
+Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib/<gem>.mrb`,
 tests into `tools/mrbtest.sh` `GEMS`, reasons for what does not pass into
 `docs/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.
 

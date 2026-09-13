@@ -1,5 +1,5 @@
 //! mruby-data (`mrbgems/mruby-data/src/data.c`): `Data.define`. Its Ruby part
-//! (`__init_with_kw`) is `src/mrblib_data.mrb`. Instances are array-shaped like structs
+//! (`__init_with_kw`) is `src/mrblib/data.mrb`. Instances are array-shaped like structs
 //! (`ext_struct.rs`) and frozen once built.
 
 use alloc::{format, vec, vec::Vec};

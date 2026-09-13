@@ -1,5 +1,5 @@
 //! mruby-range-ext (`mrbgems/mruby-range-ext/src/range.c`); its Ruby part is
-//! embedded as `src/mrblib_range-ext.mrb`.
+//! embedded as `src/mrblib/range-ext.mrb`.
 
 use crate::argc;
 use crate::error::VmResult;

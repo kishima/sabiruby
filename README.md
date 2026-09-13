@@ -35,7 +35,7 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   `MRB_UTF8_STRING`; bytes without the feature `utf8` — [`docs/utf8.md`](https://github.com/kishima/sabiruby/blob/main/docs/utf8.md)),
   Array, Hash, Range, Proc, Exception hierarchy.
 * mruby's own `mrblib/*.rb` (Enumerable, Comparable, `Array#each`, `Integer#times`, …) is
-  compiled by the reference `mrbc` and embedded (`src/mrblib.mrb`), so those run as bytecode.
+  compiled by the reference `mrbc` and embedded (`src/mrblib/core.mrb`), so those run as bytecode.
 * Step execution with an instruction budget (`Vm::start` / `Vm::step`) for host loops.
 
 * Keyword parameters, visibility (`private`/`protected`/`module_function`), `prepend`,
@@ -59,7 +59,7 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   host hook, and `Time#strftime` is written out rather than handed to the C library. The numeric tower is complete: **mruby-bigint**
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
-  in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib_<gem>.mrb` and
+  in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib/<gem>.mrb` and
   loaded in the reference gembox order; see [`docs/gems.md`](https://github.com/kishima/sabiruby/blob/main/docs/gems.md)). `send`/`__send__`
   from bytecode dispatch in place, as in mruby, so a `Fiber.yield` behind them is not a native
   boundary.
@@ -226,7 +226,7 @@ loop {
 | `src/host.rs`, `src/builtins/ext_eval.rs`, `ext_binding.rs` | what the VM asks its host for (compiling a string), `eval` and `Binding` |
 | `src/object.rs` | heap objects (classes, procs, envs, strings, arrays, hashes), mark & sweep |
 | `src/builtins/` | native methods per class |
-| `src/mrblib.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |
+| `src/mrblib/core.mrb` | mruby's `mrblib/*.rb`, compiled by the reference `mrbc` |
 | `tests/fixtures/` | reference programs, bytecode and expected output |
 | `tools/fixtures.sh` | regenerates the fixtures and `mrblib.mrb` with Docker |
 | `src/mrbtest.rs`, `tests/mrbtest/` | runner and compiled files of mruby's test suite |
@@ -237,6 +237,6 @@ loop {
 
 ## License
 
-MIT (`LICENSE`). `src/mrblib.mrb` and `src/mrblib_*.mrb` are compiled from mruby's `mrblib`
+MIT (`LICENSE`). The files in `src/mrblib/` are compiled from mruby's `mrblib`
 and the Ruby parts of its bundled gems, and `tests/mrbtest/src/` holds copies of mruby's test
 suite; those are MIT licensed, Copyright (c) 2010- mruby developers (`LICENSE-mruby`).

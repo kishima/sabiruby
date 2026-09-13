@@ -3,8 +3,8 @@
 # into .mrb and record the reference output (.out) and the verbose dump (.dump).
 #   tools/fixtures.sh            # all fixtures
 #   tools/fixtures.sh hello      # one fixture
-# Also builds mrblib.mrb (the Ruby part of mruby's core library) into src/mrblib.mrb, and
-# src/mrblib_require.rb (SabiRuby's own require/load) into src/mrblib_require.mrb.
+# Also builds the Ruby part of mruby's core library into src/mrblib/core.mrb, and
+# src/mrblib/require.rb (SabiRuby's own require/load) into src/mrblib/require.mrb.
 set -eu
 cd "$(dirname "$0")/.."
 IMG=kishima/mruby:4.1.0-rc
@@ -15,12 +15,12 @@ MRUBY=${MRUBY_SRC:-../../ref/mruby}
 if [ -d "$MRUBY/mrblib" ]; then
   mkdir -p target/mrblib
   cat "$MRUBY"/mrblib/*.rb > target/mrblib/mrblib_all.rb
-  docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/mrblib.mrb /w/mrblib_all.rb
-  cp target/mrblib/mrblib.mrb src/mrblib.mrb
+  docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/core.mrb /w/mrblib_all.rb
+  cp target/mrblib/core.mrb src/mrblib/core.mrb
 fi
 # SabiRuby's own Ruby part: require/load (`docs/eval-require-plan.md` 5). The reference has none
 # of it, so this one is compiled from the source that lives beside it.
-docker run --rm -v "$PWD/src:/w" $IMG mrbc -o /w/mrblib_require.mrb /w/mrblib_require.rb
+docker run --rm -v "$PWD/src/mrblib:/w" $IMG mrbc -o /w/require.mrb /w/require.rb
 for rb in tests/fixtures/${1:-*}.rb; do
   base=${rb%.rb}
   docker run --rm -v "$PWD/tests/fixtures:/w" $IMG /bin/sh -c "

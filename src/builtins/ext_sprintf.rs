@@ -1,5 +1,5 @@
 //! mruby-sprintf (`mrbgems/mruby-sprintf/src/sprintf.c`): `Kernel#sprintf` /
-//! `format`. `String#%` is the gem's Ruby part (`src/mrblib_sprintf.mrb`).
+//! `format`. `String#%` is the gem's Ruby part (`src/mrblib/sprintf.mrb`).
 //! The state machine (flags, `n$`, `<name>`, `*`) is the reference's; floats
 //! are rendered with `core::fmt` (correctly rounded) and reshaped to C's
 //! `%f`/`%e`/`%g` conventions.

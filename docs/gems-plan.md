@@ -27,7 +27,7 @@
 ## 1. 変えてはいけない約束（移植済み gem と同じ）
 
 1. **gem が Ruby（mrblib）で定義するメソッドをネイティブで置かない**。gem の `mrblib/*.rb` は `tools/mrbtest.sh` が
-   本家 `mrbc` で `src/mrblib_<gem>.mrb` に固め、`Vm::load_mrblib`（`src/vm.rs`）が gembox 順に読む。
+   本家 `mrbc` で `src/mrblib/<gem>.mrb` に固め、`Vm::load_mrblib`（`src/vm.rs`）が gembox 順に読む。
    `lib.rs` に `MRBLIB_<GEM>_MRB` 定数を足し、`load_mrblib` の配列の正しい位置に入れる。
 2. ネイティブは `src/builtins/ext_<gem>.rs` に置き、`src/builtins/mod.rs` の `init` で core の後に登録する
    （同名の core ネイティブを gem が置き換える順序）。ネイティブを書く前に「本家はそれを C で定義しているか」を確かめる。
@@ -267,7 +267,7 @@ rational、pack の照合も bigint がある前提の方が楽。
 ### 3.7 mruby-task（2390 C / 46 Ruby / 860 test、`default.gembox` 外）— **済み（2026-09-13）**
 
 実装は `src/builtins/ext_task.rs`（スケジューラの状態は `Vm::task`）、Ruby 側は本家の `mrblib/queue.rb` を
-`src/mrblib_task.mrb` に、C のテスト補助（`test/tasktest.c`）は `src/mrbtest.rs` に。
+`src/mrblib/task.mrb` に、C のテスト補助（`test/tasktest.c`）は `src/mrbtest.rs` に。
 本家テストは `task` 43/43、`queue` 23/23、`gc_task` 4/6（`GC.generational_mode` が常に false）、
 `proc_set_stack` は 0 件（`respond_to?` で自分を飛ばす）。詳細と差異は `docs/gems.md`。
 計画との違いは tick の出どころ: タイマー割り込みが無いので命令数で数える（`TaskState::tick_every`）。

@@ -1,6 +1,6 @@
 //! mruby-array-ext (`mrbgems/mruby-array-ext/src/array.c`) and the Array part
 //! of mruby-enum-ext (`mruby-enum-ext/src/enum.c`): the natives the two gems'
-//! Ruby parts (embedded as `src/mrblib_array-ext.mrb`, `src/mrblib_enum-ext.mrb`)
+//! Ruby parts (embedded as `src/mrblib/array-ext.mrb`, `src/mrblib/enum-ext.mrb`)
 //! build on. Set operations use `eql?`/`hash` like the reference's khash set;
 //! here that is a linear walk with `eql?`.
 

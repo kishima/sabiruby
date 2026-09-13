@@ -1,6 +1,6 @@
 //! mruby-object-ext (`mrbgems/mruby-object-ext/src/object.c`): `NilClass#to_a/to_h/to_i/to_f`,
 //! `Kernel#itself`, `BasicObject#instance_exec`. Its Ruby part (`yield_self`/`then`, `tap`) is
-//! `src/mrblib_object-ext.mrb`.
+//! `src/mrblib/object-ext.mrb`.
 
 use alloc::vec;
 

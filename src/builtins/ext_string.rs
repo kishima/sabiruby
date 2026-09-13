@@ -1,6 +1,6 @@
 //! mruby-string-ext (`mrbgems/mruby-string-ext/src/string.c`) for a build
 //! without `MRB_UTF8_STRING` (the reference configuration): strings are bytes,
-//! one character per byte. The gem's Ruby part is `src/mrblib_string-ext.mrb`.
+//! one character per byte. The gem's Ruby part is `src/mrblib/string-ext.mrb`.
 
 use alloc::{format, vec, vec::Vec};
 

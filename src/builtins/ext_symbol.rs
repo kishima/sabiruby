@@ -1,6 +1,6 @@
 //! mruby-symbol-ext (`mrbgems/mruby-symbol-ext/src/symbol.c`): `Symbol#length`/`size`,
 //! `slice`/`[]`. Its Ruby part (`include Comparable`, `capitalize`, `downcase`, `upcase`,
-//! `casecmp`, `casecmp?`, `empty?`, `intern`) is `src/mrblib_symbol-ext.mrb`.
+//! `casecmp`, `casecmp?`, `empty?`, `intern`) is `src/mrblib/symbol-ext.mrb`.
 //! `Symbol.all_symbols` is `MRB_USE_ALL_SYMBOLS` only and is not defined here.
 
 use crate::error::VmResult;

@@ -1,6 +1,6 @@
 //! mruby-set (`mrbgems/mruby-set/src/set.c`): `Set`. Its Ruby part (`initialize`, `merge`,
 //! `replace`, `subtract`, the set operators over `__merge`/`__union`/..., `each`, `delete_if`,
-//! `classify`, ...) is `src/mrblib_set.mrb`.
+//! `classify`, ...) is `src/mrblib/set.mrb`.
 //!
 //! A Set is a Hash-shaped object (`ObjKind::Hash`, element => true) with the class `Set`, so
 //! membership follows the Hash's `hash`/`eql?` rule and the order of elements is insertion

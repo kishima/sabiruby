@@ -99,33 +99,33 @@ pub use vm::{Step, Vm};
 
 /// mruby's core library written in Ruby (`mrblib/*.rb` of 4.1.0-rc), compiled
 /// with the reference `mrbc`. Loaded by [`Vm::with_mrblib`].
-pub const MRBLIB_MRB: &[u8] = include_bytes!("mrblib.mrb");
+pub const MRBLIB_MRB: &[u8] = include_bytes!("mrblib/core.mrb");
 /// `mrbgems/mruby-enumerator/mrblib/enumerator.rb` (pure Ruby, needs Fiber), loaded after the core mrblib.
-pub const MRBLIB_ENUMERATOR_MRB: &[u8] = include_bytes!("mrblib_enumerator.mrb");
+pub const MRBLIB_ENUMERATOR_MRB: &[u8] = include_bytes!("mrblib/enumerator.mrb");
 /// The Ruby parts of the *-ext gems, in the reference's gembox order (`mrbgems/default.gembox`).
-pub const MRBLIB_SPRINTF_MRB: &[u8] = include_bytes!("mrblib_sprintf.mrb");
-pub const MRBLIB_ENUM_EXT_MRB: &[u8] = include_bytes!("mrblib_enum-ext.mrb");
-pub const MRBLIB_STRING_EXT_MRB: &[u8] = include_bytes!("mrblib_string-ext.mrb");
-pub const MRBLIB_ARRAY_EXT_MRB: &[u8] = include_bytes!("mrblib_array-ext.mrb");
-pub const MRBLIB_HASH_EXT_MRB: &[u8] = include_bytes!("mrblib_hash-ext.mrb");
-pub const MRBLIB_RANGE_EXT_MRB: &[u8] = include_bytes!("mrblib_range-ext.mrb");
-pub const MRBLIB_PROC_EXT_MRB: &[u8] = include_bytes!("mrblib_proc-ext.mrb");
-pub const MRBLIB_METHOD_MRB: &[u8] = include_bytes!("mrblib_method.mrb");
-pub const MRBLIB_COMPAR_EXT_MRB: &[u8] = include_bytes!("mrblib_compar-ext.mrb");
-pub const MRBLIB_ENUM_LAZY_MRB: &[u8] = include_bytes!("mrblib_enum-lazy.mrb");
-pub const MRBLIB_ENUM_CHAIN_MRB: &[u8] = include_bytes!("mrblib_enum-chain.mrb");
-pub const MRBLIB_SYMBOL_EXT_MRB: &[u8] = include_bytes!("mrblib_symbol-ext.mrb");
-pub const MRBLIB_OBJECT_EXT_MRB: &[u8] = include_bytes!("mrblib_object-ext.mrb");
-pub const MRBLIB_NUMERIC_EXT_MRB: &[u8] = include_bytes!("mrblib_numeric-ext.mrb");
-pub const MRBLIB_CATCH_MRB: &[u8] = include_bytes!("mrblib_catch.mrb");
-pub const MRBLIB_SET_MRB: &[u8] = include_bytes!("mrblib_set.mrb");
-pub const MRBLIB_STRUCT_MRB: &[u8] = include_bytes!("mrblib_struct.mrb");
-pub const MRBLIB_DATA_MRB: &[u8] = include_bytes!("mrblib_data.mrb");
-pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib_toplevel-ext.mrb");
-pub const MRBLIB_RATIONAL_MRB: &[u8] = include_bytes!("mrblib_rational.mrb");
-pub const MRBLIB_COMPLEX_MRB: &[u8] = include_bytes!("mrblib_complex.mrb");
-pub const MRBLIB_REGEXP_MRB: &[u8] = include_bytes!("mrblib_regexp.mrb");
+pub const MRBLIB_SPRINTF_MRB: &[u8] = include_bytes!("mrblib/sprintf.mrb");
+pub const MRBLIB_ENUM_EXT_MRB: &[u8] = include_bytes!("mrblib/enum-ext.mrb");
+pub const MRBLIB_STRING_EXT_MRB: &[u8] = include_bytes!("mrblib/string-ext.mrb");
+pub const MRBLIB_ARRAY_EXT_MRB: &[u8] = include_bytes!("mrblib/array-ext.mrb");
+pub const MRBLIB_HASH_EXT_MRB: &[u8] = include_bytes!("mrblib/hash-ext.mrb");
+pub const MRBLIB_RANGE_EXT_MRB: &[u8] = include_bytes!("mrblib/range-ext.mrb");
+pub const MRBLIB_PROC_EXT_MRB: &[u8] = include_bytes!("mrblib/proc-ext.mrb");
+pub const MRBLIB_METHOD_MRB: &[u8] = include_bytes!("mrblib/method.mrb");
+pub const MRBLIB_COMPAR_EXT_MRB: &[u8] = include_bytes!("mrblib/compar-ext.mrb");
+pub const MRBLIB_ENUM_LAZY_MRB: &[u8] = include_bytes!("mrblib/enum-lazy.mrb");
+pub const MRBLIB_ENUM_CHAIN_MRB: &[u8] = include_bytes!("mrblib/enum-chain.mrb");
+pub const MRBLIB_SYMBOL_EXT_MRB: &[u8] = include_bytes!("mrblib/symbol-ext.mrb");
+pub const MRBLIB_OBJECT_EXT_MRB: &[u8] = include_bytes!("mrblib/object-ext.mrb");
+pub const MRBLIB_NUMERIC_EXT_MRB: &[u8] = include_bytes!("mrblib/numeric-ext.mrb");
+pub const MRBLIB_CATCH_MRB: &[u8] = include_bytes!("mrblib/catch.mrb");
+pub const MRBLIB_SET_MRB: &[u8] = include_bytes!("mrblib/set.mrb");
+pub const MRBLIB_STRUCT_MRB: &[u8] = include_bytes!("mrblib/struct.mrb");
+pub const MRBLIB_DATA_MRB: &[u8] = include_bytes!("mrblib/data.mrb");
+pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib/toplevel-ext.mrb");
+pub const MRBLIB_RATIONAL_MRB: &[u8] = include_bytes!("mrblib/rational.mrb");
+pub const MRBLIB_COMPLEX_MRB: &[u8] = include_bytes!("mrblib/complex.mrb");
+pub const MRBLIB_REGEXP_MRB: &[u8] = include_bytes!("mrblib/regexp.mrb");
 /// mruby-task's `Task::Queue#push`/`#pop` (`mrbgems/mruby-task/mrblib/queue.rb`).
-pub const MRBLIB_TASK_MRB: &[u8] = include_bytes!("mrblib_task.mrb");
-/// `require`/`load`, which the reference has no equivalent of (`src/mrblib_require.rb`).
-pub const MRBLIB_REQUIRE_MRB: &[u8] = include_bytes!("mrblib_require.mrb");
+pub const MRBLIB_TASK_MRB: &[u8] = include_bytes!("mrblib/task.mrb");
+/// `require`/`load`, which the reference has no equivalent of (`src/mrblib/require.rb`).
+pub const MRBLIB_REQUIRE_MRB: &[u8] = include_bytes!("mrblib/require.mrb");
