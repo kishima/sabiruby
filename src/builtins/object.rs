@@ -198,7 +198,7 @@ pub fn init(vm: &mut Vm) {
                       ("MRUBY_PLATFORM", "rust-sabiruby"), ("MRUBY_RELEASE_DATE", "2026-09-04"),
                       // the commit this VM was built from (`build.rs`); `HEAD` where there was no git,
                       // which is the reference's own default too
-                      ("MRUBY_REVISION", option_env!("SABIRUBY_REVISION").unwrap_or("HEAD")),
+                      ("MRUBY_REVISION", crate::REVISION),
                       ("MRUBY_DESCRIPTION", "mruby 4.1.0RC (2026-09-04)"), ("MRUBY_COPYRIGHT", "mruby - Copyright (c) 2010-2026 mruby developers")] {
         let s = vm.str_new(v.as_bytes());
         if let Some(o) = s.obj() { vm.heap.get_mut(o).frozen = true; }

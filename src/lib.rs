@@ -63,6 +63,17 @@
 
 extern crate alloc;
 
+/// This crate's version, e.g. `"0.3.0"`. What a host prints to say which VM is running.
+pub const VERSION: &str = env!("CARGO_PKG_VERSION");
+
+/// The commit this VM was built from, e.g. `"1fe5f9d77099ee4389d8451b1369a0de0e2d544c"`, or
+/// `"HEAD"` where the build had no git (a crates.io build, as the reference's own default is).
+/// It is what Ruby reads as `MRUBY_REVISION`.
+pub const REVISION: &str = match option_env!("SABIRUBY_REVISION") {
+    Some(r) => r,
+    None => "HEAD",
+};
+
 pub mod bigint;
 pub mod error;
 pub mod host;
