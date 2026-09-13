@@ -57,11 +57,16 @@ browser main thread                    Web Worker
 ## Debugging: the VM visualizer
 
 The point of the playground is what the reference `mruby` on wasm cannot show: the VM between two
-instructions. **デバッグ** compiles the program and stops before the first instruction; then the buttons of any
-debugger: **ステップオーバー** (F10, the next line of this frame, calls running without stopping
-inside them), **ステップイン** (F11), **ステップアウト** (Shift+F11), **命令ステップ** (Ctrl+F11,
-one instruction), **続行** (F5), **再起動** (Ctrl+Shift+F5) and **停止** (Shift+F5). The keys are
-the ones Visual Studio and VS Code use. The editor is read-only while a session runs.
+instructions. **デバッグ** compiles the program and stops before the first instruction; the buttons of any
+debugger then open in the same row, beside it: **ステップオーバー** (F10, the next line of this
+frame, calls running without stopping inside them), **ステップイン** (F11), **ステップアウト**
+(Shift+F11), **命令ステップ** (Ctrl+F11, one instruction), **続行** (F5), then a rule and the
+session's own controls — **mrblib に入る**, **再起動** (Ctrl+Shift+F5) and **デバッグ終了**
+(Shift+F5). The keys are the ones Visual Studio and VS Code use. The editor is read-only while a
+session runs. Keeping the mode and what it can do in one row is deliberate: they were two rows
+once, and the step buttons showed on a page nobody had asked to debug (`hidden` loses to
+`.controls { display: flex }`), which read as an invitation to press a highlighted
+**ステップオーバー**. `test/browser.mjs` checks that they stay closed until **デバッグ**.
 
 * Worker messages, next to the existing `run`/`inspect`: `debug-start {src}` (reset, compile,
   start, recording on, returns the listing and the first state), `debug-step {mode, budget}`
