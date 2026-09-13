@@ -154,6 +154,16 @@ shape. One difference worth noting: theirs has to feed the ticks **one at a time
 kernel's delayed list only walks a tick at a time; mruby-task compares deadlines (wrap-safe),
 so a batch of 25 ticks wakes exactly what 25 single ticks would.
 
+### `Task.run` in a program a host drives
+
+A program written for the normal mode ends in `Task.run`, since nothing else would run its tasks.
+Under the host driver that call is a no-op and the loop outside keeps going, so the same program
+works both ways — but it took a fix in the VM (`Task.run` from inside a task used to take the
+head of the ready queue, which is the running task itself, and resume the context it was standing
+in). The sample `vm_task_realtime` is written to be run both ways: two tasks at 100 ms and
+200 ms while the program sleeps 650 ms, each line stamped with the elapsed milliseconds. Off, it
+prints the same lines in the same order in about a millisecond.
+
 ### What it costs, and what it does not do
 
 The module grows by about 3 KB gzipped (the exports and the clock). A busy task still gets the
