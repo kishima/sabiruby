@@ -152,6 +152,87 @@ fn the_argument_is_converted_the_way_ruby_does() {
 }
 
 #[test]
+fn the_load_path_is_searched_in_order() {
+    let d = Dir::new("order");
+    std::fs::create_dir_all(Path::new(d.path()).join("a")).expect("mkdir");
+    std::fs::create_dir_all(Path::new(d.path()).join("b")).expect("mkdir");
+    std::fs::write(Path::new(d.path()).join("a/dup.rb"), "WHICH = :a\n").expect("write");
+    std::fs::write(Path::new(d.path()).join("b/dup.rb"), "WHICH = :b\n").expect("write");
+    // the first entry that has the file wins, and the list is an ordinary Array the program may
+    // change while it runs
+    let out = run(&d, &format!(r#"
+      $LOAD_PATH.clear
+      $LOAD_PATH << "{0}/a" << "{0}/b"
+      p require("dup")
+      p WHICH
+      p $LOAD_PATH.size
+    "#, d.path()));
+    assert_eq!(out, "true\n:a\n2\n");
+}
+
+#[test]
+fn a_library_may_require_another() {
+    let d = Dir::new("nested");
+    d.file("outer.rb", "$outer = 1\nrequire \"inner\"\n");
+    d.file("inner.rb", "$inner = 1\n");
+    // both are recorded, and a name below a directory is a path like any other
+    std::fs::create_dir_all(Path::new(d.path()).join("sub")).expect("mkdir");
+    std::fs::write(Path::new(d.path()).join("sub/deep.rb"), "SUB = 1\n").expect("write");
+    let out = run(&d, r#"
+      n = $LOADED_FEATURES.size
+      require "outer"
+      p [$outer, $inner]
+      p $LOADED_FEATURES.size - n
+      p require("sub/deep")
+      p SUB
+    "#);
+    assert_eq!(out, "[1, 1]\n2\ntrue\n1\n");
+}
+
+#[test]
+fn a_file_runs_in_a_top_level_scope_of_its_own() {
+    let d = Dir::new("scope");
+    d.file("deflib.rb", "def helper; :from_lib; end\nLOCAL_ONLY = (x = 5)\n");
+    // what the file defines is visible; the local variables it used are not, and `require` works
+    // from inside a method as well as at the top level
+    let out = run(&d, r#"
+      require "deflib"
+      p helper
+      p defined?(x)
+      p LOCAL_ONLY
+      def in_method; require("deflib"); end
+      p in_method
+    "#);
+    assert_eq!(out, ":from_lib\nnil\n5\nfalse\n");
+}
+
+#[test]
+fn an_absolute_path_is_taken_as_written() {
+    let d = Dir::new("abs");
+    d.file("lib1.rb", "ABS = 1\n");
+    // a name that says where it lives is not looked for in $LOAD_PATH
+    let out = run(&d, &format!(r#"
+      $LOAD_PATH.clear
+      p require("{0}/lib1.rb")
+      p ABS
+      p require("{0}/lib1.rb")
+      begin; require "lib1"; rescue LoadError => e; p e.message; end
+    "#, d.path()));
+    assert_eq!(out, "true\n1\nfalse\n\"cannot load such file -- lib1\"\n");
+}
+
+#[test]
+fn load_takes_bytecode_too() {
+    let d = Dir::new("loadmrb");
+    let bin = sabiruby_compiler::compile(b"$n = ($n || 0) + 1\n", &sabiruby_compiler::Options {
+        filename: "counter.rb".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    std::fs::write(Path::new(d.path()).join("counter.mrb"), &bin).expect("write");
+    let out = run(&d, "p load(\"counter.mrb\")\np load(\"counter.mrb\")\np $n\n");
+    assert_eq!(out, "true\ntrue\n2\n");
+}
+
+#[test]
 fn without_a_host_there_is_no_require() {
     let d = Dir::new("nohost");
     d.file("lib1.rb", "");
