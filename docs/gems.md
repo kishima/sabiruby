@@ -606,6 +606,33 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     (`docs/playground.md`). A `Vm` is `Send + Sync` so that an engine can keep one in
     its own world, which is what the `Host` trait's bound is for (`tests/send_sync.rs`).
 
+## How far mruby-task may drift (decided 2026-09-13)
+
+mruby-task is the one gem this VM effectively maintains a fork of: it is in no gembox, it is
+young, and its own tests leave whole methods unchecked (nothing calls `Task#join`, and nothing
+reads what `Task.pass` or `sleep` return). The ports here are therefore free to improve it — the
+author's decision — but "free" needs a boundary, because the reference's 72 assertions
+(`gem_task` 43, `gem_queue` 23, `gem_gc_task` 6) are the only outside check that this scheduler is
+right. They are kept for that, not out of deference. The rule is **adding is free, breaking
+costs**:
+
+1. **Additions are free.** The host entry points (`Vm::task_*`), the external clock, the
+   instruction-counted tick, running a fiber inside a task: none of them change what a program
+   written for the reference does. Record them in this file and move on.
+2. **What the reference's tests cover stays as it is.** Status names, wait reasons, priorities,
+   the exception-as-result rule, `Queue`'s answers, the error messages. If one of them looks
+   wrong, the move is an issue or a patch upstream (`docs/upstream-pr-candidates.md`), not a
+   silent divergence — which is also what the book claims the criterion is.
+3. **Where the reference decided nothing, decide here.** No test covers it and no program can
+   depend on it, so pick what a Ruby programmer would expect, and write down why. `Task#join`'s
+   answer after a real wait and what `Task.current` says inside a fiber are of this kind.
+4. **The reference's test files are never edited.** A deliberate difference is counted as one
+   (`tests/mrbtest/notes.tsv`), never hidden by changing the assertion. Otherwise the number
+   stops measuring anything.
+
+The practical test for a change: *does a program written against the reference behave
+differently?* No → free. Yes → rule 2 or 3, and it goes in "Deviations kept" with a reason.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem
