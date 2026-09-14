@@ -1,0 +1,209 @@
+# Rust との接続を整える計画（実装指示書）
+
+作成 2026-09-15。著者がまとめた設計議論「SabiRuby と Rust の接続に関する設計議論まとめ」（rubevy 側で議論。要点は 0 節）を受けて、
+何をどの順に変えるかを決めたもの。各段階は独立に着手でき、終わるごとにこの文書の「状況」を更新する。
+
+関連: `docs/performance.md`（値の表現と性能の見積もり）、`docs/gems.md`（mruby-task、Time limits）、`docs/host.rs` のコメント、
+rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比較）、`docs/outlook.ja.md`（何ができそうか）。
+
+## 0. 方針（議論の要点と、コードと照らして直したところ）
+
+議論の結論のうち採るもの:
+
+* SabiRuby は「Rust で書いた mruby」ではなく「Cargo だけで組み込める Ruby 実行系」として整える。
+* `unsafe` は増やさない（今 1 か所。段階 0 で 0 にする）。性能は安全な Rust の範囲で、本家比 2 倍未満を目標にする。約束ではなく目標。
+* 順序は「手動の登録 API と型変換層を先に、マクロは後」。
+* Rust の値は Rust 側が所有し、Ruby には**ハンドル**だけ持たせる（Host Object 方式）。Bevy の `World` は Ruby に見せず、
+  今の `Rubevy.ask`（質問して system が答える）のままにする。
+
+コードと照らして直したところ:
+
+* 議論は遅さの原因に `Rc`／`RefCell`／`clone()` を挙げるが、VM の crate に `Rc` も `RefCell` も無い。`Value` は 16 バイトの Copy な enum、
+  ヒープは `Vec<HeapObject>` を `ObjId(u32)` で引く。本当の候補は実行ループの中にある（段階 2）。
+* 議論はネイティブを mruby/edge の `Rc<RObject>` 方式と同列に置くが、SabiRuby のネイティブは
+  `fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value>` で、値の受け渡しに Rc は無い。**本当の穴は関数ポインタであること**
+  （環境を持てない）で、型付き登録もホスト状態への到達もここで詰まる。rubevy の `static Mutex<Vec<HostCommand>>` はその回避策。
+* 「本家比 3 倍」は fib の数字。実際は 1.9 倍（mandelbrot）から 15.8 倍（`so_lists`）まで幅があり、平均ではなく極端な 1 つを追う。
+
+守ること（全段階共通）:
+
+* VM は `no_std + alloc`（`tools/check_no_std.sh`）。`Arc` は `alloc::sync`、`Any` は `core::any` から。
+* `Vm: Send + Sync` を保つ（`tests/send_sync.rs`）。ネイティブのクロージャもホスト状態も `Send + Sync` を要求する。
+* 本家テストの基準（`tests/mrbtest/baseline*.txt`）を下回らない。
+* ベンチは変更前後で取り、`docs/bench.md` に残す。速くならない段階（3〜5）は「ぶれの範囲」を確かめる。
+* gem が Ruby で定義するメソッドをネイティブに置き換えない（`docs/gems.md` の規則）。
+
+## 状況
+
+| 段階 | 内容 | 状態 |
+|---|---|---|
+| 0 | `unsafe` を 0 に | 未着手 |
+| 1 | ベンチの分類 | 未着手 |
+| 2 | 実行ループの無駄取り | 未着手 |
+| 3 | ネイティブのクロージャと型付きホスト状態 | 未着手 |
+| 4 | `FromRuby` / `IntoRuby` と `define_fn` | 未着手 |
+| 5 | Data オブジェクト（ハンドル方式）と解放フック | 未着手 |
+| 6 | マクロ、Future 連携、動的プロキシ | 方針だけ |
+
+## 段階 0: `unsafe` を 0 に
+
+**到達点**: `grep -rn unsafe src` が空。
+
+**今**: `src/opcode.rs` の `Op::from_u8` が、範囲を確かめたうえで `u8` を `#[repr(u8)]` の `Op` に `transmute` している。毎命令呼ばれる。
+
+**変更**:
+
+* `tools/gen_opcode.py` に `const OP_TABLE: [Op; OP_COUNT] = [Op::Nop, Op::Move, …]` の生成を足し、
+  `from_u8` を `OP_TABLE.get(b as usize).copied()` にする。`opcode.rs` は生成物なので手で直さない
+  （生成器の本体はリポジトリの履歴にある、と冒頭のコメントにある。無ければ今の `opcode.rs` から表を作る小さな生成を足す）。
+* コストは今と同じ「範囲チェック 1 回 + 読み出し 1 回」。119 バイトの表はキャッシュに載る。
+
+**確認**: `cargo test --workspace`、`tools/check_no_std.sh`、fib と `vm_optimization_bench` が変更前とぶれの範囲。
+
+**大きさ**: 小。
+
+## 段階 1: ベンチの分類
+
+**到達点**: 「どの処理が何倍遅いか」が分かる表。`docs/bench.md` に載る。
+
+**今**: `tools/bench.sh` は本家の `benchmark/*.rb` 5 本を回すだけ。`sabiruby run --stats` で命令数と ns/命令は取れる。
+
+**変更**: `bench/src/` に分類ごとの小さなスクリプトを足す（各 1〜3 秒で終わる長さに調整）。
+
+| 分類 | スクリプト | 見たいもの |
+|---|---|---|
+| 命令ループ | 整数加算の `while`、`if` の分岐、`times` | ディスパッチと算術の素の速さ |
+| 呼び出し | 引数 0〜3 のメソッド呼び出し、ブロック付き、`yield`、`Fiber#resume`、キーワード引数 | `find_method`、`CallInfo`、環境の作成 |
+| データ構造 | `Array#push`/`[]`/`each`、`Hash#[]=`/`[]`、`String#<<`/`+`/`[]` | 各 `ObjKind` の実装と Slot の出し入れ |
+| メモリ | `Object.new` の大量生成（短命）、長命オブジェクトを持ったまま生成、GC の回数と時間 | 割り当てと `gc_collect` |
+| 実アプリ寄り | fib、tak、SabiRuby Battle のロボット 1 フレーム相当（`radar`→`lead`→`act` を 1000 回）、JSON 風のハッシュ処理 | 全体の倍率 |
+
+`tools/bench.sh` は今の形を保ち、分類ごとの小計を出す。本家との比較は同じ Docker イメージ（`kishima/mruby:4.1.0-rc`）で、
+best of N と中央値の両方を出す（今は best of 3）。コンパイル時間は今も分離されている（`.mrb` を回す）。
+
+**確認**: 表ができ、`so_lists` の 15.8 倍がどの分類に属するか言えること。
+
+**大きさ**: 小〜中。VM には触らない。
+
+## 段階 2: 実行ループの無駄取り
+
+**到達点**: 段階 1 の表で、分類「命令ループ」と「呼び出し」の倍率が下がる。数値目標は置かない（測ってから決める）。
+
+**候補**（`src/vm.rs` `exec_frames` を読んで見つけたもの。1 つずつ変えて測る）:
+
+1. **毎命令 `CallInfo` を clone している**（`let ci = self.ci.last().unwrap().clone()`）。`base`・`irep`・`pc` だけ Copy で取り出す形にする。
+2. **`op_counts[byte] += 1` が常時オン**。Playground の統計用。`Vm` にフラグを持たせて分岐するか、feature `stats` にする。
+   分岐 1 回の方が安いか、feature で消す方が安いかは測る。
+3. **`find_method` が `Method` を clone して返す**。`Method::Ruby(ObjId)` は Copy 相当だが、enum ごと clone している。
+   参照を返す形、または `(kind, ObjId)` の Copy な組を返す形にする。
+4. **メソッド探索にキャッシュが無い**。クラスチェーンを毎回 `HashMap` で引いている。本家のインラインキャッシュに相当するものは
+   「選べる実装」（本の第 8 章）なので、形は自由。最初は `(class, mid) -> (Method, owner)` のグローバルな小さな表
+   （メソッド定義・`include`・`prepend` で世代番号を上げて無効化）で十分。
+5. `Slot::get` / `Slot::from` の往復、`self.stack[base + i]` の境界チェック。ここは `Slot` を 8 バイトにする実験
+   （`docs/performance.md`）と合わせて後回し。
+
+**やらないこと**: `unsafe` による境界チェックの省略、goto threading の模倣。
+
+**確認**: 候補ごとに `docs/bench.md` に前後の表を足す。本家テストの基準を下回らない。
+
+**大きさ**: 1〜3 は小、4 は中。
+
+## 段階 3: ネイティブのクロージャと型付きホスト状態
+
+**到達点**: ホストが環境を持つ関数を Ruby のメソッドとして登録でき、ネイティブの中から自分の状態に型付きで届く。
+rubevy の `static COMMANDS` が消える。
+
+**今**: `object::NativeFn = fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value>`。`Method::Native(NativeFn)`。
+`Method` は `Clone` で、`find_method` が値で返す。`notimpl_fns` が `fn_addr_eq` で関数ポインタを比べている。
+
+**変更**:
+
+* `Method` に variant を**足す**（既存の `Native(fn)` は残す。組込みは今のまま関数ポインタで、コストを増やさない）:
+  ```rust
+  pub type NativeClosure = alloc::sync::Arc<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>;
+  Method::Closure(NativeClosure)
+  ```
+  `Arc` なのは `Method: Clone` のため。呼び出しコストは間接呼び出し 1 回で、関数ポインタと同じ。段階 2 の 3 が済んでいれば
+  参照カウントの増減も消える。
+* `Vm::define_closure(class, name, impl Fn(...) + Send + Sync + 'static)`。`define_method` はそのまま。
+* `call_native` 相当の経路（`native_active` の増減、`native_ret_reg`、Time limits の `count_native`）を `Closure` にも通す。
+  `Method::Native` を分岐しているところ（`vm.rs` の 6 か所程度、`respond_to?` の `notimpl_fns` 判定を含む）を洗う。
+* **型付きホスト状態**: `Vm` に `host_state: Option<Box<dyn core::any::Any + Send + Sync>>` を 1 つ持たせ、
+  `vm.set_host_state(T)`、`vm.host_state::<T>() -> Option<&T>`、`vm.host_state_mut::<T>() -> Option<&mut T>`。
+  クロージャで環境を持てるので必須ではないが、「ネイティブから VM を経由してホストの状態に届く」通り道を 1 つに決めておく。
+  既存の `Host` trait（compile / read_file）とは別物。`Host` は「VM がホストに頼むこと」、こちらは「ホストが VM に預けるもの」。
+
+**rubevy 側**: `install_host_api` のネイティブを `define_closure` にし、コマンドのキューを `host_state` の中に移す。
+`tests/replace.rs` が 3 本のテストを 1 本にまとめている理由（static の共有）が消えるので、分ける。
+
+**確認**: `tests/native.rs` を新設。クロージャが環境（`Arc<Mutex<Vec<_>>>` など）に書けること、例外が `Err` で戻ること、
+`respond_to?` と `method(:x).arity`、`Method#owner` が `Native` と同じに見えること、`Vm` が `Send + Sync` のままであること。
+ベンチはぶれの範囲。
+
+**大きさ**: 中。VM の変更は局所的だが、`Method::Native` の分岐を漏れなく洗う。
+
+## 段階 4: `FromRuby` / `IntoRuby` と `define_fn`
+
+**到達点**: Ruby の `Value` を意識せずに Rust の関数を登録できる。
+
+```rust
+vm.define_fn(class, "add", |a: i64, b: i64| a + b);
+vm.define_fn(class, "greet", |vm: &mut Vm, name: String| format!("hi {name}"));   // vm が要る形も
+```
+
+**変更**（新しいモジュール `src/convert.rs`。VM のコアには触らない）:
+
+* `pub trait FromRuby: Sized { fn from_ruby(vm: &mut Vm, v: Value) -> VmResult<Self>; }`
+  impl: `Value`、`i64`、`i32`（範囲外は RangeError）、`f64`、`bool`、`String`（`as_string`）、`Vec<u8>`、`Option<T>`（nil → None）、
+  `Vec<T>`（Array）、`Sym`。変換失敗は本家と同じ `TypeError` の文言（`expect_int` などが出す文言に揃える）。
+* `pub trait IntoRuby { fn into_ruby(self, vm: &mut Vm) -> Value; }`
+  impl: `Value`、整数・浮動小数・`bool`、`()`（nil）、`&str`／`String`、`Vec<T>`、`Option<T>`、`(A, B)`〜`(A, …, F)`（Array）、
+  `Result<T, E: Into<String>>`（Err は `RuntimeError`。細かい例外クラスは呼び出し側で `vm.raise` を使う）。
+* `define_fn` は引数の個数ごとに trait `RubyFn<Args>` を 0〜6 個分 impl する（タプルの impl をマクロで展開する、よくある形。
+  手続きマクロは使わない）。引数の個数が違えば `ArgumentError`（本家の文言 `wrong number of arguments (given 1, expected 2)`）。
+  受け手（self）が要る形と、`&mut Vm` が要る形の両方を用意する。
+* ブロックは `Option<Value>` でそのまま受け、`vm.call_block` で呼ぶ。ブロックの型付きは後回し。
+
+**確認**: `tests/convert.rs`。各 impl の往復、失敗時の例外クラスと文言、引数不足。段階 3 の `Closure` の上に載るのでベンチ不要。
+
+**大きさ**: 中。書く量はあるが VM の意味は変えない。
+
+## 段階 5: Data オブジェクト（ハンドル方式）と解放フック
+
+**到達点**: Rust の値を Rust 側に置いたまま、Ruby のオブジェクトとして渡せる。回収されたらホストが知る。
+
+**今**: `ObjKind::Data` は無い。rubevy はエンティティ番号を Integer で渡している（原始的なハンドル方式）。
+
+**変更**:
+
+* `ObjKind::Data { tag: u32, handle: u64 }`。`tag` はホストが決める種類（`TypeId` は `no_std` でも `core::any` にあるが
+  64 ビットのままシリアライズしにくいので、ホストが登録した小さな番号にする）。
+* `Vm::data_new(class, tag, handle) -> Value`、`Vm::data_of(v) -> Option<(tag, handle)>`、`FromRuby for DataRef { tag, handle }`。
+* **解放フック**: `Vm` に `on_free: Option<Box<dyn Fn(u32, u64) + Send + Sync>>`。`sweep` で `Data` を解放するときに呼ぶ。
+  GC の途中でホストのクロージャが走るので、フックの中で VM に触ることは禁止（型で `&mut Vm` を渡さないことで守る）。
+  ホストはそこでハンドルを slab から外す。
+* `inspect` は `#<Player:0x…>` 相当の形。`==` は同じ `(tag, handle)` なら真（`equal?` はオブジェクトの同一性のまま）。
+* Marshal 相当は無いので直列化の考慮は不要。
+
+**rubevy 側**: `Rubevy.entity` と `ask` の答えに入るエンティティ番号を `Data` に置き換える案を検討する
+（`f64` で渡している今の形は 2^53 を超えると壊れる。`docs/rust-bridge.ja.md` 6 章）。ECS の橋の 1 段目。
+
+**確認**: `tests/data.rs`。作る・比べる・回収でフックが呼ばれる（`GC.start` とストレスモード）、ハンドルを Rust 側の slab に戻す往復。
+本家テストは無関係だが基準を確認。
+
+**大きさ**: 中。GC の sweep に 1 か所足す。
+
+## 段階 6: その先（方針だけ。着手は段階 5 の後に決める）
+
+* **マクロ**: 別 crate `sabiruby-macros`。`#[ruby_methods] impl Player { … }` が段階 4 の `define_fn` と段階 5 の `Data` を呼ぶコードを
+  生成するだけにし、コアに新しい機構を足さない。
+* **Future 連携**: Rust の Future が完了したら `task_queue_push` する薄い層。`Rubevy.ask` がすでにこの形なので、
+  汎用にするだけ（`Vm::task_queue_new` を返す `spawn_future` 相当）。時計は段階 3 の後の rubevy の仕事。
+* **動的プロキシ**: `method_missing` は VM が対応済み。Ruby 側のライブラリ（prelude）で書けるので VM の変更は要らない。
+  議論のとおり、明示登録が基本で、外部オブジェクトにだけ使う。
+
+## 記録
+
+* 各段階が終わったら、この文書の「状況」と、性能に触れた段階は `docs/bench.md` を更新する。
+* 設計の理由で本文（書籍）に関わるものは、書籍側の `docs/notes/sabiruby-findings.md` に書く（Rust の名前は本文には出さない規則）。
+* rubevy 側の変更は rubevy の `docs/host-api.md` と `docs/rust-bridge.ja.md` の該当節を直す。
