@@ -437,6 +437,17 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   Ruby surface above it is ported from `regexp.c` as usual, and the two halves meet at a
   translation layer.
 
+  * **The pattern is shared, not pointed at** (2026-09-14) — a Regexp holds its compiled pattern
+    as `Arc<Pattern>` (`ObjKind::Regexp`). The port first kept the reference's shape
+    (`DATA_GET_PTR`, then search with the pointer) as a `*const Pattern` read back with `unsafe`
+    at 14 places, because a search goes on using `&mut Vm` (MatchData, `$~`, and in `gsub` a
+    block that runs any Ruby) while it needs the pattern, and a `&Pattern` borrowed from the heap
+    cannot be held across that. It was sound only through two rules nothing checked: a Regexp is
+    never initialized twice, and the collector does not run under a native. `pattern_of` now
+    clones the `Arc` (one reference count per call), the pattern lives as long as a search holds
+    it whatever happens to the object, and the VM crate is back to one `unsafe` (the opcode
+    byte to `Op`).
+
   * **The translation layer** (`src/regexp/mod.rs`) — Ruby's pattern syntax written as
     `regex-syntax`'s, about 500 lines against the 7,263 not ported. What the two spell
     differently is rewritten: the ASCII shorthands (`\d`, `\w`, `\s`, `\h` and their negations,

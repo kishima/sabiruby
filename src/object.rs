@@ -202,7 +202,7 @@ pub enum ObjKind {
     /// A compiled pattern, or `None` while `initialize` holds the slot and the compile has not
     /// finished: the variant says the object was initialized at all, as `DATA_PTR` does, and the
     /// payload whether there is anything to search with (`re_uninitialized_p`).
-    Regexp(Option<alloc::boxed::Box<crate::regexp::Pattern>>),
+    Regexp(Option<alloc::sync::Arc<crate::regexp::Pattern>>),
     /// mruby-regexp's `MatchData`: the subject as it was at match time, the Regexp that made the
     /// match (nil for a quoted String pattern), and the capture positions in bytes.
     MatchData { source: Slot, regexp: Slot, captures: alloc::vec::Vec<i32> },

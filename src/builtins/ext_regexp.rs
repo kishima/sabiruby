@@ -11,6 +11,8 @@ use alloc::{format, string::String, vec, vec::Vec};
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;
+use alloc::sync::Arc;
+
 use crate::regexp::{self, Pattern};
 use crate::value::Value;
 use crate::vm::Vm;
@@ -31,10 +33,15 @@ fn check_initialized(vm: &mut Vm, re: Value) -> VmResult<Vec<u8>> {
 
 /// The compiled pattern of a Regexp, refusing one that has none (`re_search_binary`'s second
 /// half: `DATA_GET_PTR` then `re_uninitialized_p`).
-fn pattern_of(vm: &mut Vm, re: Value) -> VmResult<*const Pattern> {
+///
+/// The pattern comes back as a shared handle rather than a reference into the heap: the callers
+/// search with it while they go on using the VM (`&mut Vm`: MatchData, `$~`, and in `gsub` a block
+/// that runs any Ruby), and the handle keeps the pattern alive whatever happens to the object
+/// meanwhile.
+fn pattern_of(vm: &mut Vm, re: Value) -> VmResult<Arc<Pattern>> {
     if let Some(o) = re.obj() {
         match &vm.heap.get(o).kind {
-            ObjKind::Regexp(Some(p)) => return Ok(&**p as *const Pattern),
+            ObjKind::Regexp(Some(p)) => return Ok(Arc::clone(p)),
             // a compile that raised leaves the slot behind and no pattern, which is the object
             // saying it holds nothing to search with (`re_uninitialized_p`)
             ObjKind::Regexp(None) => return Err(vm.raise_arg("uninitialized Regexp")),
@@ -181,9 +188,7 @@ fn exec_match(vm: &mut Vm, re: Value, str: Value, pos: usize, unread: bool, lite
     let binary = subject_binary(vm, str, unread)?;
     let pat = pattern_of(vm, re)?;
     let b = bytes(vm, str);
-    // the pattern is owned by a Regexp the caller holds, and nothing below moves the heap while
-    // the search runs
-    let caps = unsafe { regexp::exec(&*pat, &b, pos, true) };
+    let caps = regexp::exec(&pat, &b, pos, true);
     let _ = binary;
     match caps {
         None => { clear_match(vm); Ok(Value::Nil) }
@@ -205,7 +210,7 @@ fn re_byte_rsearch(vm: &mut Vm, re: Value, str: Value, limit: usize) -> VmResult
     let binary = subject_binary(vm, str, false)?;
     let pat = pattern_of(vm, re)?;
     let b = bytes(vm, str);
-    let caps = unsafe { regexp::rexec(&*pat, &b, limit, true) };
+    let caps = regexp::rexec(&pat, &b, limit, true);
     let _ = binary;
     match caps {
         None => { clear_match(vm); Ok(Value::Nil) }
@@ -221,7 +226,7 @@ fn exec_match_p(vm: &mut Vm, re: Value, str: Value, pos: i64) -> VmResult<Value>
     let binary = subject_binary(vm, str, false)?;
     let pat = pattern_of(vm, re)?;
     let b = bytes(vm, str);
-    let caps = unsafe { regexp::exec(&*pat, &b, pos, false) };
+    let caps = regexp::exec(&pat, &b, pos, false);
     let _ = binary;
     Ok(Value::bool(caps.is_some()))
 }
@@ -275,7 +280,7 @@ fn re_initialize(vm: &mut Vm, self_: Value, pattern: Value, flags: u32) -> VmRes
         // leave nothing behind (a copy arrives with the original's table already on it)
         vm.heap.get_mut(o).ivars.retain(|(k, _)| *k != named);
     }
-    vm.heap.get_mut(o).kind = ObjKind::Regexp(Some(alloc::boxed::Box::new(pat)));
+    vm.heap.get_mut(o).kind = ObjKind::Regexp(Some(Arc::new(pat)));
     Ok(self_)
 }
 
@@ -399,10 +404,10 @@ fn name_to_group(captures: &[i32], pat: Option<&Pattern>, name: &[u8]) -> Option
 }
 
 /// The pattern a MatchData was made with, where it has one.
-fn md_pattern(vm: &Vm, re: Value) -> Option<*const Pattern> {
+fn md_pattern(vm: &Vm, re: Value) -> Option<Arc<Pattern>> {
     let o = re.obj()?;
     match &vm.heap.get(o).kind {
-        ObjKind::Regexp(Some(p)) => Some(&**p as *const Pattern),
+        ObjKind::Regexp(Some(p)) => Some(Arc::clone(p)),
         _ => None,
     }
 }
@@ -416,7 +421,7 @@ fn md_name_to_group(vm: &mut Vm, md: Value, arg: Value) -> VmResult<usize> {
         v => bytes(vm, v),
     };
     let pat = md_pattern(vm, re);
-    let group = pat.map(|p| unsafe { name_to_group(&caps, Some(&*p), &name) }).unwrap_or(None);
+    let group = pat.and_then(|p| name_to_group(&caps, Some(&p), &name));
     match group {
         Some(g) => Ok(g as usize),
         // a name that resolves to no group is a mistake at the point of the call
@@ -455,9 +460,9 @@ fn md_group_arg(vm: &mut Vm, md: Value, arg: Value) -> VmResult<usize> {
 /// (`apply_replacement`).
 #[allow(clippy::too_many_arguments)]
 fn apply_replacement(vm: &mut Vm, out: &mut Vec<u8>, rep: &[u8], s: &[u8], captures: &[i32],
-                     pat: Option<*const Pattern>) -> VmResult<()> {
+                     pat: Option<&Pattern>) -> VmResult<()> {
     let ncap = captures.len() / 2;
-    let named = pat.map(|p| unsafe { !(*p).named_captures.is_empty() }).unwrap_or(false);
+    let named = pat.is_some_and(|p| !p.named_captures.is_empty());
     let mut i = 0;
     while i < rep.len() {
         if rep[i] == b'\\' && i + 1 < rep.len() {
@@ -479,7 +484,7 @@ fn apply_replacement(vm: &mut Vm, out: &mut Vec<u8>, rep: &[u8], s: &[u8], captu
                     return Err(vm.raise(vm.core.runtime_error, "invalid group name reference format"));
                 };
                 let name = &rep[from..from + off];
-                let found = pat.and_then(|p| unsafe { name_to_group(captures, Some(&*p), name) });
+                let found = pat.and_then(|p| name_to_group(captures, Some(p), name));
                 match found {
                     Some(x) => g = x as i64,
                     None => {
@@ -544,12 +549,12 @@ fn gsub_str(vm: &mut Vm, re: Value, str: Value, replacement: Value) -> VmResult<
     let mut pos = 0usize;
     let mut last: Option<Vec<i32>> = None;
     while pos <= s.len() {
-        let caps = unsafe { regexp::exec(&*pat, &s, pos, true) };
+        let caps = regexp::exec(&pat, &s, pos, true);
         let Some(caps) = caps else { break };
         last = Some(caps.clone());
         if caps[0] as usize > pos { out.extend_from_slice(&s[pos..caps[0] as usize]); }
         if need_expand {
-            apply_replacement(vm, &mut out, &rep, &s, &caps, Some(pat))?;
+            apply_replacement(vm, &mut out, &rep, &s, &caps, Some(&pat))?;
         } else {
             out.extend_from_slice(&rep);
         }
@@ -628,7 +633,7 @@ fn gsub_walk(vm: &mut Vm, re: Value, str: Value, literal: bool, block: Value, ha
     // the result is read the way the bytes put into it are (`re_cat_bytes`)
     let mut out_binary = false;
     while pos <= slen {
-        let caps = unsafe { regexp::exec(&*pat, &s, pos, true) };
+        let caps = regexp::exec(&pat, &s, pos, true);
         let Some(caps) = caps else { break };
         let (beg, end) = (caps[0] as usize, caps[1] as usize);
         let matched = byte_substr(vm, str, caps[0], caps[1] - caps[0]);
@@ -685,12 +690,12 @@ fn scan_ary(vm: &mut Vm, re: Value, str: Value, literal: bool) -> VmResult<Value
     subject_binary(vm, str, false)?;
     let pat = pattern_of(vm, re)?;
     let s = bytes(vm, str);
-    let ncap = unsafe { (*pat).num_captures as usize };
+    let ncap = pat.num_captures as usize;
     let mut items: Vec<Value> = Vec::new();
     let mut pos = 0usize;
     let mut last: Option<Vec<i32>> = None;
     while pos <= s.len() {
-        let caps = unsafe { regexp::exec(&*pat, &s, pos, true) };
+        let caps = regexp::exec(&pat, &s, pos, true);
         let Some(caps) = caps else { break };
         last = Some(caps.clone());
         if ncap <= 1 {
@@ -1047,9 +1052,9 @@ pub fn init(vm: &mut Vm) {
             let (_, re, caps) = md_check(vm, s)?;
             let h = vm.hash_new();
             let Some(pat) = md_pattern(vm, re) else { return Ok(h) };
-            let names: Vec<(Vec<u8>, u16)> = unsafe { (*pat).named_captures.iter().map(|n| (n.name.clone(), n.group)).collect() };
+            let names: Vec<(Vec<u8>, u16)> = pat.named_captures.iter().map(|n| (n.name.clone(), n.group)).collect();
             for (name, _) in &names {
-                let g = name_to_group(&caps, Some(unsafe { &*pat }), name);
+                let g = name_to_group(&caps, Some(&pat), name);
                 let k = vm.str_new(name);
                 let v = match g { Some(g) => md_nth(vm, s, g as i64), None => Value::Nil };
                 vm.hash_set(h, k, v)?;
@@ -1091,7 +1096,7 @@ pub fn init(vm: &mut Vm) {
                 return Ok(vm.str_new(&out));
             }
             let pat = md_pattern(vm, re);
-            let named: Vec<(Vec<u8>, u16)> = pat.map(|p| unsafe { (*p).named_captures.iter().map(|n| (n.name.clone(), n.group)).collect() }).unwrap_or_default();
+            let named: Vec<(Vec<u8>, u16)> = pat.map(|p| p.named_captures.iter().map(|n| (n.name.clone(), n.group)).collect()).unwrap_or_default();
             let mut out = b"#<MatchData".to_vec();
             for i in 0..caps.len() / 2 {
                 out.push(b' ');
@@ -1334,7 +1339,7 @@ fn sub_str(vm: &mut Vm, re: Value, str: Value, replacement: Value) -> VmResult<V
     let pat = pattern_of(vm, re)?;
     let s = bytes(vm, str);
     let rep = bytes(vm, replacement);
-    let caps = unsafe { regexp::exec(&*pat, &s, 0, true) };
+    let caps = regexp::exec(&pat, &s, 0, true);
     let Some(caps) = caps else {
         clear_match(vm);
         return Ok(vm.str_new_like(&s, str));
@@ -1342,7 +1347,7 @@ fn sub_str(vm: &mut Vm, re: Value, str: Value, replacement: Value) -> VmResult<V
     let mut out: Vec<u8> = Vec::with_capacity(s.len());
     out.extend_from_slice(&s[..caps[0] as usize]);
     if rep.contains(&b'\\') {
-        apply_replacement(vm, &mut out, &rep, &s, &caps, Some(pat))?;
+        apply_replacement(vm, &mut out, &rep, &s, &caps, Some(&pat))?;
     } else {
         out.extend_from_slice(&rep);
     }
