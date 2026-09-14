@@ -335,3 +335,153 @@ fn a_host_can_see_what_a_task_spends_and_where_it_is() {
     assert_eq!(frames.first(), Some(&("robots.rb".to_string(), 3)));
     assert!(frames.len() >= 1, "at least the frame it stands in");
 }
+
+// ------------------------------------------------------------------ time limits
+
+use std::sync::atomic::{AtomicU64, Ordering};
+
+fn spawn_src(vm: &mut sabiruby::Vm, src: &str, name: &str) -> sabiruby::value::ObjId {
+    let bin = sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
+        filename: name.into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    let irep = vm.load(&bin).expect("load");
+    let t = vm.task_spawn(irep, 128, Some(name)).expect("spawn");
+    vm.gc_register(t);
+    t
+}
+
+fn class_name(vm: &mut sabiruby::Vm, v: sabiruby::Value) -> String {
+    let class = vm.intern("class");
+    let c = vm.funcall(v, class, &[], sabiruby::Value::Nil).expect("class");
+    vm.inspect_str(c).expect("inspect")
+}
+
+#[test]
+fn a_task_stuck_in_a_block_under_a_native_gets_overrun() {
+    // `Array.new { }` is a native waiting for a block, so the task cannot be switched out while
+    // the block runs, and a timeslice never ends. Past the run's hard limit it gets Task::Overrun
+    // instead of taking the host loop with it. Counted in instructions here, so no clock is needed.
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    let stuck = spawn_src(&mut vm, "Array.new(1) { loop { } }", "stuck");
+    let other = spawn_src(&mut vm, "$n = 0\nloop { $n += 1; Task.pass }", "other");
+    let limits = sabiruby::RunLimits { instructions: Some(50_000), overrun_instructions: Some(300_000), ..Default::default() };
+    let spent = vm.task_run_limits(limits).expect("frame");
+    assert!(spent < 400_000, "the run came back near its hard limit, spent {spent}");
+    assert!(vm.task_finished(stuck));
+    let v = vm.task_value(stuck);
+    assert_eq!(class_name(&mut vm, v), "Task::Overrun");
+    let before = vm.task_instructions(other);
+    vm.task_run_limits(limits).expect("next frame");
+    assert!(vm.task_instructions(other) > before, "the other task keeps running");
+}
+
+#[test]
+fn overrun_is_not_a_standard_error_and_a_task_that_rescues_it_still_yields() {
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    let plain = spawn_src(&mut vm, "begin\n  Array.new(1) { loop { } }\nrescue => e\n  $plain = e\nend", "plain");
+    let limits = sabiruby::RunLimits { overrun_instructions: Some(100_000), ..Default::default() };
+    // the exception unwinds out of the native into the `rescue` clause, which does not match it;
+    // the switch Overrun leaves due is taken at that boundary, before the re-raise, so the task
+    // ends on its next turn
+    vm.task_run_limits(limits).expect("frame");
+    vm.task_run_limits(limits).expect("next frame");
+    assert!(vm.task_finished(plain), "`rescue => e` does not catch it");
+    let v = vm.task_value(plain);
+    assert_eq!(class_name(&mut vm, v), "Task::Overrun");
+
+    // one that rescues Exception and walks back into the same call is switched out every turn
+    // rather than holding the host loop
+    let stubborn = spawn_src(&mut vm,
+        "$caught = 0\nloop do\n  begin\n    Array.new(1) { loop { } }\n  rescue Exception\n    $caught += 1\n  end\nend", "stubborn");
+    for _ in 0..3 {
+        let spent = vm.task_run_limits(limits).expect("frame");
+        assert!(spent < 200_000, "the run ends at its hard limit: spent {spent}");
+    }
+    assert!(!vm.task_finished(stubborn));
+    let bin = sabiruby_compiler::compile(b"p $caught\n", &sabiruby_compiler::Options::default()).expect("compile");
+    vm.load_and_run(&bin).expect("run");
+    // each turn raises once; the rescue clause of one turn runs at the start of the next, since
+    // the switch is taken at the boundary the exception lands on
+    assert_eq!(String::from_utf8_lossy(&vm.take_output()), "2\n");
+}
+
+static SLICE_CLOCK: AtomicU64 = AtomicU64::new(0);
+fn slice_clock() -> u64 { SLICE_CLOCK.fetch_add(1_000_000, Ordering::SeqCst) }
+
+#[test]
+fn a_time_slice_ends_on_the_host_clock_not_the_instruction_count() {
+    // a clock that moves 1 ms every time it is read, so the test does not depend on the machine
+    let run = |timeslice: sabiruby::Timeslice| {
+        let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+        vm.task_external_clock(true);
+        vm.task_set_clock(Some(slice_clock));
+        vm.task_set_timeslice(timeslice);
+        let spin = spawn_src(&mut vm, "i = 0\nwhile true\n  i += 1\nend", "spin");
+        spawn_src(&mut vm, "p :other", "other");
+        vm.task_run_once().expect("one slice");
+        vm.task_instructions(spin)
+    };
+    // three ticks of 10,000 instructions
+    let counted = run(sabiruby::Timeslice::Instructions);
+    assert!((29_000..40_000).contains(&counted), "instructions: {counted}");
+    // 50 ms, read once a tick: about fifty ticks
+    let timed = run(sabiruby::Timeslice::Time { nanos: 50_000_000 });
+    assert!((400_000..600_000).contains(&timed), "time: {timed}");
+    // whichever comes first
+    let both = run(sabiruby::Timeslice::Both { nanos: 50_000_000 });
+    assert!((29_000..40_000).contains(&both), "both: {both}");
+}
+
+static NATIVE_CLOCK: AtomicU64 = AtomicU64::new(0);
+fn native_clock() -> u64 { NATIVE_CLOCK.fetch_add(1_000_000, Ordering::SeqCst) }
+
+#[test]
+fn natives_count_towards_a_look_at_the_clock_between_ticks() {
+    // with ticks all but switched off, the clock is still read every 32 natives, which is what
+    // notices a native that takes long
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    vm.task_set_clock(Some(native_clock));
+    vm.task_set_timeslice(sabiruby::Timeslice::Time { nanos: 5_000_000 });
+    vm.task.tick_every = 100_000_000;
+    vm.task.tick_left = 100_000_000;
+    let spin = spawn_src(&mut vm, "a = []\nwhile true\n  a.push(1)\n  a.pop\nend", "natives");
+    spawn_src(&mut vm, "p :other", "other");
+    vm.task_run_once().expect("one slice");
+    let spent = vm.task_instructions(spin);
+    assert!(spent < 5_000, "the slice ended after a few hundred natives, not a tick: {spent}");
+}
+
+static SOFT_CLOCK: AtomicU64 = AtomicU64::new(0);
+fn soft_clock() -> u64 { SOFT_CLOCK.fetch_add(1_000_000, Ordering::SeqCst) }
+
+#[test]
+fn a_time_budget_cuts_the_running_slice_short_and_limits_go_with_the_run() {
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    vm.task_set_clock(Some(soft_clock));
+    spawn_src(&mut vm, "i = 0\nwhile true\n  i += 1\nend", "spin");
+    // the budget is up at the first look at the clock, a tick into the slice
+    let limits = sabiruby::RunLimits { time_ns: Some(1_500_000), ..Default::default() };
+    let spent = vm.task_run_limits(limits).expect("frame");
+    assert!(spent < 25_000, "cut at the first tick rather than the end of the slice: {spent}");
+    // a run without limits leaves the next one alone
+    assert!(vm.task.run_soft.is_none() && vm.task.run_hard.is_none());
+    let spent = vm.task_run_budget(1).expect("plain run");
+    assert!(spent >= 29_000, "a whole slice again: {spent}");
+}
+
+#[test]
+fn time_limits_need_a_clock() {
+    // without one the time fields are ignored and the scheduler behaves as it always did
+    let mut vm = sabiruby::Vm::with_mrblib().expect("vm");
+    vm.task_external_clock(true);
+    vm.task_set_timeslice(sabiruby::Timeslice::Time { nanos: 1 });
+    let spin = spawn_src(&mut vm, "i = 0\nwhile true\n  i += 1\nend", "spin");
+    let limits = sabiruby::RunLimits { instructions: Some(1), time_ns: Some(1), overrun_ns: Some(1), ..Default::default() };
+    vm.task_run_limits(limits).expect("frame");
+    assert!((29_000..40_000).contains(&vm.task_instructions(spin)));
+    assert!(!vm.task_finished(spin));
+}

@@ -628,6 +628,43 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     make `sleep` cost real time — which is what the browser playground's 実時間 does
     (`docs/playground.md`). A `Vm` is `Send + Sync` so that an engine can keep one in
     its own world, which is what the `Host` trait's bound is for (`tests/send_sync.rs`).
+  * **Time limits** (2026-09-14, `Vm::task_set_clock`, `Timeslice`, `RunLimits`,
+    `Task::Overrun`; `tests/task.rs`) — best effort, on a clock the host gives. Two holes of the
+    instruction-counted timeslice were measured with two tasks and a budget of 200,000
+    instructions a turn: a task inside a native waiting for a block cannot be switched out, so
+    `a.sort { |x, y| x <=> y }` over 300,000 elements took one turn of 13 million instructions
+    (326 ms) and `Array.new(1) { loop { } }` never gave the turn back; and one instruction can be
+    any amount of work, so `'x' * 50_000_000` reversed in a loop took seconds a turn. The changes:
+    * The host may give a monotonic clock in nanoseconds (`task_set_clock`). Nothing reads one
+      otherwise; the VM stays `no_std`.
+    * `Timeslice::{Instructions, Time { nanos }, Both { nanos }}` says how a slice ends. The
+      default stays `Instructions` — deterministic, the same on every machine. `Time` is what the
+      reference means (its tick is a timer interrupt), and bounds work the instruction count does
+      not see. The instruction tick stays as *when* the clock is read, so the policy changes
+      without touching the instruction loop.
+    * `task_run_limits(RunLimits { instructions, time_ns, overrun_ns, overrun_instructions })`
+      is one turn under limits; `task_run_budget(n)` is it with `instructions` alone. A time
+      budget cuts the running slice short at the next look at the clock. A task past a hard
+      limit (`overrun_*`) that cannot be switched out gets `Task::Overrun`, which unwinds the
+      native as any exception does. It is an `Exception`, not a `StandardError` — as `Interrupt`
+      is — so `rescue => e` does not swallow it; the switch stays due, so a task that rescues
+      `Exception` and walks back into the same call is still switched out at its next boundary
+      (which may be the rescue clause itself: the clause then runs on the task's next turn). A
+      hard limit also ends the turn. With those limits the two measured cases come back at the
+      limit: `sort` and `Array.new { loop }` end their turn at 50 ms with `Task::Overrun`.
+    * **Where the clock is read, and what it costs.** At every tick (10,000 instructions),
+      piggybacking on the countdown the instruction loop already does, so an instruction costs
+      nothing more; and after every 32 natives (`task_set_native_sample`), only while a limit is
+      kept on the clock, because a native can take longer than ten thousand instructions. With no
+      clock the benchmarks of `docs/bench.md` stayed within noise of the build before (fib −1.3%,
+      so_lists +1.7%, mandelbrot +1.1%, gc_churn −2.8%, vm_optimization_bench +0.02%, best of
+      five). With a clock and limits, a loop of eight million `push`/`pop` natives cost +1.2% at
+      32, +5.8% at 8 and +34% at 1; fib, which calls no natives, did not move.
+    * **What stays out of reach.** A single native is not interrupted: the 20 MB `reverse` (163 ms
+      apiece) is noticed after it returns, and with the default sample only after 32 of them. The
+      native count bounds how late; making it 1 makes the lateness one call and costs a third on
+      native-heavy code. Charging heavy natives by the work they do, or a heap limit, would be the
+      next step if that matters.
 
 ## How far mruby-task may drift (decided 2026-09-13)
 
@@ -640,8 +677,9 @@ right. They are kept for that, not out of deference. The rule is **adding is fre
 costs**:
 
 1. **Additions are free.** The host entry points (`Vm::task_*`), the external clock, the
-   instruction-counted tick, running a fiber inside a task: none of them change what a program
-   written for the reference does. Record them in this file and move on.
+   instruction-counted tick, running a fiber inside a task, time limits and `Task::Overrun`
+   (raised only under limits a host sets): none of them change what a program written for the
+   reference does. Record them in this file and move on.
 2. **What the reference's tests cover stays as it is.** Status names, wait reasons, priorities,
    the exception-as-result rule, `Queue`'s answers, the error messages. If one of them looks
    wrong, the move is an issue or a patch upstream (`docs/upstream-pr-candidates.md`), not a

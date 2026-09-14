@@ -95,7 +95,7 @@ pub mod mrbtest;
 pub use error::VmError;
 pub use host::{EvalOptions, Host};
 pub use value::Value;
-pub use vm::{Step, Vm};
+pub use vm::{RunLimits, Step, Timeslice, Vm};
 
 /// mruby's core library written in Ruby (`mrblib/*.rb` of 4.1.0-rc), compiled
 /// with the reference `mrbc`. Loaded by [`Vm::with_mrblib`].

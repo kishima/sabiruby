@@ -14,7 +14,7 @@ use crate::error::VmResult;
 use crate::inspect::SwitchKind;
 use crate::object::{ObjKind, TaskData};
 use crate::value::{ObjId, Slot, Value};
-use crate::vm::{FiberState, Vm, ROOT};
+use crate::vm::{FiberState, Timeslice, Vm, ROOT};
 
 // `MRB_TASK_STATUS_*`
 const DORMANT: u8 = 0x00;
@@ -106,16 +106,90 @@ fn is_queued(vm: &Vm, o: ObjId) -> bool {
 /// One tick (`mrb_tick`): the running task's timeslice shrinks, and a sleeper whose deadline
 /// passed becomes ready. Called from the instruction loop where nothing else drives it.
 pub(crate) fn tick(vm: &mut Vm) {
-    vm.task.tick_left = vm.task.tick_every;
-    if let Some(r) = vm.task.running {
-        if td(vm, r).status == RUNNING && td(vm, r).timeslice > 0 {
-            let left = td(vm, r).timeslice - 1;
-            td_mut(vm, r).timeslice = left;
-            if left == 0 { vm.task.switching = true; }
+    // a look at the clock the native count asked for, between two ticks: no tick is counted, and
+    // the instructions that were left until the real one are put back
+    if let Some(left) = vm.task.forced.take() {
+        if left > 1 {
+            vm.task.tick_left = left - 1;
+            check_limits(vm);
+            return;
         }
     }
+    vm.task.tick_left = vm.task.tick_every;
+    // the instruction count ends a timeslice unless the host said time does (and gave a clock)
+    let counted = match vm.task.timeslice {
+        Timeslice::Instructions | Timeslice::Both { .. } => true,
+        Timeslice::Time { .. } => vm.task.clock.is_none(),
+    };
+    if counted {
+        if let Some(r) = vm.task.running {
+            if td(vm, r).status == RUNNING && td(vm, r).timeslice > 0 {
+                let left = td(vm, r).timeslice - 1;
+                td_mut(vm, r).timeslice = left;
+                if left == 0 { vm.task.switching = true; }
+            }
+        }
+    }
+    if vm.task.limits_active { check_limits(vm); }
     // a host with a clock of its own moves it instead (`Vm::task_advance_ticks`)
     if vm.task.clock_from_instructions { advance_ticks(vm, 1); }
+}
+
+// ------------------------------------------------------------------ time limits
+
+/// Works out whether a tick has anything to look at, and whether natives count towards a look
+/// at the clock. Called whenever the clock, the timeslice or the run's limits change.
+pub(crate) fn update_limits(vm: &mut Vm) {
+    let t = &mut vm.task;
+    let timed_slice = !matches!(t.timeslice, Timeslice::Instructions);
+    let on_clock = t.clock.is_some() && (timed_slice || t.run_soft.is_some() || t.run_hard.is_some());
+    t.native_sampling = on_clock;
+    t.limits_active = on_clock || t.run_hard_instructions.is_some();
+    if !on_clock { t.forced = None; }
+}
+
+/// The native count (`Vm::call_native`, only while a limit is kept on the clock): every
+/// `native_every` natives, the next instruction boundary looks at the clock, since a native can
+/// take longer than the ten thousand instructions between two ticks.
+pub(crate) fn count_native(vm: &mut Vm) {
+    let t = &mut vm.task;
+    t.native_left = t.native_left.saturating_sub(1);
+    if t.native_left != 0 { return; }
+    t.native_left = t.native_every.max(1);
+    if t.running.is_some() && t.forced.is_none() && t.tick_left > 1 {
+        t.forced = Some(t.tick_left);
+        t.tick_left = 1;
+    }
+}
+
+/// Reads the clock and compares it with the limits: the running slice ends at the next
+/// boundary where its time is up or the run's is, and a hard limit passed is marked for
+/// `overrun`.
+fn check_limits(vm: &mut Vm) {
+    let now = vm.task.clock.map(|c| c());
+    if let Some(now) = now {
+        if let Timeslice::Time { nanos } | Timeslice::Both { nanos } = vm.task.timeslice {
+            if now.saturating_sub(vm.task.slice_start) >= nanos { vm.task.switching = true; }
+        }
+        if vm.task.run_soft.is_some_and(|soft| now >= soft) { vm.task.switching = true; }
+        if vm.task.run_hard.is_some_and(|hard| now >= hard) { vm.task.overrun = true; }
+    }
+    if vm.task.run_hard_instructions.is_some_and(|hard| vm.instructions >= hard) { vm.task.overrun = true; }
+}
+
+/// A hard limit is past (`check_limits`). A task that can be switched out at this boundary just
+/// is; one that cannot — it stands in a block a native is waiting for, or in a fiber — gets
+/// `Task::Overrun`, which unwinds the native as any exception does. Either way the switch stays
+/// due, so a task that rescues the exception is switched out at its next boundary instead of
+/// walking back into the same call.
+pub(crate) fn overrun(vm: &mut Vm) -> Option<crate::error::VmError> {
+    vm.task.overrun = false;
+    vm.task.switching = true;
+    let c = vm.cur;
+    let switchable = c != ROOT && vm.exc.is_none() && !vm.fiber_check_native(c) && vm.contexts[c].vmexec;
+    if switchable { return None; }
+    let class = vm.task.overrun_class.unwrap_or(vm.core.exception);
+    Some(vm.raise(class, "the task ran past its time limit inside a call that cannot be switched out"))
 }
 
 /// Moves the clock on and wakes what was sleeping until then (the tail of `mrb_tick`).
@@ -257,6 +331,10 @@ fn execute_task(vm: &mut Vm, t: ObjId) {
     vm.task.running = Some(t);
     vm.task.switching = false;
     vm.task.tick_left = vm.task.tick_every;
+    vm.task.forced = None;
+    if vm.task.limits_active {
+        if let Some(clock) = vm.task.clock { vm.task.slice_start = clock(); }
+    }
     let first = vm.contexts[ctx].status == FiberState::Created;
     vm.contexts[old].status = FiberState::Resumed;
     vm.contexts[ctx].prev = Some(old);
@@ -852,6 +930,16 @@ pub fn init(vm: &mut Vm) {
     }));
     vm.heap.class_mut(task).consts.insert(en, Slot::from(Value::Obj(err)));
     vm.singleton_class(Value::Obj(err)).expect("Task::Error metaclass");
+    // `Task::Overrun` is SabiRuby's: what a task that cannot be switched out gets past a hard
+    // limit of `Vm::task_run_limits`. An Exception rather than a StandardError, as Interrupt is,
+    // so that `rescue => e` in a loop does not swallow it
+    let on = vm.intern("Overrun");
+    let overrun = vm.heap.alloc(vm.core.class, ObjKind::Class(crate::object::ClassData {
+        name: Some(on), superclass: Some(vm.core.exception), outer: Some(task), ..Default::default()
+    }));
+    vm.heap.class_mut(task).consts.insert(on, Slot::from(Value::Obj(overrun)));
+    vm.singleton_class(Value::Obj(overrun)).expect("Task::Overrun metaclass");
+    vm.task.overrun_class = Some(overrun);
     queue_init(vm);
     let tsc = vm.singleton_class(Value::Obj(task)).expect("Task singleton");
     vm.define_methods(tsc, &[

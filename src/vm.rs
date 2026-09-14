@@ -125,11 +125,86 @@ pub struct TaskState {
     pub gc_driven: bool,
     /// what `GC.debt_limit` holds, the safety valve of a scheduler that never idles
     pub gc_debt_limit: i64,
+
+    // ---- time: best-effort limits on the host's clock (`docs/gems.md`, "Time limits")
+
+    /// How a timeslice ends ([`Vm::task_set_timeslice`]).
+    pub timeslice: Timeslice,
+    /// The host's monotonic clock in nanoseconds ([`Vm::task_set_clock`]). The VM is `no_std`
+    /// and reads no clock of its own.
+    pub clock: Option<fn() -> u64>,
+    /// when the running task was handed the CPU, on `clock`
+    pub slice_start: u64,
+    /// the current [`Vm::task_run_limits`]: the clock value past which the running slice is cut
+    /// short, and the ones past which a task that cannot be switched out gets `Task::Overrun`
+    pub run_soft: Option<u64>,
+    pub run_hard: Option<u64>,
+    pub run_hard_instructions: Option<u64>,
+    /// the tick found the running task past a hard limit
+    pub overrun: bool,
+    /// whether a tick looks at the limits at all (none are set: it does not)
+    pub limits_active: bool,
+    /// whether natives count towards a look at the clock between two ticks: set only while a
+    /// limit is kept on the clock, since one native can take longer than ten thousand
+    /// instructions
+    pub native_sampling: bool,
+    /// natives between two looks at the clock, and how many are left
+    pub native_every: u32,
+    pub native_left: u32,
+    /// a look at the clock asked for by the native count: the instructions that were left
+    /// until the real tick, put back once the clock has been read
+    pub forced: Option<u64>,
+    /// `Task::Overrun`
+    pub overrun_class: Option<ObjId>,
 }
 
 /// Instructions a tick lasts where nothing else drives one (`MRB_TICK_UNIT` has no meaning
 /// without a clock).
 pub const TASK_TICK_INSTRUCTIONS: u64 = 10_000;
+
+/// Natives between two looks at the clock while a limit is kept on it.
+pub const TASK_NATIVE_SAMPLE: u32 = 32;
+
+/// How mruby-task's timeslice ends.
+///
+/// The reference's tick is a timer interrupt, so its timeslice is an amount of time. A `no_std`
+/// VM has no timer, and the default here counts instructions instead: a timeslice is a fixed
+/// amount of work, the same on every machine, which is what a replay or a lockstep game needs.
+/// With a clock from the host ([`Vm::task_set_clock`]) a timeslice can be an amount of time, as
+/// the reference's is, which also bounds work the instruction count does not see (a native that
+/// takes long). The clock is read when a tick comes due (every [`TASK_TICK_INSTRUCTIONS`]) and
+/// after every [`TASK_NATIVE_SAMPLE`] natives, so a time slice ends that much late at worst.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Timeslice {
+    /// Three ticks of [`TASK_TICK_INSTRUCTIONS`] instructions (the default; deterministic).
+    #[default]
+    Instructions,
+    /// `nanos` on the host's clock. Without a clock this is `Instructions`.
+    Time { nanos: u64 },
+    /// Whichever of the two comes first.
+    Both { nanos: u64 },
+}
+
+/// What one turn of a host loop may spend ([`Vm::task_run_limits`]). Every field is optional.
+///
+/// The instruction budget is checked between timeslices, as [`Vm::task_run_budget`] always did.
+/// The time budget also cuts the running timeslice short at the next look at the clock. Neither
+/// can stop a task that is inside a native waiting for a block (`sort { }`, `Array.new { }`):
+/// switching it out would need the native's Rust frames to be kept, which they cannot be. The
+/// overrun limits are for that case — past them, such a task gets `Task::Overrun` (an
+/// `Exception`, not a `StandardError`, so a plain `rescue` does not keep it running), which
+/// unwinds the native like any exception, and the task is switched out at the next boundary.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub struct RunLimits {
+    /// instructions over all tasks, checked between timeslices
+    pub instructions: Option<u64>,
+    /// nanoseconds on the host's clock
+    pub time_ns: Option<u64>,
+    /// nanoseconds after which a task that cannot be switched out gets `Task::Overrun`
+    pub overrun_ns: Option<u64>,
+    /// the same counted in instructions, for a host that keeps no clock (deterministic)
+    pub overrun_instructions: Option<u64>,
+}
 
 #[derive(Clone, Copy, Debug)]
 pub struct CallInfo {
@@ -513,7 +588,7 @@ impl Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
-            task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, ..Default::default() },
+            task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -577,12 +652,66 @@ impl Vm {
     /// instructions have been spent or nothing is ready. Answers what it spent. A task that never
     /// yields is preempted at its timeslice, so a frame cannot be lost to one.
     pub fn task_run_budget(&mut self, budget: u64) -> VmResult<u64> {
+        self.task_run_limits(RunLimits { instructions: Some(budget), ..Default::default() })
+    }
+
+    /// One turn of a host loop under [`RunLimits`]: ready tasks get the CPU until a limit is
+    /// reached or nothing is ready. Answers the instructions spent. The time limits need a clock
+    /// ([`Vm::task_set_clock`]) and are ignored without one.
+    pub fn task_run_limits(&mut self, limits: RunLimits) -> VmResult<u64> {
         let start = self.instructions;
+        let now = self.task.clock.map(|c| c());
+        self.task.run_soft = now.zip(limits.time_ns).map(|(n, d)| n.saturating_add(d));
+        self.task.run_hard = now.zip(limits.overrun_ns).map(|(n, d)| n.saturating_add(d));
+        self.task.run_hard_instructions = limits.overrun_instructions.map(|d| start.saturating_add(d));
+        self.task.overrun = false;
+        self.task.native_left = self.task.native_every.max(1);
+        crate::builtins::ext_task::update_limits(self);
+        let r = self.task_run_limited(start, limits.instructions);
+        self.task.run_soft = None;
+        self.task.run_hard = None;
+        self.task.run_hard_instructions = None;
+        self.task.overrun = false;
+        crate::builtins::ext_task::update_limits(self);
+        r
+    }
+
+    fn task_run_limited(&mut self, start: u64, budget: Option<u64>) -> VmResult<u64> {
         loop {
             let spent = self.instructions - start;
-            if spent >= budget { return Ok(spent); }
+            if budget.is_some_and(|b| spent >= b) { return Ok(spent); }
+            if let Some(clock) = self.task.clock.filter(|_| self.task.run_soft.is_some() || self.task.run_hard.is_some()) {
+                let now = clock();
+                if self.task.run_soft.is_some_and(|soft| now >= soft) { return Ok(spent); }
+                if self.task.run_hard.is_some_and(|hard| now >= hard) { return Ok(spent); }
+            }
+            // a hard limit also ends the run: a task that rescues Task::Overrun comes back ready
+            // and would otherwise be handed the CPU again and again
+            if self.task.run_hard_instructions.is_some_and(|hard| self.instructions >= hard) { return Ok(spent); }
             if self.task_run_once()?.is_nil() { return Ok(self.instructions - start); }
         }
+    }
+
+    /// Gives the scheduler the host's monotonic clock, in nanoseconds: what [`Timeslice::Time`]
+    /// and the time fields of [`RunLimits`] are measured on. `None` takes it away.
+    pub fn task_set_clock(&mut self, clock: Option<fn() -> u64>) {
+        self.task.clock = clock;
+        crate::builtins::ext_task::update_limits(self);
+    }
+
+    /// Natives between two looks at the clock while a limit is kept on it ([`TASK_NATIVE_SAMPLE`]
+    /// by default). A native that takes long is noticed after at most this many of them, and
+    /// every look costs a clock read: measured on a loop of eight million `push`/`pop` calls,
+    /// 32 costs about 1%, 8 about 6%, 1 about a third.
+    pub fn task_set_native_sample(&mut self, every: u32) {
+        self.task.native_every = every.max(1);
+        self.task.native_left = self.task.native_left.min(self.task.native_every);
+    }
+
+    /// How timeslices end from now on ([`Timeslice`]).
+    pub fn task_set_timeslice(&mut self, timeslice: Timeslice) {
+        self.task.timeslice = timeslice;
+        crate::builtins::ext_task::update_limits(self);
     }
 
     /// Makes a task that runs the top level of `irep` (`mrb_create_task`, from a compiled program
@@ -1476,6 +1605,7 @@ impl Vm {
         self.native_active += 1;
         let r = f(self, recv, args, blk);
         self.native_active -= 1;
+        if self.task.native_sampling { crate::builtins::ext_task::count_native(self); }
         r
     }
 
@@ -2496,7 +2626,12 @@ impl Vm {
             // boundary of a task's own frame (`RETURN_IF_TASK_STOPPED`)
             if self.task.tick_every != 0 && self.task.running.is_some() {
                 self.task.tick_left = self.task.tick_left.saturating_sub(1);
-                if self.task.tick_left == 0 { crate::builtins::ext_task::tick(self); }
+                if self.task.tick_left == 0 {
+                    crate::builtins::ext_task::tick(self);
+                    if self.task.overrun {
+                        if let Some(e) = crate::builtins::ext_task::overrun(self) { return Err(e); }
+                    }
+                }
             }
             if self.task.switching && self.cur != ROOT && self.exc.is_none()
                 && !self.fiber_check_native(self.cur) && self.contexts[self.cur].vmexec
