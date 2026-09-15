@@ -2737,21 +2737,21 @@ impl Vm {
     }
 
     #[inline]
-    fn read_b(&self, ci: &CallInfo, pc: &mut usize) -> u32 {
-        let v = self.ireps[ci.irep].iseq[*pc] as u32;
+    fn read_b(&self, irep: IrepId, pc: &mut usize) -> u32 {
+        let v = self.ireps[irep].iseq[*pc] as u32;
         *pc += 1;
         v
     }
     #[inline]
-    fn read_s(&self, ci: &CallInfo, pc: &mut usize) -> u32 {
-        let s = &self.ireps[ci.irep].iseq;
+    fn read_s(&self, irep: IrepId, pc: &mut usize) -> u32 {
+        let s = &self.ireps[irep].iseq;
         let v = ((s[*pc] as u32) << 8) | s[*pc + 1] as u32;
         *pc += 2;
         v
     }
     #[inline]
-    fn read_w(&self, ci: &CallInfo, pc: &mut usize) -> u32 {
-        let s = &self.ireps[ci.irep].iseq;
+    fn read_w(&self, irep: IrepId, pc: &mut usize) -> u32 {
+        let s = &self.ireps[irep].iseq;
         let v = ((s[*pc] as u32) << 16) | ((s[*pc + 1] as u32) << 8) | s[*pc + 2] as u32;
         *pc += 3;
         v
@@ -2797,9 +2797,12 @@ impl Vm {
             // the only place the collector runs: every register and frame is in the Vm
             if self.heap.gc_pending { self.gc_maybe(); }
             self.instructions += 1;
-            let ci = self.ci.last().unwrap().clone();
-            let mut pc = ci.pc;
-            let byte = self.ireps[ci.irep].iseq[pc];
+            // The frame is read field by field, not copied: `base`, `irep` and `pc` are what
+            // every instruction needs, and the handful of instructions that want the rest
+            // (`proc_`, `target_class`, `mid`) read `self.ci[top]` where they stand.
+            let top = self.ci.len() - 1;
+            let (base, irep, mut pc) = { let ci = &self.ci[top]; (ci.base, ci.irep, ci.pc) };
+            let byte = self.ireps[irep].iseq[pc];
             self.op_counts[byte as usize] += 1;
             let op = Op::from_u8(byte).ok_or_else(|| VmError::Internal(format!("bad opcode {byte}")))?;
             pc += 1;
@@ -2808,19 +2811,17 @@ impl Vm {
             let b_wide = ext == 2 || ext == 3;
             match op.operands() {
                 Operands::Z => {}
-                Operands::B => a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) },
-                Operands::BB => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = if b_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; }
-                Operands::BBB => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = if b_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; c = self.read_b(&ci, &mut pc); }
-                Operands::BS => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = self.read_s(&ci, &mut pc); }
-                Operands::BSS => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = self.read_s(&ci, &mut pc); c = self.read_s(&ci, &mut pc); }
-                Operands::S => a = self.read_s(&ci, &mut pc),
-                Operands::W => a = self.read_w(&ci, &mut pc),
+                Operands::B => a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) },
+                Operands::BB => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = if b_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; }
+                Operands::BBB => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = if b_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; c = self.read_b(irep, &mut pc); }
+                Operands::BS => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = self.read_s(irep, &mut pc); }
+                Operands::BSS => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = self.read_s(irep, &mut pc); c = self.read_s(irep, &mut pc); }
+                Operands::S => a = self.read_s(irep, &mut pc),
+                Operands::W => a = self.read_w(irep, &mut pc),
             }
             ext = 0;
             // pc now points at the next instruction (like mruby's DECODE_OPERANDS).
-            let top = self.ci.len() - 1;
             self.ci[top].pc = pc;
-            let base = ci.base;
             let (a, b, c) = (a as usize, b as usize, c as usize);
             macro_rules! reg { ($i:expr) => { self.stack[base + $i].get() } }
             macro_rules! setreg { ($i:expr, $v:expr) => { { let v = $v; self.stack[base + $i] = Slot::from(v); } } }
@@ -2828,7 +2829,7 @@ impl Vm {
                 Op::Nop => {}
                 Op::Move => { setreg!(a, reg!(b)); }
                 Op::Loadl => {
-                    let v = match &self.ireps[ci.irep].pool[b] {
+                    let v = match &self.ireps[irep].pool[b] {
                         Pool::Int(i) => Value::Int(*i),
                         Pool::Float(f) => Value::Float(*f),
                         Pool::Str(s) => { let s = s.clone(); self.str_new(&s) }
@@ -2857,7 +2858,7 @@ impl Vm {
                 Op::Loadi7 => { setreg!(a, Value::Int(7)); }
                 Op::Loadi16 => { setreg!(a, Value::Int(b as u16 as i16 as i64)); }
                 Op::Loadi32 => { setreg!(a, Value::Int((((b as u32) << 16) | c as u32) as i32 as i64)); }
-                Op::Loadsym => { setreg!(a, Value::Sym(self.ireps[ci.irep].syms[b])); }
+                Op::Loadsym => { setreg!(a, Value::Sym(self.ireps[irep].syms[b])); }
                 Op::Loadnil => { setreg!(a, Value::Nil); }
                 Op::Loadself => { setreg!(a, reg!(0)); }
                 Op::Loadtrue => { setreg!(a, Value::True); }
@@ -2867,13 +2868,13 @@ impl Vm {
                 // in the globals table but in the scope that owns it, so that a method's match
                 // stays out of its caller's `$~`
                 Op::Getgv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = if Some(s) == self.s.backref { self.svar_get() }
                         else { self.globals.get(&s).map(|s| s.get()).unwrap_or(Value::Nil) };
                     setreg!(a, v);
                 }
                 Op::Setgv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
                     if Some(s) == self.s.backref {
                         // the one place an arbitrary value reaches the slot (`backref_gv_set`)
@@ -2887,12 +2888,12 @@ impl Vm {
                     }
                 }
                 Op::Getiv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = match reg!(0) { Value::Obj(o) => self.heap.ivar_get(o, s), _ => Value::Nil };
                     setreg!(a, v);
                 }
                 Op::Setiv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
                     match reg!(0) {
                         Value::Obj(o) => { if self.heap.get(o).frozen { let r = reg!(0); return Err(self.frozen_error(r)); } self.heap.ivar_set(o, s, v) }
@@ -2900,8 +2901,8 @@ impl Vm {
                     }
                 }
                 Op::Getcv => {
-                    let s = self.ireps[ci.irep].syms[b];
-                    let cls = self.cvar_class(ci.proc_);
+                    let s = self.ireps[irep].syms[b];
+                    let cls = self.cvar_class(self.ci[top].proc_);
                     let v = match self.cvar_get(cls, s) {
                         Some(v) => v,
                         None => { let n = self.sym_name(s); let cn = self.class_name(cls); return Err(self.raise(self.core.name_error, &format!("uninitialized class variable {n} in {cn}"))); }
@@ -2909,20 +2910,21 @@ impl Vm {
                     setreg!(a, v);
                 }
                 Op::Setcv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
-                    let cls = self.cvar_class(ci.proc_);
+                    let cls = self.cvar_class(self.ci[top].proc_);
                     self.cvar_set(cls, s, v)?;
                 }
                 Op::Getconst => {
-                    let s = self.ireps[ci.irep].syms[b];
-                    let v = self.const_lookup(&ci, s)?;
+                    let s = self.ireps[irep].syms[b];
+                    let (tc, pr) = { let ci = &self.ci[top]; (ci.target_class, ci.proc_) };
+                    let v = self.const_lookup(tc, pr, s)?;
                     setreg!(a, v);
                 }
                 Op::Setconst => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
-                    let tc = ci.target_class;
+                    let tc = self.ci[top].target_class;
                     if self.heap.is_class(tc) {
                         if self.heap.get(tc).frozen { return Err(self.frozen_error(Value::Obj(tc))); }
                         self.heap.class_mut(tc).consts.insert(s, Slot::from(v));
@@ -2936,7 +2938,7 @@ impl Vm {
                     }
                 }
                 Op::Getmcnst => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let base_v = reg!(a);
                     let cls = match base_v { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let v = match self.const_get(cls, s) {
@@ -2946,7 +2948,7 @@ impl Vm {
                     setreg!(a, v);
                 }
                 Op::Setmcnst => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
                     match reg!(a + 1) {
                         Value::Obj(o) if self.heap.is_class(o) => {
@@ -3003,7 +3005,7 @@ impl Vm {
                 }
                 Op::Matcherr => { return Err(self.raise(self.core.no_matching_pattern_error, "pattern not matched")); }
                 Op::Ssend | Op::Ssend0 | Op::Ssendb | Op::Send | Op::Send0 | Op::Sendb => {
-                    let mid = self.ireps[ci.irep].syms[b];
+                    let mid = self.ireps[irep].syms[b];
                     let argc = if matches!(op, Op::Send0 | Op::Ssend0) { 0 } else { c };
                     let has_blk = matches!(op, Op::Sendb | Op::Ssendb);
                     let explicit = matches!(op, Op::Send | Op::Send0 | Op::Sendb);
@@ -3014,15 +3016,15 @@ impl Vm {
                 Op::Super => {
                     let argc = b;
                     setreg!(a, reg!(0));
-                    let mid = ci.mid.ok_or_else(|| self.raise(self.core.no_method_error, "super called outside of method"))?;
+                    let mid = self.ci[top].mid.ok_or_else(|| self.raise(self.core.no_method_error, "super called outside of method"))?;
                     self.op_send(base, a, mid, argc, true, true)?;
                     if let Some(v) = self.loop_exit.take() { return Ok(v); }
                 }
                 Op::Call => {
                     // `Proc#call`: replace this frame (pushed by SEND) with the proc's body.
                     let p = match reg!(0) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("wrong type (expected Proc)")) };
-                    let n = ci.n as usize;
-                    let nargs = (if n == 15 { 1 } else { n }) + (if ci.kw { 1 } else { 0 }) + 2;
+                    let n = self.ci[top].n as usize;
+                    let nargs = (if n == 15 { 1 } else { n }) + (if self.ci[top].kw { 1 } else { 0 }) + 2;
                     self.vm_call_proc(p, nargs);
                 }
                 Op::Blkcall => {
@@ -3031,26 +3033,26 @@ impl Vm {
                     let nbase = base + a;
                     let (n, kw, _) = self.prepare_call(nbase, b, false)?;
                     let npos = if n == 15 { 1 } else { n };
-                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: ci.target_class, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
+                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: self.ci[top].target_class, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
                     self.vm_call_proc(p, npos + (if kw { 1 } else { 0 }) + 2);
                 }
                 Op::Argary => { self.op_argary(base, a, b)?; }
                 Op::Enter => { self.op_enter(a as u32)?; }
                 Op::Karg => {
-                    let k = Value::Sym(self.ireps[ci.irep].syms[b]);
-                    let v = match self.kidx(&ci).and_then(|ki| self.hash_delete(self.stack[ki].get(), k)) {
+                    let k = Value::Sym(self.ireps[irep].syms[b]);
+                    let v = match self.kidx_at(top).and_then(|ki| self.hash_delete(self.stack[ki].get(), k)) {
                         Some(v) => v,
-                        None => { let n = self.sym_name(self.ireps[ci.irep].syms[b]); return Err(self.raise_arg(&format!("missing keyword: {n}"))); }
+                        None => { let n = self.sym_name(self.ireps[irep].syms[b]); return Err(self.raise_arg(&format!("missing keyword: {n}"))); }
                     };
                     setreg!(a, v);
                 }
                 Op::KeyP => {
-                    let k = Value::Sym(self.ireps[ci.irep].syms[b]);
-                    let has = match self.kidx(&ci) { Some(ki) => self.hash_get(self.stack[ki].get(), k).is_some(), None => false };
+                    let k = Value::Sym(self.ireps[irep].syms[b]);
+                    let has = match self.kidx_at(top) { Some(ki) => self.hash_get(self.stack[ki].get(), k).is_some(), None => false };
                     setreg!(a, Value::bool(has));
                 }
                 Op::Keyend => {
-                    if let Some(ki) = self.kidx(&ci) {
+                    if let Some(ki) = self.kidx_at(top) {
                         let first = match self.stack[ki].get().obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.first().map(|e| e.0.get()), _ => None };
                         if let Some(k) = first { let d = match k { Value::Sym(s) => self.sym_name(s), v => self.inspect_str(v)? }; return Err(self.raise_arg(&format!("unknown keyword: {d}"))); }
                     }
@@ -3130,11 +3132,11 @@ impl Vm {
                 }
                 Op::Intern => { let v = reg!(a); let bytes = self.expect_str(v, "value")?; setreg!(a, Value::Sym(self.syms.intern(&bytes))); }
                 Op::Symbol => {
-                    let bytes = match &self.ireps[ci.irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("SYMBOL pool".into())) };
+                    let bytes = match &self.ireps[irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("SYMBOL pool".into())) };
                     setreg!(a, Value::Sym(self.syms.intern(&bytes)));
                 }
                 Op::String => {
-                    let bytes = match &self.ireps[ci.irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("STRING pool".into())) };
+                    let bytes = match &self.ireps[irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("STRING pool".into())) };
                     setreg!(a, self.str_new(&bytes));
                 }
                 Op::Strcat => {
@@ -3159,12 +3161,12 @@ impl Vm {
                     for (k, v) in entries { self.hash_set(h, k.get(), v.get())?; }
                 }
                 Op::Lambda | Op::Block | Op::Method => {
-                    let nirep = self.ireps[ci.irep].reps[b];
+                    let nirep = self.ireps[irep].reps[b];
                     let capture = !matches!(op, Op::Method);
                     let strict = matches!(op, Op::Lambda | Op::Method);
                     let env = if capture { Some(self.frame_env()) } else { None };
                     let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData {
-                        irep: nirep, upper: Some(ci.proc_), env, target_class: Some(ci.target_class), strict, scope: matches!(op, Op::Method), orphan: false, mid: None,
+                        irep: nirep, upper: Some(self.ci[top].proc_), env, target_class: Some(self.ci[top].target_class), strict, scope: matches!(op, Op::Method), orphan: false, mid: None,
                     }));
                     setreg!(a, Value::Obj(p));
                 }
@@ -3175,9 +3177,9 @@ impl Vm {
                 }
                 Op::Oclass => { setreg!(a, Value::Obj(self.core.object)); }
                 Op::Class | Op::Module => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let base_v = reg!(a);
-                    let outer = match base_v { Value::Nil => self.heap.proc_data(ci.proc_).target_class.unwrap_or(self.core.object), Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
+                    let outer = match base_v { Value::Nil => self.heap.proc_data(self.ci[top].proc_).target_class.unwrap_or(self.core.object), Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let existing = self.heap.class(outer).consts.get(&s).map(|s| s.get());
                     let is_module = matches!(op, Op::Module);
                     let given_sup = match if is_module { Value::Nil } else { reg!(a + 1) } {
@@ -3207,9 +3209,9 @@ impl Vm {
                     setreg!(a, Value::Obj(cls));
                 }
                 Op::Exec => {
-                    let nirep = self.ireps[ci.irep].reps[b];
+                    let nirep = self.ireps[irep].reps[b];
                     let cls = match reg!(a) { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
-                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false, mid: None }));
+                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(self.ci[top].proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false, mid: None }));
                     let nbase = base + a;
                     let nregs = self.ireps[nirep].nregs.max(4);
                     if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Slot::NIL); }
@@ -3217,7 +3219,7 @@ impl Vm {
                     self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: 0, kw: false, mid: None, target_class: cls, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
                 }
                 Op::Def => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let target = match reg!(a) { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let p = match reg!(a + 1) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("not a proc")) };
                     if let ObjKind::Proc(pd) = &mut self.heap.get_mut(p).kind { pd.target_class = Some(target); }
@@ -3230,26 +3232,26 @@ impl Vm {
                     setreg!(a, Value::Sym(s));
                 }
                 Op::Tdef | Op::Sdef => {
-                    let s = self.ireps[ci.irep].syms[b];
-                    let nirep = self.ireps[ci.irep].reps[c];
-                    let target = if matches!(op, Op::Tdef) { ci.target_class } else { let v = reg!(a); self.singleton_class(v)? };
-                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false, mid: None }));
+                    let s = self.ireps[irep].syms[b];
+                    let nirep = self.ireps[irep].reps[c];
+                    let target = if matches!(op, Op::Tdef) { self.ci[top].target_class } else { let v = reg!(a); self.singleton_class(v)? };
+                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(self.ci[top].proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false, mid: None }));
                     let (vis, modfunc) = if matches!(op, Op::Tdef) && !self.heap.class(target).is_singleton { self.current_def_vis(target) } else { (Vis::Public, false) };
                     self.def_method(target, s, Method::Ruby(p), if modfunc { Vis::Private } else { vis })?;
                     if modfunc { let sc = self.singleton_class(Value::Obj(target))?; self.def_method(sc, s, Method::Ruby(p), Vis::Public)?; }
                     setreg!(a, Value::Sym(s));
                 }
                 Op::Alias => {
-                    let (new, old) = (self.ireps[ci.irep].syms[a], self.ireps[ci.irep].syms[b]);
-                    let tc = ci.target_class;
+                    let (new, old) = (self.ireps[irep].syms[a], self.ireps[irep].syms[b]);
+                    let tc = self.ci[top].target_class;
                     self.alias_method(tc, new, old)?;
                 }
-                Op::Undef => { let s = self.ireps[ci.irep].syms[a]; self.undef_method(ci.target_class, s)?; }
+                Op::Undef => { let s = self.ireps[irep].syms[a]; self.undef_method(self.ci[top].target_class, s)?; }
                 Op::Sclass => { let v = reg!(a); setreg!(a, Value::Obj(self.singleton_class(v)?)); }
-                Op::Tclass => { setreg!(a, Value::Obj(ci.target_class)); }
+                Op::Tclass => { setreg!(a, Value::Obj(self.ci[top].target_class)); }
                 Op::Debug => {}
                 Op::Err => {
-                    let msg = match &self.ireps[ci.irep].pool[a] { Pool::Str(s) => String::from_utf8_lossy(s).into_owned(), _ => "error".into() };
+                    let msg = match &self.ireps[irep].pool[a] { Pool::Str(s) => String::from_utf8_lossy(s).into_owned(), _ => "error".into() };
                     return Err(self.raise(self.core.local_jump_error, &msg));
                 }
                 Op::Ext1 => { ext = 1; }
@@ -3257,7 +3259,7 @@ impl Vm {
                 Op::Ext3 => { ext = 3; }
                 Op::Stop => {
                     // mruby returns regs[irep->nlocals] (the last expression's register).
-                    let nlocals = self.ireps[ci.irep].nlocals;
+                    let nlocals = self.ireps[irep].nlocals;
                     let v = self.stack.get(base + nlocals).map(|s| s.get()).unwrap_or(Value::Nil);
                     let _ = self.pop_frame();
                     return Ok(v);
@@ -3268,11 +3270,11 @@ impl Vm {
 
     // ------------------------------------------------------------------ helpers used by the loop
 
-    fn const_lookup(&mut self, ci: &CallInfo, s: Sym) -> VmResult<Value> {
+    fn const_lookup(&mut self, target_class: ObjId, proc_: ObjId, s: Sym) -> VmResult<Value> {
         // 1. target class and its ancestors, 2. lexical scopes (upper procs), 3. Object
-        let mut c = Some(ci.target_class);
+        let mut c = Some(target_class);
         if let Some(v) = c.and_then(|c| self.const_get(c, s)) { return Ok(v); }
-        let mut p = Some(ci.proc_);
+        let mut p = Some(proc_);
         while let Some(pid) = p {
             let pd = self.heap.proc_data(pid);
             if let Some(tc) = pd.target_class { if let Some(v) = self.const_get(tc, s) { return Ok(v); } }
@@ -3282,7 +3284,7 @@ impl Vm {
         if let Some(v) = c.and_then(|c| self.const_get(c, s)) { return Ok(v); }
         // `const_missing` hook on the target class (default raises NameError)
         let cm = self.intern("const_missing");
-        let tc = Value::Obj(ci.target_class);
+        let tc = Value::Obj(target_class);
         self.funcall(tc, cm, &[Value::Sym(s)], Value::Nil)
     }
     pub fn frozen_error(&mut self, v: Value) -> VmError {
@@ -3668,8 +3670,9 @@ impl Vm {
         let n = ci.n as usize;
         (if n == 15 { 1 } else { n }) + (if ci.kw { 1 } else { 0 }) + 1
     }
-    /// `mrb_ci_kidx`: the register holding the keyword Hash of a frame, if any.
-    fn kidx(&self, ci: &CallInfo) -> Option<usize> {
+    /// `mrb_ci_kidx`: the register holding the keyword Hash of frame `i`, if any.
+    fn kidx_at(&self, i: usize) -> Option<usize> {
+        let ci = &self.ci[i];
         if !ci.kw { return None; }
         let n = ci.n as usize;
         Some(ci.base + (if n == 15 { 1 } else { n }) + 1)
