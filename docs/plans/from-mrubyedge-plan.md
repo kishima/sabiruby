@@ -11,7 +11,7 @@
 | # | 内容 | 状態 |
 |---|---|---|
 | 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | **済み**（2026-09-16、`bd71d31`）。記録は `docs/worklog/2026-09-16-serde.md`、設計は `docs/design/serde.md` |
-| 2 | RBS で境界を宣言する（検討→設計） | 未着手 |
+| 2 | RBS で境界を宣言する（検討→設計） | **済み（設計文書）**（2026-09-16、`584d42c`）。記録は `docs/worklog/2026-09-16-rbs-study.md`、設計は `docs/design/rbs.md`。実装は次の段階 |
 | 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | 未着手 |
 | 4 | Cargo feature で gem を落とせるようにする（まず regexp） | 未着手 |
 | 5 | `RUBY_ENGINE` をどう答えるか決める | 未着手 |
@@ -126,3 +126,38 @@ Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどう�
   verify のビルドで落ちる。crates.io の `sabiruby 0.4.0` には `src/convert.rs` が無い（段階 4 より前の公開）。
   実際に上げるときは `sabiruby` を先に公開する。依存は `version = "0.4"` のままにしてある。
 
+### 2. RBS（検討の段階）
+
+* **推奨は「パーサを入れない、生成だけやる」。** 計画書が挙げた 3 用途のうちパーサが要るのは
+  (a) マクロ時の型検査だけで、それは落とした。理由は二重管理より前に、**マクロが見ているのが
+  解決済みの型ではなく型の綴りだから**。`type Hp = i64;` の `n: Hp` は展開時には `Hp` でしかない。
+  生成側はこれを `untyped` に倒せば嘘をつかずに済むが、検査側は通すか落とすかしかなく、
+  通せば検査にならず、落とせば型エイリアスを書いた人が理由の分からないエラーを見る。
+  同じ情報不足が、片方では許容できる劣化になり、もう片方では機能を壊す。
+* **`ruby-rbs` は本家（ruby/rbs）が出しているが、この機械ではビルドできなかった。**
+  0.3.0（2026-04-03、BSD-2、約 33k DL）は rbs の C パーサを同梱して `cc` + `bindgen` で束ねる作りで、
+  `cargo build` が `Unable to find libclang` で落ちる。依存 42 個。VM の crate（依存 4 つ、
+  `no_std`、CI で thumbv7em と wasm32）には入れられず、入れるならホスト側の開発ツールに限る。
+  crates.io の `rbs 4.8.4` は rbatis の ORM で無関係。`tree-sitter-rbs` は CST だけ。
+* **mruby/edge の `.rbs` は RBS の部分集合ですらない。** `rbs` gem 3.6.1 に `def hello: () -> void` を
+  食わせると ``Syntax error: cannot start a declaration, token=`def` ``。RBS のトップレベルに書けるのは
+  宣言だけで、`def` は `class … end` の中にしか置けない。あれは RBS の見た目をした wasm の IDL。
+  確かめる前に「小さい部分集合」と書きかけていた。
+* **生成に足りないのは 2 つだけ。** `MethodSpec` が `sig.output` を読んでいないこと（1 フィールド）と、
+  Ruby のクラス名が struct の `#[derive(RubyClass)]` 側にあって `impl` ブロックから見えないこと。
+  後者が出力先を決めた: 実行時の定数（`<T as RubyClass>::NAME` が使える）が案 A、マクロがファイルを
+  書く案 B は `OUT_DIR` が無い・`cargo check` でも走る・キャッシュを壊すのに加えてクラス名が取れない。
+* **拾い物は引数名。** Rust の `fn damage(&mut self, n: i64)` の `n` が `(Integer n)` としてそのまま
+  正しい RBS になる。エディタのホバーで効くのはここ。
+* **Playground の補完は今はできない。** 効くのは組込みクラスだが、そこに型が無い。`src/` の
+  `define_fn` の出現 16 件はすべて `convert.rs` の rustdoc の中で、実際の定義は 0 件。組込みは
+  `define_closure` / `define_method`（171 箇所）で、型は本体の `expect_int` などの中にしかない。
+  計画書 3 番の `coverage.md` と組んで「名前だけの補完」が先。
+* **rubevy の `ask` に無いのは書式ではなく宣言する場所。** `Arg` 3 つ・`Answer` 7 つで語彙は
+  閉じている——と思ったが `answer_value` / `publish_value` があるので閉じていない（予約 kind の
+  `component.get` が Hash を返す）。宣言さえあれば実行時の検査も、知らない kind の即時エラーも、
+  `Rubevy::Proxy#respond_to_missing?` が本当を言うことも落ちてくる。RBS はその文書化の出力形式。
+  rubevy の repo の仕事。
+* **試作は `macros/tests/rbs.rs`。** `src/` は 1 行も変えていない。proc-macro crate はマクロ以外を
+  公開できないので、`src/` に置いても外から呼べず dead_code になる、という事情もある。
+  出力は `rbs parse` と `rbs -I . validate`（rbs 3.6.1）を通った。
