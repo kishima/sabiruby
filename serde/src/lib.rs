@@ -48,10 +48,10 @@
 //!
 //! # Errors
 //!
-//! [`to_value`] and [`from_value`] answer with [`VmResult`](sabiruby::error::VmResult): a
+//! [`to_value`] and [`from_value`] answer with [`sabiruby::error::VmResult`]: a
 //! failure is a raised Ruby exception, so a native that converts can `?` it like any other and
 //! the script sees a normal `TypeError`. The type serde itself needs —
-//! [`Error`](error::Error), which can be built from a message with no VM in reach — is
+//! [`error::Error`], which can be built from a message with no VM in reach — is
 //! converted at that boundary; [`error::Error::into_vm_error`] says how.
 //!
 //! # From a `define_fn` function
@@ -72,7 +72,7 @@
 //! # GC
 //!
 //! The values built here are not collector roots, exactly as in
-//! [`sabiruby::convert`](sabiruby::convert): nothing is collected while a native is on the
+//! [`sabiruby::convert`]: nothing is collected while a native is on the
 //! host stack or between runs, so a conversion is safe as it stands, but a `Value` a host
 //! keeps across a call into the VM must be registered with
 //! [`Vm::gc_register`](sabiruby::Vm::gc_register).

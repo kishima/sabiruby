@@ -121,7 +121,8 @@ Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどう�
   `JSON::ParserError` が置けない）。段階 3b と同じ形の穴埋め。
 * **`BigInt` → `i128` は `to_i64` / `to_u64` では足りない**（`2**64` がどちらにも入らない）。
   `to_string_radix(10)` を経由する。`to_f64` は丸めるので使えない。
-* **公開はまだできない。** crates.io の `sabiruby 0.4.0` には `src/convert.rs` が無く（段階 4 より前の公開）、
-  `cargo publish --dry-run -p sabiruby-serde` は packaging は通るが verify のビルドで落ちる。
-  `sabiruby` を次に公開してから。依存は `version = "0.4"` のままにしてある。
+* **単体での公開はまだできない。** CI の `cargo publish --dry-run --workspace` は通る（未公開の依存は
+  ワークスペース自身のパッケージで検証されるため）が、`cargo publish --dry-run -p sabiruby-serde` は
+  verify のビルドで落ちる。crates.io の `sabiruby 0.4.0` には `src/convert.rs` が無い（段階 4 より前の公開）。
+  実際に上げるときは `sabiruby` を先に公開する。依存は `version = "0.4"` のままにしてある。
 

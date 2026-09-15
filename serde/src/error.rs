@@ -9,7 +9,7 @@ use sabiruby::Vm;
 ///
 /// serde needs an error type of its own: [`serde::ser::Error`] and [`serde::de::Error`] build
 /// one from a message alone (`Error::custom`), with no VM in reach, which
-/// [`VmError`](sabiruby::error::VmError) cannot be built from — a `VmError::Raise` carries an
+/// [`sabiruby::error::VmError`] cannot be built from — a `VmError::Raise` carries an
 /// exception *object*, and allocating one needs a `&mut Vm`. So the conversion collects its
 /// failures here and turns them into a raise at the boundary, where the VM is in hand:
 /// [`to_value`](crate::to_value) and [`from_value`](crate::from_value) answer with
