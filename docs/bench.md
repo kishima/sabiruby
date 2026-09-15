@@ -47,6 +47,25 @@ touch the instruction loop; the merged tree measures the same as the perf branch
 How each candidate was measured — alternating A/B rather than best of 5, and why — is in
 `docs/worklog/2026-09-15-stage2-perf.md`.
 
+### After stage 2c (`9da4724`, 2026-09-15): `Array#shift` in O(1), Hash writes through one door, an index past 16 entries
+
+Against the previous head and against the original baseline, best of 5, reference included
+(`bench/results/9da4724.tsv`):
+
+| category | 9fa5b0b → 9da4724 | e9da768 (baseline) → 9da4724 | ratio to mruby now |
+|---|---:|---:|---|
+| whole program | −3.0% | −17.0% | 2.84x |
+| data structures | **−48.9%** | **−58.9%** | 10.85x → **4.57x** |
+| instruction loop | −12.8% | −33.7% | 3.83x |
+| calls | +0.8% | −13.5% | 2.98x |
+| memory | −2.4% | −13.6% | 0.92x |
+| **all** | **−14.0%** | **−31.3%** | 4.32x → **3.01x** (median 3.05x) |
+
+`bm_so_lists` 3.94 s → 1.02 s (16.4x → 4.4x), `ds_hash` 12.9x → 7.7x, `ds_string` 11.4x → 4.5x,
+`vm_optimization_bench` 7.1x → 4.6x (it holds a 50,000-entry Hash workload). How the two changes
+were measured, and the O(n) that came out of hiding when a borrow changed, are in
+`docs/worklog/2026-09-15-stage2c-array-hash.md`.
+
 Per stage (each measured against the commit before it):
 
 | stage | commit | what changed | all | notes |
@@ -60,6 +79,9 @@ Per stage (each measured against the commit before it):
 | 2 c4 | `4a6826e` | a method cache invalidated by `Heap::method_serial` | −1.3% | every mutable access to a `ClassData` goes through `class_mut`, which bumps the serial |
 | 2b | `05f6f28` | `String#[]` without copying the whole string; one borrow per Hash scan | −8.7% | `ds_string` 7.9× faster, `ds_hash` −25 to −32% |
 | 4, 5 | `ccc60de`, `c667a9d` | `define_fn`, `ObjKind::Data` | — | not on the instruction loop |
+| 2c A | `35d58a5` | `ArrayData { buf, start }`: `shift`/`unshift`/`insert(0)` in O(1) | −6.1% | `bm_so_lists` −73%; `ds_array` first +155% (a hidden O(n) once `&Vec` became `&[Slot]`), fixed by reading the length without copying |
+| 2c B1 | `8ba2336` | `HashData` fields private, writes through seven methods | −0.3% | no behaviour change; the door the index needs |
+| 2c B2 | `e2b026b` | an index (`hash → entry`, one chain per bucket) past 16 entries | −7.1% | `ds_hash` −19.8%, `vm_optimization_bench` −14.4% |
 | 3 | `5c3eb6e` (merge of `93824b1`, `1472346`) | `Method::Closure`, host state | +1.8% | `bm_fib` +4.2%, `call_args` +4.0%, `app_tak` +3.8%: `Method`'s `Clone` is no longer a plain copy and `find_method` clones one per call (stage 2, candidate 3, removes that). `loop_while_add` +6.6% (reproduced twice, A/B on a quiet machine: 1100 → 1190 ms) is not explained by that — the loop makes no calls; `loop_times` moved −5.8% at the same time, so code layout is the likely cause. Data structures unchanged |
 
 ## Earlier measurements (the five reference benchmarks, best of 3)

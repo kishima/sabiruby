@@ -78,8 +78,8 @@ allocating loop becomes bounded.
 * `Value` 16 bytes (above).
 * Heap = `Vec<HeapObject>` indexed by `ObjId`; allocation pops a free slot or pushes. Mark & sweep, stop the world
   (`gc.md`): a pause is proportional to the heap (about 50 µs for 4 000 slots).
-* Native methods copy arrays (`items()`) instead of borrowing; `Array#shift`/`unshift` are O(n).
+* Native methods copy arrays (`items()`) instead of borrowing (the places that only wanted the length read it without copying since 2026-09-15). `Array#shift`/`unshift` are O(1) since 2026-09-15: the array keeps a start offset (`ArrayData`), compacting when the dead prefix outgrows the live part.
 * Native → VM re-entry (`Vm::funcall`, `call_block`) uses the host stack; `sort` with a block and `Hash#each`-style
   natives pay a frame setup per callback. The Future-native design (see the book's notes) removes this.
 * Method lookup walks the class chain with `HashMap` lookups at each node; no inline cache.
-* `Hash` is insertion-ordered linear search over cached hash codes (mruby's AR mode); no hash table for large hashes yet.
+* `Hash` is insertion-ordered linear search over cached hash codes (mruby's AR mode) up to 16 entries; past that an index (`hash -> entry`, one chain per bucket, rebuilt on deletion) answers in O(1), since 2026-09-15. Every write goes through `HashData`'s methods, which is what keeps the index right.
