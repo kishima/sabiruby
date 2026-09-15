@@ -123,3 +123,40 @@ vm.define_closure(object, "whose_task", |vm, _s, _a, _b| {
   コメントの英単語）。
 * 本家テスト: `tests/mrbtest/baseline.txt` の 108 ファイルを `./target/release/sabiruby mrbtest` で回し、
   passed 列を比べた（結果は 5 節）。
+
+## 5. 本家テストの基準
+
+`tests/mrbtest/baseline.txt` の 108 ファイルを 1 つずつ
+
+```
+./target/release/sabiruby mrbtest tests/mrbtest/assert.mrb tests/mrbtest/prelude.mrb tests/mrbtest/<name>.mrb < /dev/null
+```
+
+で回し、表の passed 列を baseline と比べた。**108 ファイルすべて一致**（合計 2344）。
+`gem_ascii_*` は対象外だが、`baseline.txt` にそもそも入っていなかった。
+
+release ビルドの前に `pgrep` で相手の `tools/bench.sh` が終わっているのを確かめてから回した
+（ビルド 17 秒、テスト一巡 2 分弱、どちらも `nice -n 19 taskset -c 6-23` で、相手が固定している
+コア 2 を外してある）。ただし段階 2d の担当は交互 A/B（`bench_ab.sh`）を続けているので、
+この間に次の計測が始まっていた可能性はある。段階 3b 自身の数値は取っていないので、こちら側に
+影響は無い。
+
+待ち方で 1 つ失敗した。相手のベンチの終了を待つのに
+`until ! pgrep -f "tools/bench.sh"; do sleep 20; done` をバックグラウンドに置いたところ、
+**その待ちシェル自身のコマンドラインに `tools/bench.sh` という文字列が入っている**ので
+`pgrep -f` が自分を見つけ続け、相手のベンチが終わった後も 18 分待ち続けた。
+`ps -o lstart -p <pid>` で相手の PID が既に消えていることに気づいて分かった。
+`pgrep -f` で自分を数えない書き方（`[b]ench` のような文字クラス）が要る。
+
+## 6. 判断が要ったところ・やらなかったこと
+
+* `ENTITY_IVAR` のような「名前の定数」は rubevy 側の話なので VM には入れていない。VM の入口は
+  `&str` を取るだけで、名前の管理はホストの仕事。
+* `run_loop_ctx`（`src/vm.rs:2705`）にある同じ `matches!(…, ObjKind::Exception)` を `is_exception` に
+  置き換えるのは見送った。`if let Value::Obj(o) = exc` の `o` をその後の `ivar_set` で使うので、
+  書き換えると `o` を 2 回取り出すことになり、読みやすくならない。
+* 新しい 6 本に doctest は付けていない。`define_closure` / `set_host_state` / `data_new` は付けているが、
+  これらは単独で見せられる例が「タスクを 2 つ起こしてスケジューラを回す」形になり、
+  rustdoc の例としては長すぎる。同じものが `tests/host_api.rs` にあるので、そちらを例とした。
+* 計画書にある 6 本以外は足していない。`sym_lookup` を `Vm` の公開 API にすると便利ではあるが、
+  計画に無いので `Interner` の中に留めた。
