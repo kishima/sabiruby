@@ -45,7 +45,9 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 | 3 | ネイティブのクロージャと型付きホスト状態 | **済み**（2026-09-15、`93824b1` `1472346`）。sabiruby 側のみ。rubevy 側の置き換えは未 |
 | 4 | `FromRuby` / `IntoRuby` と `define_fn` | **済み**（2026-09-15、`ccc60de`） |
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | **済み**（2026-09-15、`c667a9d`）。rubevy 側も済み（2026-09-15、rubevy `68d80ed` `7b71c16`: static のキューを `host_state` へ、`Rubevy::Entity`） |
-| 6 | マクロ、Future 連携、動的プロキシ | 方針だけ |
+| 6 | マクロ、Future 連携、動的プロキシ | 方針だけ（3b の後） |
+| 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | 着手（2026-09-15） |
+| 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | 着手（2026-09-15） |
 
 進め方（2026-09-15 から）: 計画は本体（Fable）が書き、実装は `implementer`（Opus のサブエージェント、
 `/home/kishima/book/.claude/agents/implementer.md`）が worktree のブランチで行い、本体がレビューしてマージする。
@@ -302,6 +304,42 @@ vm.define_fn(class, "greet", |vm: &mut Vm, name: String| format!("hi {name}")); 
 本家テストは無関係だが基準を確認。
 
 **大きさ**: 中。GC の sweep に 1 か所足す。
+
+## 段階 2d: 性能の第 2 弾（Hash の固定費、`items()` の複製、ベンチの分類）
+
+**到達点**: `ds_hash`（7.7x）と `app_json_hash`（3.0x）が下がる。`items()` が中身を読むためだけに複製している箇所が減る。
+`vm_optimization_bench` の中身が分類に分かれる。数値目標は切り分けてから決める。
+
+**手がかり**（`docs/design/optimizations.md` 5 節、worklog の切り分け）:
+* Hash の 16 要素以下は線形探索で、1 回 90 ns の固定費（ネイティブ呼び出し、引数の受け渡し、`hash` の計算）が支配。
+  `Integer`/`Symbol`/`String` の鍵は `hash` と `eql?` を Ruby に戻さず Rust で答えられる（本家も `mrb_hash_ht_hash_func` で同じ早道を持つ）。
+  `hash_index` の呼び出し経路（`hash_get`/`hash_set` → `hash_index` → `key_eql`）の中で何が 90 ns を占めるかを先に測る。
+* `items(vm, s)` は配列を `Vec<Value>` に複製する。中身を**読むだけ**の呼び出し（`each`、`inject`、`join`、`inspect`、`==`、`pack`、…）は
+  `Heap::array` の `&[Slot]` を借りて済むが、ブロックを呼ぶものは借用を持ち越せない（`eql?` と同じ問題）。添字で回して 1 要素ずつ取る形にする。
+  どの呼び出しが多いかは `ds_array` と `bm_so_lists` の切り分けで。
+* `vm_optimization_bench` は本家のベンチのまま分類「命令ループ」に置かれているが、中に 5 万要素の Hash 操作がある。
+  中身を見て、いくつかの小さなベンチに分けて分類し直す（元のファイルは残す）。
+
+**やり方**: 段階 2 と同じ。1 つずつ別コミット、交互 A/B、効かないものは取り込まず数値だけ残す。切り分けを先に。
+
+**やらないこと**: `Slot` の 8 バイト化（別の段階）。`unsafe`。
+
+## 段階 3b: VM の公開 API の穴埋め
+
+**到達点**: rubevy が `Vm` の内部フィールドに直接触らない。段階 6（マクロ）の前提。
+
+**今**（rubevy `src/lib.rs`）: `vm.heap.ivar_set(task, k, …)`（タスクにエンティティを持たせる）、`vm.heap.ivar_get(task, k)`（`Rubevy.entity`）、
+`vm.task.running`（いま走っているタスク）、`vm.globals.insert(…)`（`$rubevy`）、`vm.heap.get(o).kind` が `Exception` か（終わったタスクの結果が例外か）。
+
+**変更**（VM 側、`src/vm.rs` に小さな公開関数。名前は既存の `task_*` / `str_new` の流儀に合わせる）:
+* `task_running(&self) -> Option<ObjId>`。
+* `ivar_get(&self, obj, name: &str) -> Value` / `ivar_set(&mut self, obj, name, value)`（`intern` 込み。既存の内部関数を包む）。
+* `global_get(&self, name: &str) -> Value` / `global_set(&mut self, name, value)`。
+* `is_exception(&self, v: Value) -> bool`。
+* それぞれ rustdoc に「ホストが使う入口」と書く。`tests/` に短い確認（`tests/host_api.rs`）。
+* rubevy 側: 4 か所を置き換え、`sabiruby::value::Slot` と `sabiruby::object::ObjKind` の import が消えること。worklog に「残った内部アクセス」が 0 になったことを書く。
+
+**確認**: sabiruby の `cargo test --workspace`、no_std、本家テストの基準。rubevy の `cargo test`、examples。ベンチは不要（ホットパスに触らない）。
 
 ## 段階 6: その先（方針だけ。着手は段階 5 の後に決める）
 
