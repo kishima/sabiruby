@@ -17,7 +17,7 @@ that the bytecode is exactly the reference's. The plan this follows is
   have built C and lost wasm. Split on review, like mruby/edge's `mrubyedge-cli`.)
 * `compiler/vendor/`: unmodified copies of `mruby-compiler`, Prism, Prism's generated sources
   and `mrbconf.h` (origin, versions, licences and the update procedure in
-  [`compiler/vendor/VENDOR.md`](../compiler/vendor/VENDOR.md); `tools/vendor_compiler.sh`).
+  [`compiler/vendor/VENDOR.md`](../../compiler/vendor/VENDOR.md); `tools/vendor_compiler.sh`).
 * `compiler/build.rs`: compiles them with `cc` as `gnu99`, the reference build's `-std` (strict
   `c99` hides POSIX declarations such as `memccpy`, which wasi-libc then refuses).
 * `compiler/csrc/shim.c`: the only C written here (below).
