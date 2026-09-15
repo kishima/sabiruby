@@ -82,6 +82,7 @@ pub mod host_store;
 pub mod object;
 pub mod opcode;
 #[doc(hidden)]
+#[cfg(feature = "regexp")]
 pub mod regexp;
 pub mod rite;
 pub mod symbol;
@@ -128,6 +129,8 @@ pub const MRBLIB_DATA_MRB: &[u8] = include_bytes!("mrblib/data.mrb");
 pub const MRBLIB_TOPLEVEL_EXT_MRB: &[u8] = include_bytes!("mrblib/toplevel-ext.mrb");
 pub const MRBLIB_RATIONAL_MRB: &[u8] = include_bytes!("mrblib/rational.mrb");
 pub const MRBLIB_COMPLEX_MRB: &[u8] = include_bytes!("mrblib/complex.mrb");
+/// mruby-regexp's Ruby part, embedded only with the feature `regexp` (`Cargo.toml`).
+#[cfg(feature = "regexp")]
 pub const MRBLIB_REGEXP_MRB: &[u8] = include_bytes!("mrblib/regexp.mrb");
 /// mruby-task's `Task::Queue#push`/`#pop` (`mrbgems/mruby-task/mrblib/queue.rb`).
 pub const MRBLIB_TASK_MRB: &[u8] = include_bytes!("mrblib/task.mrb");

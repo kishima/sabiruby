@@ -8,11 +8,12 @@
 //! that feature exists: the run passes while it fails and fails once it
 //! passes, so the marker gets removed when the feature lands. One whose header
 //! has `# utf8-only:` is about strings as characters and is left out of a build
-//! without the feature `utf8`.
+//! without the feature `utf8`; one whose header has `# regexp-only:` needs the
+//! `Regexp` class and is left out of a build without the feature `regexp`.
 
 use std::path::Path;
 
-struct Case { name: String, pending: Option<String>, utf8_only: bool }
+struct Case { name: String, pending: Option<String>, utf8_only: bool, regexp_only: bool }
 
 fn cases(dir: &Path) -> Vec<Case> {
     let mut v: Vec<Case> = std::fs::read_dir(dir).expect("tests/custom")
@@ -25,7 +26,9 @@ fn cases(dir: &Path) -> Vec<Case> {
                 .find_map(|l| l.strip_prefix("# pending:").map(|s| s.trim().to_string()));
             // a case about characters says nothing about a build that reads bytes
             let utf8_only = src.lines().take_while(|l| l.starts_with('#')).any(|l| l.starts_with("# utf8-only:"));
-            Case { name, pending, utf8_only }
+            // a case that names a pattern says nothing about a build with no `Regexp`
+            let regexp_only = src.lines().take_while(|l| l.starts_with('#')).any(|l| l.starts_with("# regexp-only:"));
+            Case { name, pending, utf8_only, regexp_only }
         }).collect();
     v.sort_by(|a, b| a.name.cmp(&b.name));
     v
@@ -56,6 +59,7 @@ fn custom_cases() {
     let mut pending = 0;
     for c in cases(&dir) {
         if c.utf8_only && !cfg!(feature = "utf8") { continue; }
+        if c.regexp_only && !cfg!(feature = "regexp") { continue; }
         let expected = std::fs::read(dir.join(format!("{}.expected", c.name)))
             .unwrap_or_else(|_| panic!("{}.expected missing", c.name));
         let ok = match run(&dir, &c.name) {

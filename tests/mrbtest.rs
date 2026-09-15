@@ -1,7 +1,9 @@
 //! Regression floor for mruby's test suite: every file must pass at least as many assertions as
-//! recorded in `tests/mrbtest/baseline.txt` (the default build, strings as characters) or
-//! `tests/mrbtest/baseline-bytes.txt` (without the feature `utf8`). Refresh them with
-//! `tools/mrbtest.sh --update` and `tools/mrbtest.sh --bytes --update`.
+//! recorded in `tests/mrbtest/baseline.txt` (the default build, strings as characters),
+//! `tests/mrbtest/baseline-bytes.txt` (without the feature `utf8`) or
+//! `tests/mrbtest/baseline-noregexp.txt` (without the feature `regexp`, which also leaves the
+//! gem's own test files out of the list). Refresh them with `tools/mrbtest.sh --update`,
+//! `tools/mrbtest.sh --bytes --update` and `tools/mrbtest.sh --no-regexp --update`.
 
 use std::path::Path;
 
@@ -14,8 +16,16 @@ fn mrbtest_no_regression() {
 fn run_all() {
     let dir = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/mrbtest");
     // each build has its own floor: the UTF-8 one runs the assertions guarded by
-    // `UTF8STRING`, which the byte-string build leaves out (`tools/mrbtest.sh --bytes`)
-    let floor = if cfg!(feature = "utf8") { "baseline.txt" } else { "baseline-bytes.txt" };
+    // `UTF8STRING`, which the byte-string build leaves out (`tools/mrbtest.sh --bytes`), and
+    // a build without mruby-regexp has no `Regexp` for the gem's files to name at all
+    let floor = match (cfg!(feature = "utf8"), cfg!(feature = "regexp")) {
+        (true, true) => "baseline.txt",
+        (false, true) => "baseline-bytes.txt",
+        (true, false) => "baseline-noregexp.txt",
+        // no baseline is kept for bytes-without-regexp: the two features are read separately
+        // and nothing builds that pair
+        (false, false) => { eprintln!("no baseline for a build without utf8 and without regexp"); return; }
+    };
     let baseline = match std::fs::read_to_string(dir.join(floor)) {
         Ok(s) => s,
         Err(_) => { eprintln!("no baseline; run tools/mrbtest.sh --update"); return; }

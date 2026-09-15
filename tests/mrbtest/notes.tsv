@@ -17,16 +17,16 @@ gem_set	ko: a Set changed by an `eql?` during a lookup is a RuntimeError on the 
 gem_pack	deliberate deviation: NaN identity (two `unpack1("E")` of a signalling NaN are `equal?`)
 gem_binding_binding	C fixtures of mruby-binding's `test/binding.c` (`binding_in_c`, `__binding_env_*`)
 gem_proc_binding	crash: `proc_in_c` of mruby-proc-binding's `test/binding.c`
-codegen	ko: `/static/` raises NoMethodError only where the build has no Regexp class; this one has mruby-regexp, as the reference's own `mruby` does
-gem_regexp	crash: `Regexp#to_s` folding a leading `(?=a)`, a construct the engine refuses (`docs/gems.md`, "Deviations kept")
+codegen	1 ko with the feature `regexp`, none without it: the file asserts that `/static/` raises NoMethodError, which only a build with no Regexp class does (mruby's own test driver links no regexp gem; the reference `mruby` command has one)
+gem_regexp	crash: `Regexp#to_s` folding a leading `(?=a)`, a construct the engine refuses (`docs/design/gems.md`, "Deviations kept")
 gem_regexp_syntax	the engine is `regex-automata`: the crashes are patterns using a construct a finite automaton has none of (lookbehind, backreference, lookahead, `\k`, possessive, atomic, absent, conditional, a nesting depth), the ko are what the reference's backtracking answers or words differently
 gem_regexp_call	the engine has no subexpression call (`\g<…>`), which is what this file is about
-gem_regexp_utf8	the crashes are backreference, lookaround and the absent operator; the ko are a byte-read subject read through a pattern compiled for characters (`docs/gems.md`)
+gem_regexp_utf8	the crashes are backreference, lookaround and the absent operator; the ko are a byte-read subject read through a pattern compiled for characters (`docs/design/gems.md`)
 gem_string_index	crash: a pattern using a lookbehind
 gem_string_regexp	the crashes are lookahead, atomic and possessive; the ko are `^` after a trailing newline and a byte-read subject
 gem_unicode_case	/i is Rust's Unicode simple folding, applied to each member rather than to the class the set operations build
 gem_unicode_ctype	the ko are a nested class and an intersection this engine does carry where the reference refuses them, and /i over a negated bracket; the crash is a lookbehind
 gem_ascii_case	/i is Rust's folding, which carries the Unicode table in either build
 gem_backtracking_stack	0 assertions: the file carries the helper the other gem test files call, which `tools/mrbtest.sh` extracts into `prelude.rb`
-gem_gc_task	2 ko: `GC.generational_mode` is always false here (the collector marks and sweeps in one go, `docs/gc.md`), and both assertions turn on it being on
+gem_gc_task	2 ko: `GC.generational_mode` is always false here (the collector marks and sweeps in one go, `docs/design/gc.md`), and both assertions turn on it being on
 gem_proc_set_stack	0 assertions: both tests ask `TaskTest.respond_to?` first and skip themselves — they probe how mruby sizes a task's stack allocation, which a growable vector has no equivalent of

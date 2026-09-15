@@ -13,7 +13,7 @@
 | 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | **済み**（2026-09-16、`bd71d31`）。記録は `docs/worklog/2026-09-16-serde.md`、設計は `docs/design/serde.md` |
 | 2 | RBS で境界を宣言する（検討→設計） | 未着手 |
 | 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | 未着手 |
-| 4 | Cargo feature で gem を落とせるようにする（まず regexp） | 未着手 |
+| 4 | Cargo feature で gem を落とせるようにする（まず regexp） | **済み**（2026-09-16、`COMMIT4`）。記録は `docs/worklog/2026-09-16-regexp-feature.md`、サイズは `docs/verification/size.md`、設計は `docs/design/gems.md` の «Gems as Cargo features» |
 | 5 | `RUBY_ENGINE` をどう答えるか決める | 未着手 |
 
 ## 1. `sabiruby-serde`
@@ -125,4 +125,41 @@ Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどう�
   ワークスペース自身のパッケージで検証されるため）が、`cargo publish --dry-run -p sabiruby-serde` は
   verify のビルドで落ちる。crates.io の `sabiruby 0.4.0` には `src/convert.rs` が無い（段階 4 より前の公開）。
   実際に上げるときは `sabiruby` を先に公開する。依存は `version = "0.4"` のままにしてある。
+
+### 4. Cargo feature で gem を落とす（regexp）
+
+* **削れた 65 万バイトのうち、SabiRuby 自身のコードは 5.4 万しかない。** thumbv7em、release、
+  `opt-level = "z"` で、依存 crate も含めた `.text` は 1,391,312 → 742,467（−46.6%）。
+  そのうち 594,847 が `regex-automata` と `regex-syntax` で、`ext_regexp.rs` + `src/regexp/` は
+  53,998。x86_64 の `sabiruby` コマンド（リンク済み・デッドコード除去後）は 5,604,312 → 3,862,280
+  バイト（−31.1%）。数字は `docs/verification/size.md`。
+* **`random`・`time`・`pack` は同じ扱いにしない**（この数字による判断）。`.text` の内訳を
+  `nm --print-size` で取ると pack 9,020、random 5,168、time 2,900（+ strftime 1,308）で、
+  3 つ足しても 17 KB＝最小構成の 2% 程度。regexp が効いたのは **外部 crate を連れてくるから**で、
+  gem のコード量ではない。規則として「crate を連れてくる gem だけ feature にする」を
+  `docs/design/gems.md` に書いた。今 crate を連れてくる gem は mruby-regexp だけ。
+  どうしても最後の 2% が要る組み込み向けには、3 つまとめて 1 つの粗い feature にする案を残す
+  （`time` を落とすなら `strftime` も落ちる。`ext_strftime` が `ext_time` の関数を使う）。
+* **本家に「regexp gem 無し」の振る舞いは書かれていない。読むべきは本家のテストだった。**
+  本家の `mrbgems/mruby-regexp/src/regexp.c` は `String#match`/`match?`/`=~`/`scan` を
+  **そこでしか定義していない**ので、gem 無しなら NoMethodError。`sub`/`gsub` は逆に
+  `mrblib/string.rb` に Ruby 版があり、gem がそれを C で**置き換える**形なので、gem 無しでも
+  String パターンなら動く。つまり「Regexp を渡したら TypeError」ではなく「Regexp という定数が
+  無いので NameError」が正解。決め手は本家の `test/t/codegen.rb` で、`/static/` が NoMethodError
+  を上げることを assert している——本家のテストドライバは regexp gem をリンクしないからで、
+  この 1 件だけは feature を切ったときだけ通る（14 → 15）。
+* **`String#sub`/`gsub` のネイティブは、ずっと死んでいた。** `src/builtins/string.rs` の
+  `str_sub` は `string::init` で登録されるが、その後に読まれる mrblib の Ruby 版に上書きされ、
+  さらに `ext_regexp::init` に上書きされる。コメントは「`post_mrblib` が mrblib の後に登録する」と
+  書いてあるのにその関数が無かった。feature を切ると mrblib の Ruby 版が表に出てきて、
+  文字とバイトの位置を混ぜているせいで `"日本語テキスト".sub("テキスト", "文字")` が
+  IndexError になる（fixtures の `utf8` で気づいた）。`post_mrblib` を実際に足して、
+  feature が無いときだけ `sub`/`gsub` を mrblib の後に入れ直した。
+* **`$LOADED_FEATURES` は Ruby 側のリテラル**なので、gem を落としたら Rust から名前を抜く必要が
+  あった（抜かないと `require "regexp"` が false を返し、「リンク済み」と嘘をつく）。
+  `Vm::load_mrblib` の最後で `#[cfg(not(feature = "regexp"))]` の 1 ブロック。
+* **`cli` にも feature が要る。** `sabiruby-cli` は `default-features = false` で VM を取るので、
+  VM 側に `regexp` を足しただけだと**コマンドが regexp 無しでビルドされる**。`cli` にも既定オンの
+  `regexp` を足し、`tools/mrbtest.sh --bytes` の `--no-default-features` も
+  `--no-default-features --features regexp` に直した（byte 文字列の基準は変わらない）。
 

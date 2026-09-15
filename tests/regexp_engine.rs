@@ -2,6 +2,7 @@
 //! and what the automaton under it answers. The Ruby surface is checked by the reference's own
 //! tests (`tools/mrbtest.sh`, files `gem_regexp*`); this pins the layer below them, the
 //! constructs the engine refuses among it (`docs/design/gems.md`, "Deviations kept").
+#![cfg(feature = "regexp")]
 use sabiruby::regexp::{compile, exec};
 
 fn m(pat: &str, s: &str) -> Option<Vec<i32>> {

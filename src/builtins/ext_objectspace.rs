@@ -27,7 +27,9 @@ fn type_index(vm: &Vm, id: ObjId) -> usize {
         // for; they are counted as plain objects here (`docs/design/gems.md`)
         // a Task is `T_CDATA` too, and is counted the same way, as is a host Data object
         // (which is what `T_CDATA` names in the reference)
-        ObjKind::Regexp(_) | ObjKind::MatchData { .. } | ObjKind::Task(_) | ObjKind::Data { .. } => 0,
+        ObjKind::Task(_) | ObjKind::Data { .. } => 0,
+        #[cfg(feature = "regexp")]
+        ObjKind::Regexp(_) | ObjKind::MatchData { .. } => 0,
         ObjKind::Env(_) => 11,
         ObjKind::Fiber(_) => 12,
         ObjKind::Break { .. } => 13,

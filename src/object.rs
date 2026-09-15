@@ -589,9 +589,11 @@ pub enum ObjKind {
     /// A compiled pattern, or `None` while `initialize` holds the slot and the compile has not
     /// finished: the variant says the object was initialized at all, as `DATA_PTR` does, and the
     /// payload whether there is anything to search with (`re_uninitialized_p`).
+    #[cfg(feature = "regexp")]
     Regexp(Option<alloc::sync::Arc<crate::regexp::Pattern>>),
     /// mruby-regexp's `MatchData`: the subject as it was at match time, the Regexp that made the
     /// match (nil for a quoted String pattern), and the capture positions in bytes.
+    #[cfg(feature = "regexp")]
     MatchData { source: Slot, regexp: Slot, captures: alloc::vec::Vec<i32> },
     /// A value the host owns, named by a handle (mruby's `RData` and its `DATA_PTR`, without
     /// the pointer): `tag` says which kind of thing the host put there and `handle` which one.
@@ -773,7 +775,9 @@ impl Heap {
             for (_, v) in &o.ivars { mark(v.get()); }
             match &o.kind {
                 // a Data holds a handle, not a Value: nothing in it is a reference
-                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Regexp(_) | ObjKind::Data { .. } => {}
+                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Data { .. } => {}
+                #[cfg(feature = "regexp")]
+                ObjKind::Regexp(_) => {}
                 ObjKind::Break { value, .. } => mark(*value),
                 ObjKind::Array(a) => { for v in a.iter() { mark(v.get()); } }
                 ObjKind::Hash(h) => {
@@ -784,6 +788,7 @@ impl Heap {
                 ObjKind::Proc(p) => {
                     for x in [p.upper, p.env, p.target_class].into_iter().flatten() { mark(Value::Obj(x)); }
                 }
+                #[cfg(feature = "regexp")]
                 ObjKind::MatchData { source, regexp, .. } => { mark(source.get()); mark(regexp.get()); }
                 ObjKind::Env(e) => {
                     for v in &e.values { mark(v.get()); }

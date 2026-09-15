@@ -636,11 +636,22 @@ pub fn init(vm: &mut Vm) {
             let out = sub_replace(&me, &rep, &pat, found);
             Ok(vm.str_new_like(&out, s))
         }),
-        ("sub", |vm, s, a, b| str_sub(vm, s, a, b, false)),
-        ("gsub", |vm, s, a, b| str_sub(vm, s, a, b, true)),
         ("lines", |vm, s, _a, _b| { let b = bytes(vm, s); let mut items = vec![]; let mut start = 0; for (i, c) in b.iter().enumerate() { if *c == b'\n' { items.push(vm.str_new_like(&b[start..=i].to_vec(), s)); start = i + 1; } } if start < b.len() { items.push(vm.str_new_like(&b[start..].to_vec(), s)); } Ok(vm.ary_new(items)) }),
         ("__upto_endless", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "endless string range"))),
         ("upto", |vm, s, a, b| { argc!(vm, a, 1, 2); let last = vm.expect_str(a[0], "argument")?; let excl = a.len() == 2 && a[1].truthy(); let mut cur = bytes(vm, s); let mut n = 0; loop { if cur.len() > last.len() { break; } if cur == last { if !excl { let v = vm.str_new(&cur); vm.call_block(b, &[v])?; } break; } let v = vm.str_new(&cur); vm.call_block(b, &[v])?; cur = str_succ(&cur); n += 1; if n > 1_000_000 { break; } } Ok(s) }),
+    ]);
+}
+
+/// The String methods that must be registered after mrblib, because mrblib defines the same
+/// names in Ruby and the later definition wins. With the feature `regexp` mruby-regexp's
+/// `init` does this itself for the whole set it answers; this is the same move for the two
+/// names a build without the gem still has (`Vm::load_mrblib`).
+#[cfg(not(feature = "regexp"))]
+pub fn post_mrblib(vm: &mut Vm) {
+    let string = vm.core.string;
+    vm.define_methods(string, &[
+        ("sub", |vm, s, a, b| str_sub(vm, s, a, b, false)),
+        ("gsub", |vm, s, a, b| str_sub(vm, s, a, b, true)),
     ]);
 }
 
@@ -823,8 +834,11 @@ pub(crate) fn sub_replace(me: &[u8], rep: &[u8], pat: &[u8], found: usize) -> Ve
 
 /// `sub`/`gsub` with a String pattern. mruby's mrblib writes these in Ruby with a mixture of
 /// character and byte positions, which only works while the two are the same; in the
-/// reference mruby-regexp replaces them with C ones, and this is the same move (`post_mrblib`
-/// registers them after the Ruby definitions are in).
+/// reference mruby-regexp replaces them with C ones, and this is the same move. Which
+/// definition wins is decided after mrblib is loaded: with the feature `regexp` it is
+/// mruby-regexp's (it answers a Regexp pattern too), without it [`post_mrblib`] puts these
+/// in the mrblib ones' place, so that a String pattern reads the same in either build.
+#[cfg(not(feature = "regexp"))]
 fn str_sub(vm: &mut Vm, s: Value, a: &[Value], blk: Value, global: bool) -> VmResult<Value> {
     argc!(vm, a, 1, 2);
     if a.len() == 1 && blk.is_nil() {

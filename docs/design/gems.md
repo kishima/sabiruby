@@ -700,6 +700,55 @@ costs**:
 The practical test for a change: *does a program written against the reference behave
 differently?* No → free. Yes → rule 2 or 3, and it goes in "Deviations kept" with a reason.
 
+## Gems as Cargo features
+
+A gem can be left out of the build. The rule, as of 2026-09-16, is that **a gem gets a feature
+of its own when it drags a crate in behind it** — not merely because it is optional in the
+reference's gembox. Exactly one does: mruby-regexp, whose engine is `regex-automata`.
+
+`regexp` (on by default, `Cargo.toml`). With `default-features = false, features = ["utf8"]`
+the crate has no `regex-automata`/`regex-syntax` dependency at all (`cargo tree` shows four
+crates instead of six) and the VM is under half the size (`docs/verification/size.md`). What
+the build loses, and why each is where the reference puts it:
+
+* `Regexp` and `MatchData` are not defined — not even as empty classes. Naming either is a
+  NameError, which is what a reference built without the gem answers, and it is what makes a
+  literal `/re/` raise: the compiler emits `Regexp.new(…)` for one (`codegen.c`), so the
+  literal fails at the constant. mruby's own test driver links no regexp gem, and its
+  `test/t/codegen.rb` asserts exactly that — the one assertion that passes *only* without the
+  feature (`tests/mrbtest/baseline-noregexp.txt`).
+* `RegexpError` **stays**. It is 15.2.27, defined by mruby's core beside the rest
+  (`src/vm.rs`), even though only the gem raises it.
+* `String#match`, `match?`, `=~`, `scan` are gone (NoMethodError). In the reference these
+  three exist only in `mrbgems/mruby-regexp/src/regexp.c`, so a build without the gem has no
+  such methods either.
+* `String#sub`, `gsub`, `sub!`, `gsub!`, `split`, `index`, `partition`, `start_with?`, `[]`,
+  `[]=` and the rest of the widened set keep their String-pattern meaning, because mruby's
+  core mrblib defines them in Ruby and mruby-regexp only *replaces* them. A String pattern
+  therefore behaves the same in both builds; a non-String argument raises TypeError from
+  `expect_str`, where a build with the gem would have tried to match. Two of them —
+  `sub` and `gsub` — are registered by `builtins::string::post_mrblib` after mrblib rather
+  than left to mrblib's Ruby versions, which mix character and byte positions and so are
+  wrong for a multi-byte string in a `utf8` build; mruby-regexp's own C is the reference's
+  fix for the same bug, and this is the same move for a build without it.
+* `Symbol#match`, `match?`, `=~` are gone, for the same reason as String's.
+* `$~` becomes an ordinary global variable instead of the per-scope one
+  (`mrb_gv_define_virtual`): `Vm::s.backref` is `None`, so `OP_GETGV`/`OP_SETGV` read and
+  write the globals table. A reference without the gem defines no virtual global either.
+* `require "regexp"` raises LoadError. `$LOADED_FEATURES` is a literal in
+  `src/mrblib/require.rb`, so `Vm::load_mrblib` takes the name back off it when the feature
+  is off — the answer a build that never linked the gem gives.
+
+What stays regardless: `ObjKind::Regexp` and `ObjKind::MatchData` are `#[cfg]`-ed out of the
+heap's value enum, `src/regexp/` and `src/builtins/ext_regexp.rs` are not compiled, and
+`src/mrblib/regexp.mrb` is not even `include_bytes!`-ed.
+
+Tests: `tools/mrbtest.sh --no-regexp` runs mruby's suite on the feature-off build, leaving
+out mruby-regexp's own test files (and only those) and comparing against
+`tests/mrbtest/baseline-noregexp.txt`; `tests/custom/*.rb` may carry a `# regexp-only:` header
+the way it carries `# utf8-only:`. Every other file passes the same count as in the default
+build.
+
 ## Compiling the tests
 
 `tools/mrbtest.sh` copies a gem's `test/<file>.rb` as `gem_<file>.rb`; a name an earlier gem

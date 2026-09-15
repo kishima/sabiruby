@@ -14,7 +14,7 @@ in English; plans and the worklog are in Japanese.
 | [exceptions.md](design/exceptions.md) | unwinding with `Result` instead of `setjmp`/`longjmp`; `break`/`return` through natives |
 | [fibers.md](design/fibers.md) | fibers without a second host stack; the native-boundary rule; fibers inside tasks |
 | [gc.md](design/gc.md) | stop-the-world mark & sweep, roots, the contract for natives, the scheduler-driven mode, the free hook for `Data` |
-| [gems.md](design/gems.md) | every ported gem, what deviates and why, mruby-task in depth (host entry points, time limits, how far the fork may drift) |
+| [gems.md](design/gems.md) | every ported gem, what deviates and why, mruby-task in depth (host entry points, time limits, how far the fork may drift), gems as Cargo features |
 | [macros.md](design/macros.md) | `sabiruby-macros`: a Rust struct and its `impl` block as a Ruby class — what the two macros generate, the Host Object method, what it does not cover |
 | [inspect.md](design/inspect.md) | snapshots, traces and line numbers: what a debugger or a HUD can read |
 | [performance.md](design/performance.md) | the value representation, the `Slot` window, known structural costs (short) |
@@ -29,8 +29,10 @@ in English; plans and the worklog are in Japanese.
 |---|---|
 | [mrbtest.md](verification/mrbtest.md) | mruby's own test suite on SabiRuby, per file (the default, character-string build) |
 | [mrbtest-bytes.md](verification/mrbtest-bytes.md) | the same for the byte-string build |
+| [mrbtest-noregexp.md](verification/mrbtest-noregexp.md) | the same for the build without mruby-regexp (no feature `regexp`) |
 | [mrbtest-notes.md](verification/mrbtest-notes.md) | why an assertion does not pass: every remaining failure with its reason |
 | [bench.md](verification/bench.md) | benchmarks by category against the reference, the baseline and every stage since |
+| [size.md](verification/size.md) | code size on thumbv7em and x86_64, and what the feature `regexp` takes off it |
 | [upstream-pr-candidates.md](verification/upstream-pr-candidates.md) | what the port found in mruby-task that belongs upstream |
 
 ## plans/ — what was decided, in order
@@ -67,6 +69,9 @@ opcode's arm costs in the instruction loop.
 [serde](worklog/2026-09-16-serde.md) is `from-mrubyedge-plan.md`'s item 1: why serde needs an
 error type of its own, why `Serde<T>` can implement `IntoRuby` or `IntoRubyRet` but not both,
 and the one line of CRuby's JSON output that caught `serde_json::Map` sorting its keys.
+[regexp-feature](worklog/2026-09-16-regexp-feature.md) is the same plan's item 4: what a build
+without mruby-regexp must answer where the reference has no gem to ask, the `sub`/`gsub` that
+had been dead code all along, and the assertion that only passes with the feature off.
 [stage6c-method-missing](worklog/2026-09-15-stage6c-method-missing.md) is the VM's half of stage
 6c: reading `prepare_missing` in the reference, why packing the arguments into one Array and
 shifting them along one register are the same thing to `OP_ENTER`, and what a `method_missing`
