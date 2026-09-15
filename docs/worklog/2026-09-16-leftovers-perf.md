@@ -152,3 +152,45 @@ micro（`bench/micro`、`tools/ab_micro.sh`、7 ラウンドの交互 A/B）:
 `app_tak` +0.6%、`bm_so_lists` +0.3%、`vmo_index` +0.1% で、合計はほぼ ±0。
 `ds_string` と `app_json_hash` は変えたメソッドを 1 つも呼ばないので、これも配置の揺れである。
 ベンチは動かないが micro で 2 倍、というのが項目 6 に期待されていたとおりの形なので、これは採る。
+
+### 第 2 群: 要素を 2 回複製していた 3 つ（`dup`・`initialize_copy`・`replace`）
+
+`("dup", … let v = items(vm, s); … ObjKind::Array(slots_of(&v).into()))` は、
+`Vec<Slot>` → `Vec<Value>`（`items`）→ `Vec<Slot>`（`slots_of`）と 200 要素を 2 回写していた。
+借りたスライスを `to_vec()` するだけで 1 回になる。`initialize_copy`（`clone` と `Array.new(other)` が通る）と
+`replace` も同じ形。
+
+| micro | A（第 1 群） | B（第 2 群） | 変化 |
+|---|---:|---:|---:|
+| m_ary_dup（`dup`/`clone`/`replace`、200 要素） | 44.614 | 37.209 | **−16.6%** |
+| m_ary_copy（中に `dup` がある） | 105.313 | 102.922 | −2.3% |
+| m_ary_ends | 47.105 | 46.982 | −0.3% |
+| m_ary_read | 86.982 | 86.652 | −0.4% |
+| m_ary_set | 276.815 | 277.196 | +0.1% |
+| m_ary_walk | 1823.994 | 1822.100 | −0.1% |
+| m_loop_only | 7.280 | 7.303 | +0.3% |
+
+この対は空のループが +0.3% しか動いておらず、静かな回である。公開ベンチは
+`ds_array` −0.1%、`ds_hash` −0.1%、`ds_string` −0.7%、`bm_so_lists` +0.3%、`app_json_hash` −0.1%
+（`bench/results/ab-items-g1-g2.tsv`）。採る。
+
+### 採らなかったもの（数値だけ残す）
+
+**(a) 配列全体を答えるものを借用に書き換える**（`reverse`・`rotate`・`compact`・`compact!`・`+`・`*`・`uniq`）。
+`vm.ary_new` が `Vec<Value>` を取る以上、借用から `Vec<Value>` を組み立てるのと `items` で作るのは同じ 1 回の割り当てで、
+その後 `ary_new` の中でもう 1 回写るのも同じ。**書き換える理由が無い**ので手を付けなかった
+（第 2 群の 3 つだけは、答えが `Vec<Slot>` のまま済むので別）。`Vm::ary_new` に `Vec<Slot>` を取る入口を足せば
+この群も 1 回にできるが、公開 API が増えるうえ効き先は micro だけなので、指示書の範囲外として置いた。
+
+**(b) 要素ごとに Ruby を呼ぶ走査を添字の借り直しに**（`Array#-`・`&`・`|`・`uniq`・`assoc`・`to_h`・
+`delete_if`・`select!`・`sort_by`・`sum`、ext_array の集合演算）。これらは `items` を**ループの外で 1 回**呼ぶので、
+すでに O(n) であって O(n²) ではない（O(n²) だった `include?`/`member?`/`count` は 2d の `f222934` で直っている）。
+1 要素あたりのコストは `vm.equal`／`memb_in`／`call_block`、つまり Ruby のディスパッチが支配していて、
+複製 1 回はその中に埋もれる。上の micro の `m_ary_walk`（`index`/`count {}`/`assoc`、200 要素 × 20000 回）が
+第 1 群でも第 2 群でも ±0.7% しか動かないのが、その裏付けである。
+さらに**添字で借り直すと意味が変わる**: 今の形はブロックに入る前の snapshot を配るが、添字なら
+ブロックが配列を変えた結果が見える。本家（`mrb_ary_ptr` を毎回読み直す）に寄る変更ではあるが、
+速くもならないのに振る舞いを変えることになるので取らない。
+
+**(c) `flatten_internal`・`transpose`・`product`・`intersection` の `items`**: どれも中身を全部要るので、
+複製は仕事そのもの。

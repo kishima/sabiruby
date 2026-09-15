@@ -143,8 +143,8 @@ pub fn init(vm: &mut Vm) {
             };
             with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s)
         }),
-        ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, a[0]); with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s) }),
-        ("replace", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, a[0]); with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s) }),
+        ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let v: Vec<Slot> = slots(vm, a[0]).to_vec(); with_mut(vm, s, |arr| *arr = v.into())?; Ok(s) }),
+        ("replace", |vm, s, a, _b| { argc!(vm, a, 1); let v: Vec<Slot> = slots(vm, a[0]).to_vec(); with_mut(vm, s, |arr| *arr = v.into())?; Ok(s) }),
         ("size", |vm, s, _a, _b| Ok(Value::Int(vm.ary(s).map(|v| v.len()).unwrap_or(0) as i64))),
         ("length", |vm, s, _a, _b| Ok(Value::Int(vm.ary(s).map(|v| v.len()).unwrap_or(0) as i64))),
         ("count", |vm, s, a, b| { if a.is_empty() && b.is_nil() { return Ok(Value::Int(ary_len(vm, s) as i64)); } let list = items(vm, s); if let Some(x) = a.first() { let mut n = 0; for it in list { if vm.equal(it, *x)? { n += 1; } } return Ok(Value::Int(n)); } if !b.is_nil() { let mut n = 0; for it in list { if vm.call_block(b, &[it])?.truthy() { n += 1; } } return Ok(Value::Int(n)); } Ok(Value::Int(list.len() as i64)) }),
@@ -235,7 +235,7 @@ pub fn init(vm: &mut Vm) {
         ("product", |vm, s, a, _b| { let mut lists = vec![items(vm, s)]; for x in a { lists.push(items(vm, *x)); } let mut out: Vec<Vec<Value>> = vec![vec![]]; for l in lists { let mut next = vec![]; for prefix in &out { for it in &l { let mut p = prefix.clone(); p.push(*it); next.push(p); } } out = next; } let items_: Vec<Value> = out.into_iter().map(|p| vm.ary_new(p)).collect(); Ok(vm.ary_new(items_)) }),
         ("freeze", |vm, s, _a, _b| { if let Some(o) = s.obj() { vm.heap.get_mut(o).frozen = true; } Ok(s) }),
         ("frozen?", |vm, s, _a, _b| Ok(Value::bool(s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(true)))),
-        ("dup", |vm, s, _a, _b| { let v = items(vm, s); let c = vm.real_class_of(s); Ok(Value::Obj(vm.heap.alloc(c, ObjKind::Array(slots_of(&v).into())))) }),
+        ("dup", |vm, s, _a, _b| { let v: Vec<Slot> = slots(vm, s).to_vec(); let c = vm.real_class_of(s); Ok(Value::Obj(vm.heap.alloc(c, ObjKind::Array(v.into())))) }),
     ]);
 }
 
