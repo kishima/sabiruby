@@ -134,9 +134,18 @@ fn a_broken_file_says_which_it_was() {
 #[test]
 fn the_built_in_gems_are_already_features() {
     let d = Dir::new("gems");
-    // a build that linked the gem answers false for `require` of it; here they are all linked
-    let out = run(&d, "p require(\"fiber\")\np require(\"regexp\")\np require(\"require\")\n");
-    assert_eq!(out, "false\nfalse\nfalse\n");
+    // a build that linked the gem answers false for `require` of it
+    let out = run(&d, "p require(\"fiber\")\np require(\"require\")\n");
+    assert_eq!(out, "false\nfalse\n");
+    // ...and one that left it out raises, as it would for a gem that was never linked:
+    // `Vm::load_mrblib` takes the name back off `$LOADED_FEATURES`
+    let d = Dir::new("gems_regexp");
+    let out = run(&d, "p require(\"regexp\")\n");
+    if cfg!(feature = "regexp") {
+        assert_eq!(out, "false\n");
+    } else {
+        assert_eq!(out, "<error: cannot load such file -- regexp (LoadError)>\n");
+    }
 }
 
 #[test]

@@ -14,8 +14,11 @@ include = ["/src/**/*", "/README.md"]
 [features]
 # Strings as characters, as in a reference built with MRB_UTF8_STRING. On by default;
 # `--no-default-features` builds the byte-string mode the reference ships by default.
-default = ["utf8"]
+default = ["utf8", "regexp"]
 utf8 = ["sabiruby/utf8"]
+# mruby-regexp. On by default; `--no-default-features --features utf8` builds the command
+# against a VM that has no `Regexp` (the VM's own feature of the same name).
+regexp = ["sabiruby/regexp"]
 
 [[bin]]
 name = "sabiruby"

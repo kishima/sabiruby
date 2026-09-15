@@ -6,6 +6,10 @@
 #   tools/mrbtest.sh -v hash    # print the full output of one file
 #   tools/mrbtest.sh --bytes …  # the byte-string build (no feature `utf8`): docs/verification/mrbtest-bytes.md
 #                               # and tests/mrbtest/baseline-bytes.txt
+#   tools/mrbtest.sh --no-regexp … # the build without mruby-regexp (no feature `regexp`):
+#                               # docs/verification/mrbtest-noregexp.md and tests/mrbtest/baseline-noregexp.txt.
+#                               # The gem's own test files are left out of the run: without the
+#                               # gem there is no `Regexp` constant for them to name.
 # The test bytecode is the same for both builds (what a string is, is the VM's to say), so
 # either mode may compile it; which assertions run is decided at run time by `__ENCODING__`.
 set -eu
@@ -21,13 +25,25 @@ MODE="characters (feature \`utf8\`, the default)"
 # things about the same patterns, so each pair belongs to exactly one of the two builds. Both
 # are compiled either way (the bytecode is the same); only the run leaves one pair out.
 OTHER_BUILD='gem_ascii_case|gem_ascii_ctype'
+# mruby-regexp's own test files (mrbgems/mruby-regexp/test/*.rb, copied as gem_*): without the
+# gem there is no `Regexp` for them to name, so a build without it leaves exactly these out.
+# `regexperror.rb` of mruby's core tests stays in - `RegexpError` is a core class (15.2.27) and
+# the file's one assertion is commented out on the reference anyway.
+REGEXP_FILES='gem_regexp|gem_match_data|gem_string_regexp|gem_symbol_regexp|gem_string_index|gem_backref_scope|gem_backtracking_stack|gem_unicode_case|gem_unicode_ctype|gem_ascii_case|gem_ascii_ctype'
 if [ "${1:-}" = "--bytes" ]; then
   shift
-  FEATURES="--no-default-features"
+  FEATURES="--no-default-features --features regexp"
   OUT=docs/verification/mrbtest-bytes.md
   BASE=$DIR/baseline-bytes.txt
   MODE="bytes (no feature \`utf8\`)"
   OTHER_BUILD='gem_unicode_case|gem_unicode_ctype'
+elif [ "${1:-}" = "--no-regexp" ]; then
+  shift
+  FEATURES="--no-default-features --features utf8"
+  OUT=docs/verification/mrbtest-noregexp.md
+  BASE=$DIR/baseline-noregexp.txt
+  MODE="characters (feature \`utf8\`), without mruby-regexp (no feature \`regexp\`)"
+  OTHER_BUILD=$REGEXP_FILES
 fi
 mkdir -p $DIR/src
 if [ "${1:-}" = "-v" ]; then

@@ -1,5 +1,6 @@
 # OP_GETIDX / OP_GETIDX0 / OP_SETIDX: what the opcode answers itself (Array, Hash and String
 # while their `[]` is still the builtin) and what it hands to an ordinary method send.
+# regexp-only: the String part sends a Regexp index, which only mruby-regexp answers
 
 # --- a `[]` written in Ruby is an ordinary frame, so it can suspend out of itself
 class Box

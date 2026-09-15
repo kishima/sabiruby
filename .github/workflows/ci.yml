@@ -13,7 +13,14 @@ jobs:
           targets: thumbv7em-none-eabi, wasm32-unknown-unknown
       # the VM, the CLI, and the compiler's golden tests against the reference mrbc output
       - run: cargo test --workspace
-      - run: tools/check_no_std.sh
+      # the VM with mruby-regexp left out (`docs/design/gems.md`, "Gems as Cargo features"):
+      # the whole library, its tests and the mrbtest floor `baseline-noregexp.txt`. The full
+      # `tools/mrbtest.sh --no-regexp` needs Docker for the reference `mrbc`, so CI runs the
+      # compiled-in floor instead, which is the same assertions.
+      - run: cargo test -p sabiruby --no-default-features --features "std utf8"
+      # no_std for a target that has none, with and without the pattern engine
+      - run: tools/check_no_std.sh --features regexp
+      - run: tools/check_no_std.sh --features utf8
       # the VM library, pure Rust (the C compiler is only in sabiruby-compiler / sabiruby-cli)
       - run: cargo build -p sabiruby --lib --target wasm32-unknown-unknown
       # what docs.rs and crates.io will get. The libraries and the command are documented in two

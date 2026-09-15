@@ -258,6 +258,8 @@ pub(crate) const IDX_HASH_AREF: usize = 1;
 pub(crate) const IDX_STR_AREF: usize = 2;
 pub(crate) const IDX_ARY_ASET: usize = 3;
 pub(crate) const IDX_HASH_ASET: usize = 4;
+// only mruby-regexp re-arms this one by name (`ext_regexp::init`)
+#[cfg(feature = "regexp")]
 pub(crate) const IDX_STR_ASET: usize = 5;
 const IDX_SLOTS: usize = 6;
 
@@ -693,16 +695,40 @@ impl Vm {
         // gems with a Ruby part, in the order of the reference gembox
         // (`mrbgems/default.gembox`: the *-ext gems before mruby-enumerator,
         // whose `Enumerable#zip` therefore wins over mruby-enum-ext's)
-        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB, crate::MRBLIB_REGEXP_MRB, crate::MRBLIB_TASK_MRB] {
+        for lib in [crate::MRBLIB_SPRINTF_MRB, crate::MRBLIB_COMPAR_EXT_MRB, crate::MRBLIB_ENUM_EXT_MRB, crate::MRBLIB_STRING_EXT_MRB, crate::MRBLIB_NUMERIC_EXT_MRB, crate::MRBLIB_ARRAY_EXT_MRB, crate::MRBLIB_HASH_EXT_MRB, crate::MRBLIB_RANGE_EXT_MRB, crate::MRBLIB_PROC_EXT_MRB, crate::MRBLIB_SYMBOL_EXT_MRB, crate::MRBLIB_OBJECT_EXT_MRB, crate::MRBLIB_SET_MRB, crate::MRBLIB_ENUMERATOR_MRB, crate::MRBLIB_ENUM_LAZY_MRB, crate::MRBLIB_ENUM_CHAIN_MRB, crate::MRBLIB_TOPLEVEL_EXT_MRB, crate::MRBLIB_CATCH_MRB, crate::MRBLIB_STRUCT_MRB, crate::MRBLIB_DATA_MRB, crate::MRBLIB_RATIONAL_MRB, crate::MRBLIB_COMPLEX_MRB, crate::MRBLIB_METHOD_MRB] {
             vm.load_and_run(lib)?;
         }
+        // the String methods mrblib writes in Ruby that a native does better (`post_mrblib`);
+        // with the feature `regexp` mruby-regexp's own `init` below takes those names instead
+        #[cfg(not(feature = "regexp"))]
+        crate::builtins::string::post_mrblib(vm);
+        // mruby-regexp: its Ruby part opens the two classes its `init` then fills in, so a
+        // build without the feature loads neither (the bytecode is not even embedded)
+        #[cfg(feature = "regexp")]
+        vm.load_and_run(crate::MRBLIB_REGEXP_MRB)?;
+        vm.load_and_run(crate::MRBLIB_TASK_MRB)?;
         // mruby-regexp initialises after the core mrblib is loaded, as a gem does: it takes the
         // names of the String methods mrblib defines in Ruby (`sub`, `gsub`, which mix character
         // and byte units there) as well as the ones the natives hold
+        #[cfg(feature = "regexp")]
         crate::builtins::ext_regexp::init(vm);
         // `require`/`load` last: it is SabiRuby's own Ruby part and reads the gems' names into
         // `$LOADED_FEATURES` (`docs/plans/eval-require-plan.md` 5)
         vm.load_and_run(crate::MRBLIB_REQUIRE_MRB)?;
+        // that list is a literal in the Ruby part, so a build that left a gem out takes its
+        // name back off: `require "regexp"` then raises LoadError, which is what a build
+        // without the gem linked does
+        #[cfg(not(feature = "regexp"))]
+        {
+            let feats = vm.global_get("$LOADED_FEATURES");
+            if let Some(items) = vm.ary_vals(feats) {
+                let kept: alloc::vec::Vec<Value> = items.into_iter()
+                    .filter(|v| vm.str_bytes(*v) != Some(b"regexp".as_slice()))
+                    .collect();
+                let a = vm.ary_new(kept);
+                vm.global_set("$LOADED_FEATURES", a);
+            }
+        }
         Ok(())
     }
 
@@ -1707,6 +1733,7 @@ impl Vm {
     /// method that only widens the operator to an argument type the opcode sends rather than
     /// answers — `String#[]` taking a Regexp — can make it; one that changes the answer for an
     /// Integer, String or Range index cannot.
+    #[cfg(feature = "regexp")]
     pub(crate) fn idx_op_rearm(&mut self, slot: usize) {
         let (base, mid) = (self.idx_slot_class(slot), self.idx_slot_mid(slot));
         self.idx_builtin[slot] = match self.find_method_ref(base, mid) {

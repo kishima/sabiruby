@@ -428,6 +428,7 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             // a Regexp copies its source and flags and compiles its own pattern
             // (`regexp_init_copy`), which `initialize_copy` does below; a MatchData is never
             // copied, `dup` on one answering a plain object as the reference's does
+            #[cfg(feature = "regexp")]
             ObjKind::Regexp(_) | ObjKind::MatchData { .. } => ObjKind::Object,
             // a handle names one value the host owns, and the free hook fires once per object
             // that carries it: copying it would tell the host to drop that value twice, and
