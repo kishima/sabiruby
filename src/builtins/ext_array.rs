@@ -17,6 +17,8 @@ use crate::vm::Vm;
 const ARY_MAX_SIZE: u64 = 1 << 28;
 
 pub(crate) fn items(vm: &Vm, v: Value) -> Vec<Value> { vm.ary_vals(v).unwrap_or_default() }
+/// How many elements, without copying them out (`items(vm, v).len()` allocates).
+pub(crate) fn ary_len(vm: &Vm, v: Value) -> usize { vm.ary(v).map(|l| l.len()).unwrap_or(0) }
 
 pub(crate) fn check_frozen(vm: &mut Vm, v: Value) -> VmResult<()> {
     if v.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { return Err(vm.frozen_error(v)); }
@@ -27,7 +29,7 @@ pub(crate) fn check_frozen(vm: &mut Vm, v: Value) -> VmResult<()> {
 pub(crate) fn set_items(vm: &mut Vm, v: Value, list: Vec<Value>) -> VmResult<()> {
     check_frozen(vm, v)?;
     match v.obj().map(|o| &mut vm.heap.get_mut(o).kind) {
-        Some(ObjKind::Array(a)) => { *a = slots_of(&list); Ok(()) }
+        Some(ObjKind::Array(a)) => { *a = slots_of(&list).into(); Ok(()) }
         _ => Err(vm.raise_type("not an array")),
     }
 }
@@ -247,7 +249,7 @@ pub fn init(vm: &mut Vm) {
         ("intersect?", |vm, s, a, _b| { argc!(vm, a, 1); let other = ary_arg(vm, a[0])?; let me = items(vm, s); if me.is_empty() || other.is_empty() { return Ok(Value::False); } let (shorter, longer) = if me.len() > other.len() { (other, me) } else { (me, other) }; for v in &longer { if memb_in(vm, &shorter, *v)? { return Ok(Value::True); } } Ok(Value::False) }),
         ("__fill_parse_arg", |vm, s, a, b| {
             argc!(vm, a, 0, 3);
-            let ary_len = items(vm, s).len() as i64;
+            let ary_len = ary_len(vm, s) as i64;
             let arg = |i: usize| a.get(i).copied().unwrap_or(Value::Nil);
             let argc = a.len();
             let (mut start, mut length) = (0i64, 0i64);
@@ -270,7 +272,7 @@ pub fn init(vm: &mut Vm) {
             let mut list = items(vm, s);
             let end = match start.checked_add(length) { Some(e) if (e as u64) <= ARY_MAX_SIZE => e, _ => return Err(vm.raise_arg("array size too big")) };
             if end as usize > list.len() { check_frozen(vm, s)?; list.resize(end as usize, Value::Nil); }
-            if start as usize >= list.len() || length <= 0 { check_frozen(vm, s)?; if end as usize > items(vm, s).len() { set_items(vm, s, list)?; } return Ok(s); }
+            if start as usize >= list.len() || length <= 0 { check_frozen(vm, s)?; if end as usize > ary_len(vm, s) { set_items(vm, s, list)?; } return Ok(s); }
             for i in start..end { list[i as usize] = obj; }
             set_items(vm, s, list)?;
             Ok(s)
@@ -279,7 +281,7 @@ pub fn init(vm: &mut Vm) {
         ("__uniq", |vm, s, _a, _b| { let l = items(vm, s); let d = vm.ary_new(l); uniq_bang(vm, d)?; Ok(d) }),
         ("flatten", |vm, s, a, _b| { argc!(vm, a, 0, 1); let level = if a.is_empty() { -1 } else { vm.expect_int(a[0], "level")? }; let (r, _) = flatten_internal(vm, s, level); Ok(vm.ary_new(r)) }),
         ("flatten!", |vm, s, a, _b| { argc!(vm, a, 0, 1); let level = if a.is_empty() { -1 } else { vm.expect_int(a[0], "level")? }; check_frozen(vm, s)?; let (r, modified) = flatten_internal(vm, s, level); if !modified { return Ok(Value::Nil); } set_items(vm, s, r)?; Ok(s) }),
-        ("__normalize_index", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let len = items(vm, s).len() as i64; let i = if i < 0 { i + len } else { i }; Ok(if i >= 0 && i < len { Value::Int(i) } else { Value::Nil }) }),
+        ("__normalize_index", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let len = ary_len(vm, s) as i64; let i = if i < 0 { i + len } else { i }; Ok(if i >= 0 && i < len { Value::Int(i) } else { Value::Nil }) }),
         ("__fetch", |vm, s, a, _b| { argc!(vm, a, 3); let orig = vm.expect_int(a[0], "index")?; let list = items(vm, s); let len = list.len() as i64; let i = if orig < 0 { orig + len } else { orig }; if i < 0 || i >= len { if a[1] == a[2] { return Err(vm.raise(vm.core.index_error, &format!("index {orig} outside of array bounds: {}...{len}", -len))); } return Ok(a[1]); } Ok(list[i as usize]) }),
         ("insert", |vm, s, a, _b| {
             if a.is_empty() { return Err(vm.argnum_error(0, "1+")); }
@@ -300,7 +302,7 @@ pub fn init(vm: &mut Vm) {
         ("__product_generate", |vm, s, a, b| {
             argc!(vm, a, 1);
             let arys = ary_arg(vm, a[0])?;
-            let mut total = items(vm, s).len() as i64;
+            let mut total = ary_len(vm, s) as i64;
             for x in &arys { let n = match vm.ary_vals(*x) { Some(v) => v.len() as i64, None => return Err(vm.raise_type("wrong argument type (expected Array)")) }; if n == 0 { total = 0; break; } total = match total.checked_mul(n) { Some(t) => t, None => return Err(vm.raise_arg("result too big")) }; }
             if b.is_nil() {
                 let mut result = Vec::new();
@@ -314,7 +316,7 @@ pub fn init(vm: &mut Vm) {
             argc!(vm, a, 2);
             let mode_sym = match a[0] { Value::Sym(m) => vm.sym_name(m), _ => return Err(vm.raise_type("not a symbol")) };
             let k = vm.expect_int(a[1], "k")?;
-            let n = items(vm, s).len() as i64;
+            let n = ary_len(vm, s) as i64;
             if k < 1 || n < 1 { return Ok(Value::Nil); }
             let mode = match mode_sym.as_str() {
                 "repeated_permutation" => COMB_REPEATED_PERMUTATION,

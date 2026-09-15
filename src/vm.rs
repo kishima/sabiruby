@@ -897,7 +897,7 @@ impl Vm {
         matches!(v, Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::BigInt(_)))
     }
     pub fn ary_new(&mut self, v: Vec<Value>) -> Value {
-        Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(slots_of(&v))))
+        Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(slots_of(&v).into())))
     }
     pub fn hash_new(&mut self) -> Value {
         Value::Obj(self.heap.alloc(self.core.hash, ObjKind::Hash(Default::default())))
@@ -972,7 +972,7 @@ impl Vm {
     pub fn str_bytes(&self, v: Value) -> Option<&[u8]> {
         v.obj().and_then(|o| self.heap.string(o))
     }
-    pub fn ary(&self, v: Value) -> Option<&Vec<Slot>> {
+    pub fn ary(&self, v: Value) -> Option<&[Slot]> {
         v.obj().and_then(|o| self.heap.array(o))
     }
     /// The elements of an Array as values (a copy).

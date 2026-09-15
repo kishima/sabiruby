@@ -177,6 +177,170 @@ pub const SVAR_BACKREF: usize = 0;
 /// `$_` (`MRB_SVAR_LASTLINE`), which no global is registered for.
 pub const SVAR_LASTLINE: usize = 1;
 
+/// The elements of an Array: a buffer and the index in it where the elements start.
+///
+/// A plain `Vec<Slot>` makes `Array#shift` O(n) — `Vec::remove(0)` moves every remaining
+/// element down one — which is what a queue written as `push`/`shift` pays on every step.
+/// The reference does not: an `RArray` can point into a buffer it shares with another array,
+/// and `shift` moves that pointer. Sharing is not reproduced here (two arrays never see each
+/// other's writes, so nothing has to decide when to unshare); only the offset is, and it
+/// lives in the array itself. That is on the "implementation you may choose" side: Ruby sees
+/// the same elements in the same order, and `shift` becomes O(1).
+///
+/// `buf[..start]` is the room `shift` left in front. It is nil-filled, so the collector never
+/// sees an element the array has already given up, and it is reclaimed by `compact` once it
+/// has grown past the live elements — which takes as many `shift`s as the copy then costs, so
+/// the amortized cost of `shift` stays constant.
+///
+/// The fields are private and the type derefs to `[Slot]`: every reader works on the slice
+/// `buf[start..]` and cannot see the offset, and every writer goes through the methods below,
+/// which are the only places that know about it.
+#[derive(Clone, Default)]
+pub struct ArrayData {
+    buf: Vec<Slot>,
+    start: usize,
+}
+
+/// Room left in front that `compact` tolerates before it reclaims it: below this an array is
+/// too small for the copy to matter, and a `shift`-only array (which ends at `start == cap`,
+/// `len == 0`) would otherwise copy on every step.
+const ARY_SHIFT_SLACK: usize = 16;
+
+impl ArrayData {
+    pub fn new() -> ArrayData {
+        ArrayData { buf: Vec::new(), start: 0 }
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.buf.len() - self.start
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.buf.len() == self.start
+    }
+    #[inline]
+    pub fn as_slice(&self) -> &[Slot] {
+        &self.buf[self.start..]
+    }
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [Slot] {
+        &mut self.buf[self.start..]
+    }
+    /// Drops the room in front once it is bigger than the elements it precedes. Called after
+    /// every `shift`; the copy is O(len) but at least `len` shifts had to happen to reach it.
+    fn compact(&mut self) {
+        if self.start > self.len() && self.start > ARY_SHIFT_SLACK {
+            self.buf.drain(..self.start);
+            self.start = 0;
+        }
+    }
+    pub fn push(&mut self, v: Slot) {
+        self.buf.push(v);
+    }
+    pub fn pop(&mut self) -> Option<Slot> {
+        if self.is_empty() { None } else { self.buf.pop() }
+    }
+    pub fn clear(&mut self) {
+        self.buf.clear();
+        self.start = 0;
+    }
+    pub fn truncate(&mut self, len: usize) {
+        self.buf.truncate(self.start + len);
+    }
+    pub fn resize(&mut self, len: usize, v: Slot) {
+        self.buf.resize(self.start + len, v);
+    }
+    pub fn extend_from_slice(&mut self, other: &[Slot]) {
+        self.buf.extend_from_slice(other);
+    }
+    /// `Vec::split_off`: the elements from `at` on, as a fresh buffer.
+    pub fn split_off(&mut self, at: usize) -> Vec<Slot> {
+        self.buf.split_off(self.start + at)
+    }
+    /// `Array#shift`: the first element in O(1).
+    pub fn shift(&mut self) -> Option<Slot> {
+        if self.is_empty() { return None; }
+        let v = core::mem::replace(&mut self.buf[self.start], Slot::NIL);
+        self.start += 1;
+        self.compact();
+        Some(v)
+    }
+    /// `Array#shift(n)`: the first `n` elements (or all of them) in O(n) for the copy out and
+    /// O(1) for the array itself.
+    pub fn shift_n(&mut self, n: usize) -> Vec<Slot> {
+        let n = n.min(self.len());
+        let out = self.buf[self.start..self.start + n].to_vec();
+        for s in &mut self.buf[self.start..self.start + n] { *s = Slot::NIL; }
+        self.start += n;
+        self.compact();
+        out
+    }
+    /// `Array#unshift`: O(1) when `shift` has left enough room in front, else a splice.
+    pub fn unshift(&mut self, items: Vec<Slot>) {
+        if items.len() <= self.start {
+            self.start -= items.len();
+            self.buf[self.start..self.start + items.len()].copy_from_slice(&items);
+        } else {
+            self.buf.splice(self.start..self.start, items);
+        }
+    }
+    pub fn insert(&mut self, i: usize, v: Slot) {
+        if i == 0 && self.start > 0 {
+            self.start -= 1;
+            self.buf[self.start] = v;
+        } else {
+            self.buf.insert(self.start + i, v);
+        }
+    }
+    pub fn remove(&mut self, i: usize) -> Slot {
+        if i == 0 { return self.shift().expect("remove(0) on an empty array"); }
+        self.buf.remove(self.start + i)
+    }
+    /// `Vec::drain(from..to)`, collected: the elements removed, in order.
+    pub fn drain_range(&mut self, from: usize, to: usize) -> Vec<Slot> {
+        if from == 0 { return self.shift_n(to); }
+        self.buf.drain(self.start + from..self.start + to).collect()
+    }
+    /// `Vec::splice(from..to, items)` with the return dropped.
+    pub fn splice_range(&mut self, from: usize, to: usize, items: Vec<Slot>) {
+        if from == 0 && to == 0 { return self.unshift(items); }
+        self.buf.splice(self.start + from..self.start + to, items);
+    }
+}
+
+impl From<Vec<Slot>> for ArrayData {
+    fn from(buf: Vec<Slot>) -> ArrayData {
+        ArrayData { buf, start: 0 }
+    }
+}
+
+impl FromIterator<Slot> for ArrayData {
+    fn from_iter<I: IntoIterator<Item = Slot>>(iter: I) -> ArrayData {
+        ArrayData { buf: iter.into_iter().collect(), start: 0 }
+    }
+}
+
+impl Extend<Slot> for ArrayData {
+    fn extend<I: IntoIterator<Item = Slot>>(&mut self, iter: I) {
+        self.buf.extend(iter);
+    }
+}
+
+impl core::ops::Deref for ArrayData {
+    type Target = [Slot];
+    #[inline]
+    fn deref(&self) -> &[Slot] {
+        self.as_slice()
+    }
+}
+
+impl core::ops::DerefMut for ArrayData {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [Slot] {
+        self.as_mut_slice()
+    }
+}
+
 #[derive(Default)]
 pub struct HashData {
     /// Insertion-ordered entries; lookup is linear with `eql?` semantics
@@ -238,7 +402,7 @@ pub enum ObjKind {
     Break { tag: BreakTag, ci_index: usize, value: Value },
     Class(ClassData),
     String(Vec<u8>),
-    Array(Vec<Slot>),
+    Array(ArrayData),
     Hash(HashData),
     Range { begin: Slot, end: Slot, excl: bool },
     Proc(ProcData),
@@ -443,7 +607,7 @@ impl Heap {
                 // a Data holds a handle, not a Value: nothing in it is a reference
                 ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Regexp(_) | ObjKind::Data { .. } => {}
                 ObjKind::Break { value, .. } => mark(*value),
-                ObjKind::Array(a) => { for v in a { mark(v.get()); } }
+                ObjKind::Array(a) => { for v in a.iter() { mark(v.get()); } }
                 ObjKind::Hash(h) => {
                     for (k, v) in &h.entries { mark(k.get()); mark(v.get()); }
                     mark(h.default.get());
@@ -553,7 +717,7 @@ impl Heap {
             _ => None,
         }
     }
-    pub fn array(&self, id: ObjId) -> Option<&Vec<Slot>> {
+    pub fn array(&self, id: ObjId) -> Option<&[Slot]> {
         match &self.get(id).kind {
             ObjKind::Array(a) => Some(a),
             _ => None,

@@ -164,7 +164,7 @@ impl Vm {
             InstanceKind::Exception => ObjKind::Exception,
             InstanceKind::Fiber => ObjKind::Fiber(usize::MAX),
             InstanceKind::String => ObjKind::String(Vec::new()),
-            InstanceKind::Array => ObjKind::Array(Vec::new()),
+            InstanceKind::Array => ObjKind::Array(Default::default()),
             InstanceKind::Hash => ObjKind::Hash(Default::default()),
             // an uninitialised Range is a plain object until `initialize` fills it in (the reference's RANGE_INITIALIZED flag)
             InstanceKind::Range => ObjKind::Object,
