@@ -1,0 +1,29 @@
+irep 0x5657d05186c0 nregs=5 nlocals=1 pools=4 syms=3 reps=0 ilen=87
+file: /w/printf_putc_utf8.rb
+   11 000 STRING	R2	L[0]	; →
+   11 003 SSEND		R1	:putc	n=1
+   12 007 LOADI8	R2	10
+   12 010 SSEND		R1	:putc	n=1
+   13 014 STRING	R2	L[1]	; →abc
+   13 017 SSEND		R1	:putc	n=1
+   14 021 LOADI8	R2	10
+   14 024 SSEND		R1	:putc	n=1
+   15 028 STRING	R2	L[0]	; →
+   15 031 SEND0		R2	:b
+   15 034 SSEND		R1	:putc	n=1
+   16 038 LOADI8	R2	10
+   16 041 SSEND		R1	:putc	n=1
+   17 045 STRING	R2	L[2]	; ��
+   17 048 SSEND		R1	:putc	n=1
+   18 052 LOADI8	R2	10
+   18 055 SSEND		R1	:putc	n=1
+   19 059 STRING	R2	L[3]	; éx
+   19 062 SSEND		R1	:putc	n=1
+   20 066 LOADI8	R2	10
+   20 069 SSEND		R1	:putc	n=1
+   21 073 STRING	R3	L[0]	; →
+   21 076 SSEND		R2	:putc	n=1
+   21 080 SSEND		R1	:p	n=1
+   21 084 RETURN	R1	
+   21 086 STOP
+

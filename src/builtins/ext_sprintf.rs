@@ -494,12 +494,19 @@ fn format_int(vm: &mut Vm, val: Value, c: u8, flags: u32, mut width: i64, mut pr
     Ok(out)
 }
 
-fn sprintf(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+/// What `Kernel#sprintf` makes of `a` (the format string first): the bytes and whether they
+/// read as bytes. `Kernel#printf` wants the same bytes without a String around them.
+pub(crate) fn sprintf_bytes(vm: &mut Vm, a: &[Value]) -> VmResult<(Vec<u8>, bool)> {
     if a.is_empty() { return Err(vm.raise_arg("too few arguments")); }
     let fmt = match vm.str_bytes(a[0]) { Some(b) => b.to_vec(), None => { let d = vm.describe_for_type_error(a[0]); return Err(vm.raise_type(&format!("{d} cannot be converted to String"))) } };
     // the format string lays its own bytes down as they are, so the answer is read the way it is
     let mut binary = vm.str_binary(a[0]);
     let out = format_str_enc(vm, &fmt, &a[1..], &mut binary)?;
+    Ok((out, binary))
+}
+
+fn sprintf(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    let (out, binary) = sprintf_bytes(vm, a)?;
     let r = vm.str_new(&out);
     vm.str_set_binary(r, binary);
     Ok(r)
