@@ -3471,6 +3471,12 @@ impl Vm {
         Ok(())
     }
     /// Index of `k` in the hash (hash code first, then `eql?`).
+    ///
+    /// The search is still the linear one mruby's AR mode does, but it walks the cached hash
+    /// codes as a slice under one borrow and only reaches into the heap again for a position
+    /// whose code matched. Verifying a candidate has to leave the borrow — `eql?` can be
+    /// Ruby — so the old shape took `&self.heap.get(o)` once per *element*, which is a
+    /// bounds-checked index plus a match on `ObjKind` for every entry it walks past.
     pub fn hash_index(&mut self, h: Value, k: Value) -> VmResult<Option<usize>> {
         let o = match h.obj() { Some(o) => o, None => return Ok(None) };
         if !matches!(self.heap.get(o).kind, ObjKind::Hash(_)) { return Ok(None); }
@@ -3478,9 +3484,20 @@ impl Vm {
         let kh = self.key_hash(k)?;
         let mut i = 0;
         loop {
-            let cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => { if i >= hd.entries.len() { break; } if hd.hashes.get(i) == Some(&kh) { Some(hd.entries[i].0.get()) } else { None } } _ => None };
-            if let Some(ek) = cand { if self.key_eql(k, ek)? { return Ok(Some(i)); } }
-            i += 1;
+            // the next position at or after `i` whose key hashes the same
+            let (p, ek) = match &self.heap.get(o).kind {
+                ObjKind::Hash(hd) => {
+                    let n = hd.hashes.len().min(hd.entries.len());
+                    if i >= n { break; }
+                    match hd.hashes[i..n].iter().position(|c| *c == kh) {
+                        Some(d) => (i + d, hd.entries[i + d].0.get()),
+                        None => break,
+                    }
+                }
+                _ => break,
+            };
+            if self.key_eql(k, ek)? { return Ok(Some(p)); }
+            i = p + 1;
         }
         Ok(None)
     }
