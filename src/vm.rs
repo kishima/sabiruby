@@ -365,9 +365,13 @@ pub struct Vm {
     #[doc(hidden)]
     pub call_proc: ObjId,
     pub instructions: u64,
-    /// Executions per opcode (index = opcode number); the test runner reports
-    /// which opcodes a workload never reached.
-    pub op_counts: Vec<u64>,
+    /// Executions per opcode (index = opcode number), filled only while
+    /// [`Vm::set_op_counting`] is on; the test runner reports which opcodes a workload never
+    /// reached, and the Playground draws a histogram from it.
+    pub op_counts: [u64; crate::opcode::OP_COUNT],
+    /// Whether the instruction loop fills `op_counts`. Off by default: the counter is a
+    /// read-modify-write per instruction and the tightest loops pay 3 to 7% for it.
+    count_ops: bool,
     /// Nesting of native -> VM re-entries (`call_proc_with`); bounded to protect the host stack.
     native_depth: u32,
     /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
@@ -590,7 +594,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
             host_state: None,
@@ -1387,6 +1391,13 @@ impl Vm {
         }
         false
     }
+    /// Count executions per opcode into [`Vm::op_counts`] (off by default). A host that shows
+    /// statistics — the Playground's opcode histogram, the test runner's coverage line — turns
+    /// this on before running; a host that does not keeps the instruction loop free of it.
+    pub fn set_op_counting(&mut self, on: bool) { self.count_ops = on; }
+    /// Whether [`Vm::set_op_counting`] is on.
+    pub fn op_counting(&self) -> bool { self.count_ops }
+
     /// Method lookup along the superclass chain: the entry as it sits in the table, and the
     /// class that owns it (for `super`). A `Method::Undef` answers the lookup by stopping it,
     /// so it comes back as `Some` here and the two wrappers below turn it into `None`.
@@ -2803,8 +2814,8 @@ impl Vm {
             let top = self.ci.len() - 1;
             let (base, irep, mut pc) = { let ci = &self.ci[top]; (ci.base, ci.irep, ci.pc) };
             let byte = self.ireps[irep].iseq[pc];
-            self.op_counts[byte as usize] += 1;
             let op = Op::from_u8(byte).ok_or_else(|| VmError::Internal(format!("bad opcode {byte}")))?;
+            if self.count_ops { self.op_counts[op as usize] += 1; }
             pc += 1;
             let (mut a, mut b, mut c) = (0u32, 0u32, 0u32);
             let a_wide = ext == 1 || ext == 3;

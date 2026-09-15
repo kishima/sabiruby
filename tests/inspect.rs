@@ -137,10 +137,20 @@ fn snapshot_renders_values_without_running_ruby() {
 #[test]
 fn op_histogram_names_the_executed_opcodes() {
     let mut vm = Vm::with_mrblib().expect("mrblib");
+    // counting is off until a host that wants statistics asks for it
+    assert!(!vm.op_counting());
+    vm.set_op_counting(true);
     vm.load_and_run(&read("tests/fixtures/hello.mrb")).expect("run");
     let h = vm.op_histogram();
     assert!(h.iter().any(|(op, n)| *op == "SSEND" && *n > 0), "{h:?}");
     assert!(h.iter().all(|(_, n)| *n > 0), "opcodes never executed must be left out");
+}
+
+#[test]
+fn op_histogram_is_empty_until_counting_is_turned_on() {
+    let mut vm = Vm::with_mrblib().expect("mrblib");
+    vm.load_and_run(&read("tests/fixtures/hello.mrb")).expect("run");
+    assert!(vm.op_histogram().is_empty());
 }
 
 #[test]

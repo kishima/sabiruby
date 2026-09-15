@@ -374,6 +374,9 @@ pub fn run_file_host(assert_mrb: &[u8], test_mrb: &[u8], cap: u64, verbose: bool
 /// needs the shared helpers handed to it (`tools/mrbtest.sh` extracts them).
 pub fn run_file_prelude(assert_mrb: &[u8], prelude: &[u8], test_mrb: &[u8], cap: u64, verbose: bool, gc_stress: bool, host: Option<alloc::boxed::Box<dyn crate::host::Host + Send + Sync>>) -> VmResult<Summary> {
     let mut vm = Vm::new();
+    // the coverage line ("Opcodes executed: n / 119") reads `op_counts`, which the
+    // instruction loop fills only when asked
+    vm.set_op_counting(true);
     vm.set_gc_stress(gc_stress);
     if let Some(h) = host { vm.set_host(h); }
     vm.load_mrblib()?;
@@ -415,7 +418,7 @@ pub fn run_file_prelude(assert_mrb: &[u8], prelude: &[u8], test_mrb: &[u8], cap:
         else if let Some(n) = num("Warning:") { sum.warn = n; }
         else if let Some(n) = num("Skip:") { sum.skip = n; }
     }
-    sum.op_counts = vm.op_counts.clone();
+    sum.op_counts = vm.op_counts.to_vec();
     Ok(sum)
 }
 
