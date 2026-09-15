@@ -46,7 +46,7 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 | 4 | `FromRuby` / `IntoRuby` と `define_fn` | **済み**（2026-09-15、`ccc60de`） |
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | **済み**（2026-09-15、`c667a9d`）。rubevy 側も済み（2026-09-15、rubevy `68d80ed` `7b71c16`: static のキューを `host_state` へ、`Rubevy::Entity`） |
 | 6 | マクロ、Future 連携、動的プロキシ | 方針だけ（3b の後） |
-| 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | 着手（2026-09-15） |
+| 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | **済み**（2026-09-15、`07659aa` `2521b79` `f222934` `17ab5dc`）。通しで −15.8%（元の 20 本で −11.1%）、`ds_hash` −63% |
 | 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | **済み**（2026-09-15、sabiruby `4e5b590`、rubevy `1afb91c`）。rubevy の `src/` に `vm.heap` / `vm.task` / `vm.globals` への直接アクセスは 0 |
 
 進め方（2026-09-15 から）: 計画は本体（Fable）が書き、実装は `implementer`（Opus のサブエージェント、
@@ -110,6 +110,18 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 * 索引ありと索引なし（B1 のバイナリ）で境界（15/16/17/40 要素、閾値を下回る削除、`shift`、同一 `hash` で非 `eql?` の 25 キー、`rehash`）の出力が一致し、本家とも一致
   （`tests/custom/hash_index_boundary`）。
 * 計測中に自分で `cargo build` を回して数値が荒れ、取り直した（best/median が 44% 差）。自分の道具も外乱になる、の再現。
+
+### 段階 2d（過程は `docs/worklog/2026-09-15-stage2d-perf.md`）
+
+* 「固定費 90 ns ＝ ネイティブ呼び出しと引数の受け渡し」は間違いだった。呼び出しの実費は 28 ns（`Array#[]` で実測）で、残りは Hash 自身の仕事。
+* 計画の「鍵が Integer/Symbol/String なら Rust で答える早道」は**すでに入っていた**（`Vm::key_hash`/`key_eql`、本家の `mrb_hash_ht_hash_func` と同じ形）。着手不要。
+* **隠れていた O(n) がもう 1 つ**: `hash_sync` が「ハッシュ値が古いか」を聞く前に全鍵を `Vec` に複製していた。Hash を 1 回引くたびに全要素の複製。
+  順番を入れ替えただけで全体 −11.7%、`ds_hash` −63%（本家比 7.4x → 2.7x）、`vmo_objects`（5 万要素）−85%、`call_kwargs` −15%（キーワード引数は Hash で渡る）。
+  段階 2c で索引を入れても `ds_hash` が −20% しか動かなかった理由。
+* `hash_set` は `key_hash` を 2 回計算し、既存の鍵でも String 鍵を毎回複製・凍結していた。1 回に、挿入時だけ複製に（ベンチではぶれの範囲、micro では効く）。
+* `items()` の複製は、段階 2c の 8 か所修正でベンチからは消えていた。残っていたのは `include?`/`member?`/`count` がループ内で `items()` を呼ぶ O(n²)。
+  100 要素の `count` で −86%。ベンチ 22 本は呼ばないので合計は動かない。
+* `vm_optimization_bench` を 5 本（`vmo_dispatch`/`arith`/`calls`/`index`/`objects`）に分けて分類し直した。元は「実アプリ寄り」へ。
 
 ### 段階 3b（過程は `docs/worklog/2026-09-15-stage3b-host-entry-points.md`、rubevy 側は rubevy の worklog）
 

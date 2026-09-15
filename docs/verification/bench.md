@@ -66,6 +66,23 @@ Against the previous head and against the original baseline, best of 5, referenc
 were measured, and the O(n) that came out of hiding when a borrow changed, are in
 `docs/worklog/2026-09-15-stage2c-array-hash.md`.
 
+### After stage 2d (`2aa4f13`, 2026-09-15): Hash without the copy per lookup, `vm_optimization_bench` split
+
+`vm_optimization_bench` now sits under "whole program" and its five parts (`vmo_dispatch`, `vmo_arith`,
+`vmo_calls`, `vmo_index`, `vmo_objects`) under "instruction loop", so the category sums are not those
+of the tables above; `tools/bench_compare.sh` compares the benchmarks the two files share
+(`bench/results/2aa4f13.tsv`, best of 5, reference included):
+
+| | 9da4724 → 2aa4f13 (shared benchmarks) | e9da768 (baseline) → 2aa4f13 | ratio to mruby now (sum / median) |
+|---|---:|---:|---|
+| all | **−13.5%** | **−40.6%** | **2.82x / 3.05x** |
+
+Per benchmark now: `ds_hash` **2.85x** (was 7.65x after 2c, 12.9x at the baseline), `vmo_objects` (a
+50,000-entry Hash) 1.92x, `app_robot` 2.08x, `app_json_hash` 2.82x, `bm_fib` 3.05x, `bm_so_lists` 4.35x,
+`ds_string` 4.63x. Memory stays 0.94x. What the small-Hash cost is made of, the O(n) that hid in
+`hash_sync`, and why `include?`/`count` were fixed although no benchmark calls them, are in
+`docs/worklog/2026-09-15-stage2d-perf.md`.
+
 Per stage (each measured against the commit before it):
 
 | stage | commit | what changed | all | notes |
@@ -82,6 +99,10 @@ Per stage (each measured against the commit before it):
 | 2c A | `35d58a5` | `ArrayData { buf, start }`: `shift`/`unshift`/`insert(0)` in O(1) | −6.1% | `bm_so_lists` −73%; `ds_array` first +155% (a hidden O(n) once `&Vec` became `&[Slot]`), fixed by reading the length without copying |
 | 2c B1 | `8ba2336` | `HashData` fields private, writes through seven methods | −0.3% | no behaviour change; the door the index needs |
 | 2c B2 | `e2b026b` | an index (`hash → entry`, one chain per bucket) past 16 entries | −7.1% | `ds_hash` −19.8%, `vm_optimization_bench` −14.4% |
+| 2d | `07659aa` | `hash_sync` asks whether the cached hashes are stale before copying every key | **−11.7%** | `ds_hash` −62.8%, `vmo_objects` −85%, `call_kwargs` −15%: one copy of every key per lookup, gone |
+| 2d | `2521b79` | one `key_hash` per store; a String key copied only when inserted | −0.7% | a store to an existing key 138 → 45 ns |
+| 2d | `f222934` | `Array#include?`/`member?`/`count` read one element, not a copy per element | +1.3% (layout) | O(n²) → O(n); no benchmark calls them |
+| 2d | `17ab5dc` | `vm_optimization_bench` cut into five | — | the 50,000-entry Hash part is now `vmo_objects` |
 | 3 | `5c3eb6e` (merge of `93824b1`, `1472346`) | `Method::Closure`, host state | +1.8% | `bm_fib` +4.2%, `call_args` +4.0%, `app_tak` +3.8%: `Method`'s `Clone` is no longer a plain copy and `find_method` clones one per call (stage 2, candidate 3, removes that). `loop_while_add` +6.6% (reproduced twice, A/B on a quiet machine: 1100 → 1190 ms) is not explained by that — the loop makes no calls; `loop_times` moved −5.8% at the same time, so code layout is the likely cause. Data structures unchanged |
 
 ## Earlier measurements (the five reference benchmarks, best of 3)
