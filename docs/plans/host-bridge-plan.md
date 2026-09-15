@@ -47,7 +47,7 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | **済み**（2026-09-15、`c667a9d`）。rubevy 側も済み（2026-09-15、rubevy `68d80ed` `7b71c16`: static のキューを `host_state` へ、`Rubevy::Entity`） |
 | 6a | `sabiruby-macros`（`#[derive(RubyClass)]`、`#[ruby_methods]`、`HostStore`） | **済み**（2026-09-15、`e7ea20e`〜`bd7fcb7`） |
 | 6b | rubevy: Future 連携（`answer_with`） | **済み**（2026-09-15、rubevy `995cd5d`〜`5007337`） |
-| 6c | rubevy: 動的プロキシ（`proxy.rb`） | **止まっている**: `method_missing` の中では `ask(...).pop` で止まれない（VM が入れ子の実行ループで呼ぶ）。案 A（VM の `method_missing` を `send` と同じ再ディスパッチに）を推奨、著者判断待ち |
+| 6c | rubevy: 動的プロキシ（`proxy.rb`） | **済み**（2026-09-15、著者判断で案 A: sabiruby `6314b84` で Ruby の `method_missing` を呼ぶ側のフレームで再ディスパッチ（本家と同じ形）、rubevy `684d3a8` で `Rubevy::Proxy`） |
 | 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | **済み**（2026-09-15、`07659aa` `2521b79` `f222934` `17ab5dc`）。通しで −15.8%（元の 20 本で −11.1%）、`ds_hash` −63% |
 | 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | **済み**（2026-09-15、sabiruby `4e5b590`、rubevy `1afb91c`）。rubevy の `src/` に `vm.heap` / `vm.task` / `vm.globals` への直接アクセスは 0 |
 
@@ -145,6 +145,18 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
   VM が `method_missing` を `call_proc_with`（入れ子の実行ループ）で呼ぶため。`initialize` の中も同じ（`Class#new` がネイティブ）。
   `define_method` で作った本物のメソッドなら止まれる。案 A（VM 側で `send` の `op_send_redirect` と同じ再ディスパッチにする。本家も `mrb_exec_irep` で
   同じフレームに入る）、B（キューを返して呼ぶ側で `.pop`）、C（名前の一覧から `define_method`）。
+
+### 段階 6c（過程は `docs/worklog/2026-09-15-stage6c-method-missing.md`、rubevy の `2026-09-15-stage6c-proxy.md`）
+
+* Ruby で定義された `method_missing` は、`send` の再ディスパッチ（`op_send_redirect`）と同じ経路で呼ぶ側のフレームに入る。引数の書き戻しを
+  `relay_args` に切り出して共有。可視性の検査は通さない（本家は private でも呼ぶ）。`funcall` 側は入れ子のまま（本家の `mrb_funcall` も入れ子）。
+* 本家は `prepare_missing` で常に配列 1 本に詰める（`n` は必ず 15）が、`OP_ENTER` から見れば同じもの。引数 0/1/14/15/20・キーワード・ブロック・
+  `super`・private・例外・バックトレース・`Fiber.yield` の 29 行が本家の出力と一致（`tests/custom/method_missing_dispatch`）。
+  変更前でも 29 行中 22 行は合っていて、変えたのは「本体の中で止まれるか」だけ。
+* 空のキーワード Hash（`foo(**{})`）は `native_args` が落とすので本体に届かない。本家は届ける。変更前からで、`send` も同じ。直すなら `native_args` の側。
+* 通常の呼び出しへの影響: 交互 A/B で `call_args` +1.1%、`bm_fib` +0.7%（15 ラウンド）。同じ変更で `bm_fib` が −0.1% ↔ +0.7% を動くので ±1% は地の揺れ。
+* **cargo の増分ビルドが古い成果物を残す**ことが今日 2 回あった（テストが「メソッドが無い」と言う、マージ後だけ 1 件落ちる）。
+  `cargo clean -p sabiruby` で解消。テストが変更内容と矛盾するときは、まずこれを疑う。
 
 ### 段階 3b（過程は `docs/worklog/2026-09-15-stage3b-host-entry-points.md`、rubevy 側は rubevy の worklog）
 
