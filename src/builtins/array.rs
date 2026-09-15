@@ -198,8 +198,9 @@ pub fn init(vm: &mut Vm) {
             }
             Ok(Value::Nil)
         }),
-        ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if vm.equal(it, a[0])? { return Ok(Value::True); } } Ok(Value::False) }),
-        ("member?", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if vm.equal(it, a[0])? { return Ok(Value::True); } } Ok(Value::False) }),
+        // as `index` above: one element at a time, without copying the array out
+        ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let it = match vm.ary(s).and_then(|l| l.get(i).map(|x| x.get())) { Some(v) => v, None => break }; if vm.equal(it, a[0])? { return Ok(Value::True); } i += 1; } Ok(Value::False) }),
+        ("member?", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let it = match vm.ary(s).and_then(|l| l.get(i).map(|x| x.get())) { Some(v) => v, None => break }; if vm.equal(it, a[0])? { return Ok(Value::True); } i += 1; } Ok(Value::False) }),
         ("clear", |vm, s, _a, _b| { with_mut(vm, s, |arr| arr.clear())?; Ok(s) }),
         ("delete_at", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; with_mut(vm, s, |arr| { let i = if i < 0 { i + arr.len() as i64 } else { i }; if i < 0 || i as usize >= arr.len() { Value::Nil } else { arr.remove(i as usize).get() } }) }),
         ("delete", |vm, s, a, b| { argc!(vm, a, 1); let list = items(vm, s); let mut keep = vec![]; let mut found = None; for it in list { if vm.equal(it, a[0])? { found = Some(it); } else { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep).into())?; match found { Some(v) => Ok(v), None => if b.is_nil() { Ok(Value::Nil) } else { vm.call_block(b, &[a[0]]) } } }),

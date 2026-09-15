@@ -379,11 +379,13 @@ pub fn init(vm: &mut Vm) {
         }),
         ("__max", |vm, s, _a, _b| { let list = items(vm, s); if list.is_empty() { return Ok(Value::Nil); } let mut r = list[0]; for v in &list[1..] { if cmp_ordered(vm, *v, r)? == 1 { r = *v; } } Ok(r) }),
         ("__min", |vm, s, _a, _b| { let list = items(vm, s); if list.is_empty() { return Ok(Value::Nil); } let mut r = list[0]; for v in &list[1..] { if cmp_ordered(vm, *v, r)? == -1 { r = *v; } } Ok(r) }),
-        ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let list = items(vm, s); if i >= list.len() { break; } if vm.equal(list[i], a[0])? { return Ok(Value::True); } i += 1; } Ok(Value::False) }),
-        ("member?", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let list = items(vm, s); if i >= list.len() { break; } if vm.equal(list[i], a[0])? { return Ok(Value::True); } i += 1; } Ok(Value::False) }),
+        // the array is re-read every step (`==` may shrink or replace it), one element at a
+        // time: reading it as `items()` did copied the whole array per element, O(n^2)
+        ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let it = match vm.ary(s).and_then(|l| l.get(i).map(|x| x.get())) { Some(v) => v, None => break }; if vm.equal(it, a[0])? { return Ok(Value::True); } i += 1; } Ok(Value::False) }),
+        ("member?", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let it = match vm.ary(s).and_then(|l| l.get(i).map(|x| x.get())) { Some(v) => v, None => break }; if vm.equal(it, a[0])? { return Ok(Value::True); } i += 1; } Ok(Value::False) }),
         // mruby-enum-ext
         ("__minmax", |vm, s, _a, _b| { let list = items(vm, s); if list.is_empty() { return Ok(vm.ary_new(vec![Value::Nil, Value::Nil])); } let (mut min, mut max) = (list[0], list[0]); for v in &list[1..] { if cmp_ordered(vm, *v, max)? > 0 { max = *v; } if cmp_ordered(vm, *v, min)? < 0 { min = *v; } } Ok(vm.ary_new(vec![min, max])) }),
-        ("__count", |vm, s, a, _b| { argc!(vm, a, 1); let mut n = 0; let mut i = 0; loop { let list = items(vm, s); if i >= list.len() { break; } if vm.equal(list[i], a[0])? { n += 1; } i += 1; } Ok(Value::Int(n)) }),
+        ("__count", |vm, s, a, _b| { argc!(vm, a, 1); let mut n = 0; let mut i = 0; loop { let it = match vm.ary(s).and_then(|l| l.get(i).map(|x| x.get())) { Some(v) => v, None => break }; if vm.equal(it, a[0])? { n += 1; } i += 1; } Ok(Value::Int(n)) }),
     ]);
 }
 

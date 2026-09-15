@@ -2,20 +2,31 @@
 # benchmark with no line here lands in "other". The categories come out in the
 # order they first appear below.
 #
+# `vmo_*` are mruby's own benchmark/vm_optimization_bench.rb, cut into the five parts
+# that belong to five different questions (its own sections; `bench/src/vmo_*.rb` say
+# which). The file itself stays whole under "whole program": it is thirty-five
+# measurements of everything at once, which is what a program is, but it was sitting
+# under "instruction loop" while a fifty-thousand-entry Hash inside it decided the
+# number.
+#
 # benchmark	category
 loop_while_add	instruction loop
 loop_if_branch	instruction loop
 loop_times	instruction loop
 bm_so_mandelbrot	instruction loop
-vm_optimization_bench	instruction loop
+vmo_dispatch	instruction loop
+vmo_arith	instruction loop
 call_args	calls
 call_block_yield	calls
 call_kwargs	calls
 call_fiber	calls
+vmo_calls	calls
 ds_array	data structures
 ds_hash	data structures
 ds_string	data structures
 bm_so_lists	data structures
+vmo_index	data structures
+vmo_objects	data structures
 mem_short_lived	memory
 mem_retained	memory
 gc_churn	memory
@@ -25,3 +36,4 @@ app_json_hash	whole program
 bm_fib	whole program
 bm_ao_render	whole program
 bm_mandel_term	whole program
+vm_optimization_bench	whole program
