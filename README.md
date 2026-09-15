@@ -6,13 +6,14 @@ compatibility with mruby 4.1. mruby 4.1.0 itself is not released yet: the refere
 here is checked against is the release candidate **4.1.0-rc** (tag `4.1.0-rc`, commit
 `3cf73ee`), and verification is against that binary rather than against a spec.
 
-The VM runs bytecode only and is pure Rust (`no_std`). Three crates live in this repository:
+The VM runs bytecode only and is pure Rust (`no_std`). Four crates live in this repository:
 
 | crate | what | |
 |---|---|---|
 | [`sabiruby`](https://crates.io/crates/sabiruby) | the VM library | pure Rust, `no_std` + `alloc`, wasm |
 | [`sabiruby-compiler`](https://crates.io/crates/sabiruby-compiler) | the reference compiler (mruby 4.1.0-rc's `mruby-compiler`: Prism as its parser, mruby's code generator) built as C; output byte-identical to `mrbc` | needs a C compiler |
 | [`sabiruby-cli`](https://crates.io/crates/sabiruby-cli) | the `sabiruby` command: `sabiruby foo.rb`, `-e`, `compile`, `dump`, with the switches of the reference `mruby` | depends on both |
+| `sabiruby-macros` | `#[derive(RubyClass)]` and `#[ruby_methods]`: a Rust struct and its `impl` block as a Ruby class ([`docs/design/macros.md`](docs/design/macros.md)) | depends on neither; not published |
 
 The Bevy integration lives in a separate crate, [`rubevy`](https://github.com/sabiruby/rubevy).
 Try it in the browser: **[SabiRuby Playground](https://sabiruby.github.io/sabiruby-playground/)**
@@ -240,6 +241,7 @@ loop {
 | `src/mrbtest.rs`, `tests/mrbtest/` | runner and compiled files of mruby's test suite |
 | `compiler/` | crate `sabiruby-compiler`: the vendored reference compiler, C shim, golden tests |
 | `cli/` | crate `sabiruby-cli`: the `sabiruby` command |
+| `macros/` | crate `sabiruby-macros`: the derive and attribute macros, and their tests |
 | `tools/vendor_compiler.sh` | refreshes `compiler/vendor/` from the reference tree |
 | `tools/mrbtest.sh`, `tools/check_no_std.sh` | test-suite report, no_std rule |
 

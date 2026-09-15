@@ -78,6 +78,7 @@ pub mod bigint;
 pub mod convert;
 pub mod error;
 pub mod host;
+pub mod host_store;
 pub mod object;
 pub mod opcode;
 #[doc(hidden)]
@@ -94,6 +95,7 @@ pub mod builtins;
 pub mod mrbtest;
 
 pub use convert::{FromRuby, IntoRuby};
+pub use host_store::{HostStore, RubyClass};
 pub use error::VmError;
 pub use host::{EvalOptions, Host};
 pub use value::Value;

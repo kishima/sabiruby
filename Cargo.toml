@@ -18,7 +18,8 @@ include = ["/src/**/*", "/build.rs", "/docs/**/*.md", "/README.md", "/LICENSE", 
 # sabiruby (this package): the VM library, pure Rust, no_std
 # compiler/: sabiruby-compiler, the reference mruby compiler built as C
 # cli/: sabiruby-cli, the `sabiruby` command (depends on both)
-members = ["compiler", "cli"]
+# macros/: sabiruby-macros, the derive and attribute macros (depends on neither)
+members = ["compiler", "cli", "macros"]
 
 [lib]
 name = "sabiruby"

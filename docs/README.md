@@ -15,6 +15,7 @@ in English; plans and the worklog are in Japanese.
 | [fibers.md](design/fibers.md) | fibers without a second host stack; the native-boundary rule; fibers inside tasks |
 | [gc.md](design/gc.md) | stop-the-world mark & sweep, roots, the contract for natives, the scheduler-driven mode, the free hook for `Data` |
 | [gems.md](design/gems.md) | every ported gem, what deviates and why, mruby-task in depth (host entry points, time limits, how far the fork may drift) |
+| [macros.md](design/macros.md) | `sabiruby-macros`: a Rust struct and its `impl` block as a Ruby class — what the two macros generate, the Host Object method, what it does not cover |
 | [inspect.md](design/inspect.md) | snapshots, traces and line numbers: what a debugger or a HUD can read |
 | [performance.md](design/performance.md) | the value representation, the `Slot` window, known structural costs (short) |
 | [optimizations.md](design/optimizations.md) | (Japanese) the speed-ups of 2026-09-15 one by one — symptom, cause, change, effect, what was dropped — how to measure on this machine, what is still slow |
@@ -42,7 +43,7 @@ in English; plans and the worklog are in Japanese.
 | [eval-require-plan.md](plans/eval-require-plan.md) | done (2026-09-13); written as a study, kept for the reasoning |
 | [after-gems-plan.md](plans/after-gems-plan.md) | done (2026-09-13): rubevy on one VM with tasks, backtraces, `sleep`/`strftime` |
 | [playground-plan.md](plans/playground-plan.md) | done (2026-09-12); the playground repository carries the visualizer plan |
-| [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 5 and 2c (2026-09-15); stage 6 (macros, futures, proxies) is direction only. Carries the findings of each stage |
+| [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b and 6c are rubevy's. Carries the findings of each stage |
 
 ## worklog/ — what happened, when
 
@@ -51,7 +52,10 @@ of 2026-09-15 are the records of `host-bridge-plan.md`'s stages 2, 2b, 2c, 4, 5,
 ([stage3b-host-entry-points](worklog/2026-09-15-stage3b-host-entry-points.md): the entry points
 that let rubevy stop reaching into `Vm`'s fields;
 [stage2d-perf](worklog/2026-09-15-stage2d-perf.md): what a small Hash lookup is made of, the O(n)
-hiding in `hash_sync`, and cutting `vm_optimization_bench` into five).
+hiding in `hash_sync`, and cutting `vm_optimization_bench` into five), and
+[stage6a-macros](worklog/2026-09-15-stage6a-macros.md) is stage 6a: why the host's stores sit in
+the `Vm`, how a method that is given the `&mut Vm` borrows its receiver, and what the macros read
+out of a signature.
 
 ## Where things were (before 2026-09-15)
 
