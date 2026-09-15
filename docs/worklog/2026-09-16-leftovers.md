@@ -201,3 +201,43 @@ pl.each_hit(1) { pl.hp }  #=> RuntimeError: Player is already in use by a call o
 **ブロックの中から同じオブジェクトに触ると弾かれる**。ブロックを取れるようになって初めて Ruby から普通に書ける道なので、
 「書けるが、そこは `RefCell` の規則が効く」ことをテストに残した。
 `macros/tests/expand.rs` には生成コードの固定を 1 本と、2 つのコンパイルエラーを足した。
+
+---
+
+## 8. 公開 API の穴埋め（Hash のキー、`Task::Queue` の長さと非ブロッキング pop）
+
+ECS の橋（段階 B）で rubevy が `funcall` で代用していた 3 か所。実際の呼び出し元を数えると 3 か所だった:
+
+| rubevy の場所 | 今 | これから |
+|---|---|---|
+| `src/reflect.rs:136-138` | `vm.funcall(other, :keys)` → `ary_vals` | `vm.hash_keys(other)` |
+| `src/lib.rs:782` | `vm.funcall(queue, :size)` | `vm.task_queue_len(queue)?` |
+| `src/lib.rs:789` | `vm.funcall(queue, :__pop_try, [true])` | `vm.task_queue_try_pop(queue)?` |
+
+`reflect.rs` の方は、コメント自体が
+「The VM has `hash_new`, `hash_set` and `hash_get` but no way to walk a Hash from Rust, so the
+keys come back through Ruby's own `keys`」と、無いことを書いてあった。
+`lib.rs` の 2 つは `ScriptWorld::make_room`（キューが `QUEUE_LIMIT` = 64 を超えたら古いものから捨てる）の中で、
+毎フレーム回りうる。`size` を送るたびに 1 本のフレームを積んで Array の長さを読んで返っている。
+
+### `hash_entries` との関係
+
+`Vm::hash_entries` は serde の段階（`from-mrubyedge-plan.md` の 1）で `ary_vals` の相方として入っていた。
+重複させず、**同じ形で並べた**: `hash_entries` は `Vec<(Value, Value)>`、`hash_keys` は `Vec<Value>`、
+どちらも挿入順、どちらも Hash でなければ `None`、どちらも `&self`（Ruby を走らせない）。
+`hash_keys` は `hash_entries(v).map(|e| e.into_iter().map(|(k,_)| k).collect())` でも書けるが、
+値まで一度 `Vec` に集めることになるので、`entries()` を 1 回歩く形にした。
+用途も違う: 値まで全部要るなら `hash_entries`、キーを見てから欲しいものだけ `hash_get` するなら `hash_keys`。
+
+### `task_queue_try_pop` が `None` を返す理由
+
+Ruby の `Queue#pop` は空なら**タスクを park** する（`queue_pop_try` が `WAIT_RETRY` を返し、
+スケジューラが呼び直す）。ホストはタスクではないので park するものが無い。
+`__pop_try(true)`（非ブロッキング）は空なら `Task::Error` を上げるが、ホストから見ると
+「今は無い」は例外ではないので `Ok(None)` にした。閉じたキューも `None`（読む側から見て空と区別が無い。
+区別したいなら `closed?` がその質問）。rubevy の `make_room` は
+`funcall(...).is_err()` で「取れなかった」を見ていたので、`None` のほうが素直に書ける。
+
+テストは `tests/host_api.rs` に 2 本。Ruby 側の `$q.push` / `$q.size` と同じキューであること、
+FIFO であること、閉じたキュー、キューでないオブジェクトはエラーになること、
+`hash_keys` が `Hash#keys` と同じ並びであること、default proc を持つ Hash でも何も走らないことを見ている。

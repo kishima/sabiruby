@@ -835,6 +835,22 @@ impl Vm {
         crate::builtins::ext_task::queue_push(self, queue, value)
     }
 
+    /// How many items are waiting in a queue made by [`Vm::task_queue_new`] — what `Queue#size`
+    /// answers. A host that drains a queue from outside the VM asks this rather than sending
+    /// `size`, which would put a whole call on the stack to read one Array's length.
+    pub fn task_queue_len(&mut self, queue: ObjId) -> VmResult<usize> {
+        crate::builtins::ext_task::queue_len(self, queue)
+    }
+
+    /// Takes one item out of a queue made by [`Vm::task_queue_new`], or `None` where there is
+    /// none. The host's counterpart of `Queue#pop`: a task that pops an empty queue parks until
+    /// something is pushed, and a host is not a task and has nothing to park, so this answers
+    /// `None` instead of waiting. A closed queue also answers `None`; [`Vm::funcall`] with
+    /// `closed?` is the question that tells the two apart.
+    pub fn task_queue_try_pop(&mut self, queue: ObjId) -> VmResult<Option<Value>> {
+        crate::builtins::ext_task::queue_try_pop(self, queue)
+    }
+
     /// Ticks until the earliest sleeping task is due, for a host that waits on a clock of its
     /// own: `None` where nothing is waiting on a deadline, `Some(0)` where one has passed. A
     /// host that has no work to do until then can wait that long before calling the scheduler
@@ -1125,6 +1141,18 @@ impl Vm {
         let o = v.obj()?;
         match &self.heap.get(o).kind {
             ObjKind::Hash(hd) => Some(hd.entries().iter().map(|(k, val)| (k.get(), val.get())).collect()),
+            _ => None,
+        }
+    }
+    /// The keys of a Hash in insertion order (a copy); `None` when `v` is not a Hash. What
+    /// `Hash#keys` answers, without a send — and, unlike the send, without building the Array
+    /// on the Ruby heap for the host to read once and drop. The values are
+    /// [`Vm::hash_entries`]; this is for a host that wants the keys and then looks up the ones
+    /// it cares about with [`Vm::hash_get`].
+    pub fn hash_keys(&self, v: Value) -> Option<Vec<Value>> {
+        let o = v.obj()?;
+        match &self.heap.get(o).kind {
+            ObjKind::Hash(hd) => Some(hd.entries().iter().map(|(k, _)| k.get()).collect()),
             _ => None,
         }
     }

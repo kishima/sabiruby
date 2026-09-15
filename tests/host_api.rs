@@ -144,3 +144,73 @@ fn engine_constants_tell_sabiruby_apart_without_changing_ruby_engine() {
     "#);
     assert_eq!(out, format!("mruby\nrust-sabiruby\n\"constant\"\n{}\n", env!("CARGO_PKG_VERSION")));
 }
+
+// Item 8 of docs/plans/leftovers-plan.md: the three entry points rubevy was doing with
+// `funcall` — walking a Hash's keys, and reading a `Task::Queue` from outside the VM.
+
+#[test]
+fn hash_keys_answers_what_ruby_keys_does_without_a_send() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let h = run_value(&mut vm, r#"{ "b" => 1, a: 2, 3 => [4], nil => nil }"#);
+    let keys = vm.hash_keys(h).expect("a Hash");
+    // insertion order, exactly the Array `Hash#keys` builds
+    let via_ruby = {
+        vm.global_set("$h", h);
+        let ks = run_value(&mut vm, "$h.keys");
+        vm.ary_vals(ks).expect("an Array")
+    };
+    assert_eq!(keys, via_ruby);
+    assert_eq!(keys.len(), 4);
+    // and the values are still reachable key by key, which is the shape this is for
+    let looked_up: Vec<Value> = keys.iter().map(|k| vm.hash_get(h, *k).unwrap_or(Value::Nil)).collect();
+    let entries: Vec<Value> = vm.hash_entries(h).expect("a Hash").into_iter().map(|(_, v)| v).collect();
+    assert_eq!(looked_up, entries);
+    // the keys of an empty Hash are no keys, and anything that is not a Hash is None
+    let empty = run_value(&mut vm, "{}");
+    assert_eq!(vm.hash_keys(empty), Some(vec![]));
+    assert_eq!(vm.hash_keys(Value::Int(1)), None);
+    let ary = run_value(&mut vm, "[1, 2]");
+    assert_eq!(vm.hash_keys(ary), None);
+    // a Hash with a default block is still just its entries: asking for the keys runs nothing
+    let with_default = run_value(&mut vm, "h = Hash.new { |_, k| raise k.to_s }; h[:x] = 1; h");
+    assert_eq!(vm.hash_keys(with_default).expect("a Hash").len(), 1);
+}
+
+#[test]
+fn a_host_reads_a_task_queue_without_sending_size_and_pop() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let q = vm.task_queue_new().expect("a queue");
+    vm.gc_register(q);
+    assert_eq!(vm.task_queue_len(q).expect("len"), 0);
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), None);
+
+    for i in 0..3 {
+        vm.task_queue_push(q, Value::Int(i)).expect("push");
+    }
+    assert_eq!(vm.task_queue_len(q).expect("len"), 3);
+    // first in, first out, and the length follows
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), Some(Value::Int(0)));
+    assert_eq!(vm.task_queue_len(q).expect("len"), 2);
+
+    // the same queue as the script's: what Ruby pushes the host pops, and the other way
+    vm.global_set("$q", Value::Obj(q));
+    assert_eq!(run(&mut vm, "$q.push(9); p $q.size"), "3\n");
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), Some(Value::Int(1)));
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), Some(Value::Int(2)));
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), Some(Value::Int(9)));
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), None);
+    assert_eq!(run(&mut vm, "p $q.size, $q.empty?"), "0\ntrue\n");
+
+    // a closed queue answers None rather than raising: the host is not a task and has nothing
+    // to park, so there is nothing for `Task::Error` to interrupt
+    vm.task_queue_push(q, Value::Int(5)).expect("push");
+    run(&mut vm, "$q.close");
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), Some(Value::Int(5)));
+    assert_eq!(vm.task_queue_try_pop(q).expect("pop"), None);
+    assert_eq!(vm.task_queue_len(q).expect("len"), 0);
+
+    // and something that is not a queue at all is an error, not a wrong answer
+    let not_a_queue = match run_value(&mut vm, "Object.new") { Value::Obj(o) => o, v => panic!("{v:?}") };
+    assert!(vm.task_queue_len(not_a_queue).is_err());
+    assert!(vm.task_queue_try_pop(not_a_queue).is_err());
+}

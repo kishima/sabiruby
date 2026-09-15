@@ -635,7 +635,9 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     `task_queue_new` and `task_queue_push` are how a host
     answers a script that asked it for something: hand the script a `Task::Queue`, do the work
     outside (a frame later, a thread, an event loop), push the result, and the `pop` the script
-    parked on returns it — an asynchronous host call without a second scheduler, and without the
+    parked on returns it. `task_queue_len` and `task_queue_try_pop` are the reading side, for a
+    queue a script pushes to and the host drains: `try_pop` answers `None` on an empty queue
+    rather than parking, because the host is not a task and has nothing to park — an asynchronous host call without a second scheduler, and without the
     script's code looking asynchronous. `task_next_wakeup_ticks` with `task_pending` are what a
     host waits on: how long until the earliest sleeper is due, and whether anything is left that
     could run. A host that has a clock and something to wait on (an event loop, a frame) can then

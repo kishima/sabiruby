@@ -482,6 +482,25 @@ pub(crate) fn queue_push(vm: &mut Vm, queue: ObjId, value: Value) -> VmResult<()
     Ok(())
 }
 
+/// How many items are waiting in a queue made by `queue_new` (`Vm::task_queue_len`): what
+/// `Queue#size` answers, without going through a send.
+pub(crate) fn queue_len(vm: &mut Vm, queue: ObjId) -> VmResult<usize> {
+    let items = q_items(vm, Value::Obj(queue))?;
+    Ok(ary_len(vm, items))
+}
+
+/// One item out of a queue, or `None` where it is empty (`Vm::task_queue_try_pop`). The host's
+/// side of `Queue#__pop_try(true)`: it never parks, because the host is not a task and has
+/// nothing to park. A closed queue answers `None` like an empty one — for a reader there is no
+/// difference, and `Queue#closed?` is the question that has one.
+pub(crate) fn queue_try_pop(vm: &mut Vm, queue: ObjId) -> VmResult<Option<Value>> {
+    let items = q_items(vm, Value::Obj(queue))?;
+    if ary_len(vm, items) == 0 { return Ok(None); }
+    let shift = vm.intern("shift");
+    let v = vm.funcall(items, shift, &[], Value::Nil)?;
+    Ok(Some(v))
+}
+
 /// Ticks until the earliest deadline, for a host that waits on a clock of its own
 /// (`Vm::task_next_wakeup_ticks`). `Some(0)` where one has passed already.
 pub(crate) fn next_wakeup_ticks(vm: &Vm) -> Option<u32> {
