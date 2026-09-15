@@ -63,6 +63,15 @@ pub(crate) fn hash_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResu
     Ok(default_of(vm, s))
 }
 
+/// `Hash#[]=`. Named, not a closure in the table, because `OP_SETIDX` records it as the
+/// implementation it stands in for and calls it directly (`Vm::op_setidx`).
+pub(crate) fn hash_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    argc!(vm, a, 2);
+    if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { return Err(vm.raise(vm.core.frozen_error, "can't modify frozen Hash")); }
+    vm.hash_set(s, a[0], a[1])?;
+    Ok(a[1])
+}
+
 pub fn init(vm: &mut Vm) {
     let c = vm.core;
     // Hash[...]: pairs, a flat key/value list, or another Hash
@@ -86,7 +95,7 @@ pub fn init(vm: &mut Vm) {
         ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let e = entries(vm, a[0]); let d = default_of(vm, a[0]); with_mut(vm, s, |h| { h.set_entries(to_slots(e)); h.default = Slot::from(d); })?; Ok(s) }),
         ("replace", |vm, s, a, _b| { argc!(vm, a, 1); if !matches!(a[0].obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(_))) { let d = vm.describe_for_type_error(a[0]); return Err(vm.raise_type(&format!("{d} cannot be converted to Hash"))); } let e = entries(vm, a[0]); let d = default_of(vm, a[0]); with_mut(vm, s, |h| { h.set_entries(to_slots(e)); h.default = Slot::from(d); })?; let dp = default_proc_ivar(vm); let p = a[0].obj().map(|o| vm.heap.ivar_get(o, dp)).unwrap_or(Value::Nil); vm.heap.ivar_set(s.obj().unwrap(), dp, p); Ok(s) }),
         ("[]", hash_aref),
-        ("[]=", |vm, s, a, _b| { argc!(vm, a, 2); if s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { return Err(vm.raise(vm.core.frozen_error, "can't modify frozen Hash")); } vm.hash_set(s, a[0], a[1])?; Ok(a[1]) }),
+        ("[]=", hash_aset),
         ("store", |vm, s, a, _b| { argc!(vm, a, 2); vm.hash_set(s, a[0], a[1])?; Ok(a[1]) }),
         ("fetch", |vm, s, a, b| { argc!(vm, a, 1, 2); if let Some(v) = vm.hash_get(s, a[0]) { return Ok(v); } if !b.is_nil() { return vm.call_block(b, &[a[0]]); } if a.len() == 2 { return Ok(a[1]); } let k = vm.inspect_str(a[0])?; Err(vm.raise(vm.core.key_error, &format!("Key not found: {k}"))) }),
         ("dig", |vm, s, a, _b| { let mut cur = s; let aref = vm.s.aref; for k in a { if cur.is_nil() { return Ok(Value::Nil); } cur = vm.funcall(cur, aref, &[*k], Value::Nil)?; } Ok(cur) }),

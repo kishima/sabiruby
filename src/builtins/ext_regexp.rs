@@ -1494,6 +1494,13 @@ fn init_string(vm: &mut Vm) {
         ("slice", str_aref),
         ("[]=", str_aset),
     ]);
+    // Taking the two names disarmed the String branch of the index opcodes, which answer
+    // `str[Integer]`, `str[String]` and `str[Range]` only while `[]` is the implementation they
+    // stand in for. For those three the pair above calls the same core body the opcode calls,
+    // with the same arguments, so the promise `Vm::idx_op_rearm` asks for holds. A Regexp is
+    // none of the three: the opcode sends it, and it arrives here.
+    vm.idx_op_rearm(crate::vm::IDX_STR_AREF);
+    vm.idx_op_rearm(crate::vm::IDX_STR_ASET);
     let symbol = vm.core.symbol;
     vm.define_methods(symbol, &[
         ("match", |vm, s, a, b| { let str = match_operand(vm, s)?; str_match(vm, str, a, b) }),
