@@ -16,7 +16,8 @@ in English; plans and the worklog are in Japanese.
 | [gc.md](design/gc.md) | stop-the-world mark & sweep, roots, the contract for natives, the scheduler-driven mode, the free hook for `Data` |
 | [gems.md](design/gems.md) | every ported gem, what deviates and why, mruby-task in depth (host entry points, time limits, how far the fork may drift) |
 | [inspect.md](design/inspect.md) | snapshots, traces and line numbers: what a debugger or a HUD can read |
-| [performance.md](design/performance.md) | the value representation, the `Slot` window, known structural costs |
+| [performance.md](design/performance.md) | the value representation, the `Slot` window, known structural costs (short) |
+| [optimizations.md](design/optimizations.md) | (Japanese) the speed-ups of 2026-09-15 one by one — symptom, cause, change, effect, what was dropped — how to measure on this machine, what is still slow |
 | [utf8.md](design/utf8.md) | strings as characters (feature `utf8`) and as bytes |
 | [playground.md](design/playground.md) | the browser playground: the wasm module's C ABI, the debugger, real-time `sleep` |
 

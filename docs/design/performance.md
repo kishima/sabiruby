@@ -1,5 +1,9 @@
 # Performance notes
 
+What was made faster on 2026-09-15, why each change worked and what it measured — and how to
+measure on this machine at all — is written up (in Japanese) in [`optimizations.md`](optimizations.md).
+This file keeps the short version: the value representation and the structural costs that remain.
+
 Measured numbers live in [`../verification/bench.md`](../verification/bench.md) (`tools/bench.sh`). This file records the
 reasoning and predictions behind performance decisions, so they can be checked against
 measurements later. Dates are when the prediction was written; each prediction should get a
