@@ -1,0 +1,12 @@
+0.5
+0.5
+0.25
+1.5
+10.000000000000002
+Numeric
+Integer
+Float
+Numeric
+"Odd cannot be converted to Float"
+"String cannot be converted to Float"
+"can't convert nil into Float"

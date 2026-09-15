@@ -132,11 +132,12 @@ fn a_fn_with_no_self_is_a_class_method_and_one_with_self_an_instance_method() {
             }
 
             impl Player {
-                pub fn register(vm: &mut ::sabiruby::Vm) -> ::sabiruby::value::ObjId {
+                pub fn register(vm: &mut ::sabiruby::Vm)
+                    -> ::sabiruby::error::VmResult<::sabiruby::value::ObjId>
+                {
                     let __class = <Player as ::sabiruby::host_store::RubyClass>::register_class(vm);
                     let _ = <Player as ::sabiruby::host_store::RubyClass>::tag(vm);
-                    let __meta = vm.singleton_class(::sabiruby::Value::Obj(__class))
-                        .expect("a class has a metaclass");
+                    let __meta = vm.singleton_class(::sabiruby::Value::Obj(__class))?;
 
                     vm.define_fn(__meta, "new", |vm: &mut ::sabiruby::Vm, __a0: i64|
                         -> ::sabiruby::error::VmResult<::sabiruby::Value>
@@ -167,7 +168,7 @@ fn a_fn_with_no_self_is_a_class_method_and_one_with_self_an_instance_method() {
                         ::sabiruby::convert::IntoRubyRet::into_ruby_ret(__out, vm)
                     });
 
-                    __class
+                    Ok(__class)
                 }
 
                 // asked for at the span of each parameter, so that a type `FromRuby` does not
@@ -198,7 +199,9 @@ fn a_method_given_the_vm_borrows_its_receiver_out_of_the_store_and_back() {
             }
 
             impl Player {
-                pub fn register(vm: &mut ::sabiruby::Vm) -> ::sabiruby::value::ObjId {
+                pub fn register(vm: &mut ::sabiruby::Vm)
+                    -> ::sabiruby::error::VmResult<::sabiruby::value::ObjId>
+                {
                     let __class = <Player as ::sabiruby::host_store::RubyClass>::register_class(vm);
                     let _ = <Player as ::sabiruby::host_store::RubyClass>::tag(vm);
 
@@ -213,7 +216,7 @@ fn a_method_given_the_vm_borrows_its_receiver_out_of_the_store_and_back() {
                         ::sabiruby::convert::IntoRubyRet::into_ruby_ret(__out, vm)
                     });
 
-                    __class
+                    Ok(__class)
                 }
 
                 #[allow(dead_code)]
@@ -250,6 +253,53 @@ fn skip_and_name_change_what_ruby_sees_and_leave_the_rust_side_alone() {
 }
 
 #[test]
+fn a_block_parameter_is_the_callers_block_and_not_an_argument() {
+    let src = r#"
+        impl Player {
+            fn each_hit(&mut self, vm: &mut Vm, n: i64, blk: Block) {}
+        }
+    "#;
+    same(
+        methods(src),
+        r#"
+            impl Player {
+                fn each_hit(&mut self, vm: &mut Vm, n: i64, blk: Block) {}
+            }
+
+            impl Player {
+                pub fn register(vm: &mut ::sabiruby::Vm)
+                    -> ::sabiruby::error::VmResult<::sabiruby::value::ObjId>
+                {
+                    let __class = <Player as ::sabiruby::host_store::RubyClass>::register_class(vm);
+                    let _ = <Player as ::sabiruby::host_store::RubyClass>::tag(vm);
+
+                    vm.define_fn(__class, "each_hit", |vm: &mut ::sabiruby::Vm,
+                        __this: ::sabiruby::convert::This<::sabiruby::Value>, __a0: i64,
+                        __blk: ::sabiruby::convert::Block|
+                        -> ::sabiruby::error::VmResult<::sabiruby::Value>
+                    {
+                        let (__handle, mut __recv) =
+                            <Player as ::sabiruby::host_store::RubyClass>::take_out(vm, __this.0)?;
+                        let __out = <Player>::each_hit(&mut __recv, vm, __a0, __blk);
+                        <Player as ::sabiruby::host_store::RubyClass>::give_back(vm, __handle, __recv);
+                        ::sabiruby::convert::IntoRubyRet::into_ruby_ret(__out, vm)
+                    });
+
+                    Ok(__class)
+                }
+
+                // the block is not one of the argument types: `Block` is not `FromRuby`
+                #[allow(dead_code)]
+                fn __ruby_argument_types() {
+                    fn __arg<T: ::sabiruby::convert::FromRuby>() {}
+                    __arg::<i64>();
+                }
+            }
+        "#,
+    );
+}
+
+#[test]
 fn a_class_with_no_class_method_does_not_ask_for_the_metaclass() {
     let out = methods_text("impl Player { fn hp(&self) -> i64 { self.hp } }");
     assert!(!out.contains("singleton_class"), "{out}");
@@ -264,6 +314,8 @@ fn what_cannot_be_a_ruby_method_is_a_compile_error_saying_why() {
         ("impl Widen for Player { fn hp(&self) -> i64 { 0 } }", "not a trait implementation"),
         ("impl Player { fn wide(&self, a: i64, b: i64, c: i64, d: i64, e: i64, f: i64, g: i64) {} }", "at most six arguments"),
         ("impl Player { fn late(&self, n: i64, vm: &mut Vm) {} }", "`&mut Vm` comes first"),
+        ("impl Player { fn early(&self, b: Block, n: i64) {} }", "`Block` comes last"),
+        ("impl Player { fn lonely(&self, b: Block) {} }", "takes the `&mut Vm` too"),
         ("impl Player { async fn slow(&self) {} }", "async fn"),
         ("impl Player { #[ruby(hidden)] fn x(&self) {} }", "unknown option"),
     ];

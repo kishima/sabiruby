@@ -316,15 +316,30 @@ pub trait RubyClass: Sized + Send + Sync + 'static {
     /// The handle in `v`, which must be a `Data` object of this type's tag; anything else is a
     /// `TypeError` naming the class (a `Player` method reached through `instance_exec` on a
     /// String, say, or a handle of another host type).
+    ///
+    /// An instance of this very class with no handle in it — `Player.allocate`, which makes the
+    /// object without running `initialize`, so nothing was ever put in the store — is the one
+    /// case worth its own sentence, because "wrong argument type Player (expected Player)" reads
+    /// like a bug in the VM rather than like the answer, which is that this `Player` has no Rust
+    /// value behind it. mruby says the same thing in the same place (`mrb_data_check_type`,
+    /// src/etc.c: `DATA_TYPE` is NULL for an allocated-but-uninitialized object and the message
+    /// is `uninitialized %t (expected %s)`), and it names the object's own class, so a subclass
+    /// of `Player` reads `uninitialized Ghost (expected Player)`.
     fn handle_of(vm: &mut Vm, v: Value) -> VmResult<u64> {
         let tag = Self::tag(vm);
-        match vm.data_of(v) {
-            Some((t, h)) if t == tag => Ok(h),
-            _ => {
-                let d = vm.describe_for_type_error(v);
-                Err(vm.raise_type(&alloc::format!("wrong argument type {d} (expected {})", Self::NAME)))
-            }
+        if let Some((t, h)) = vm.data_of(v) {
+            if t == tag { return Ok(h); }
+            let d = vm.describe_for_type_error(v);
+            return Err(vm.raise_type(&alloc::format!("wrong argument type {d} (expected {})", Self::NAME)));
         }
+        let class = Self::register_class(vm);
+        let d = vm.describe_for_type_error(v);
+        if vm.obj_is_kind_of(v, class) {
+            let name = Self::NAME;
+            return Err(vm.raise_type(&alloc::format!(
+                "uninitialized {d} (expected {name}): the object has no {name} behind it — `{name}.allocate` makes one without running `initialize`")));
+        }
+        Err(vm.raise_type(&alloc::format!("wrong argument type {d} (expected {})", Self::NAME)))
     }
 
     /// The value `v` names, borrowed from the store.

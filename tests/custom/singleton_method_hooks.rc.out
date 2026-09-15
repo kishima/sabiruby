@@ -1,0 +1,20 @@
+added one
+added two
+1
+2
+[:one, :two]
+added three
+removed two
+undefined one
+3
+[:one, :three]
+NoMethodError
+class heard four
+Counted added singleton_method_added
+Counted added five
+5
+6
+nil
+nil
+nil
+[BasicObject, BasicObject, BasicObject]

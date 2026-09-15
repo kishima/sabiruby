@@ -835,6 +835,22 @@ impl Vm {
         crate::builtins::ext_task::queue_push(self, queue, value)
     }
 
+    /// How many items are waiting in a queue made by [`Vm::task_queue_new`] — what `Queue#size`
+    /// answers. A host that drains a queue from outside the VM asks this rather than sending
+    /// `size`, which would put a whole call on the stack to read one Array's length.
+    pub fn task_queue_len(&mut self, queue: ObjId) -> VmResult<usize> {
+        crate::builtins::ext_task::queue_len(self, queue)
+    }
+
+    /// Takes one item out of a queue made by [`Vm::task_queue_new`], or `None` where there is
+    /// none. The host's counterpart of `Queue#pop`: a task that pops an empty queue parks until
+    /// something is pushed, and a host is not a task and has nothing to park, so this answers
+    /// `None` instead of waiting. A closed queue also answers `None`; [`Vm::funcall`] with
+    /// `closed?` is the question that tells the two apart.
+    pub fn task_queue_try_pop(&mut self, queue: ObjId) -> VmResult<Option<Value>> {
+        crate::builtins::ext_task::queue_try_pop(self, queue)
+    }
+
     /// Ticks until the earliest sleeping task is due, for a host that waits on a clock of its
     /// own: `None` where nothing is waiting on a deadline, `Some(0)` where one has passed. A
     /// host that has no work to do until then can wait that long before calling the scheduler
@@ -1128,6 +1144,18 @@ impl Vm {
             _ => None,
         }
     }
+    /// The keys of a Hash in insertion order (a copy); `None` when `v` is not a Hash. What
+    /// `Hash#keys` answers, without a send — and, unlike the send, without building the Array
+    /// on the Ruby heap for the host to read once and drop. The values are
+    /// [`Vm::hash_entries`]; this is for a host that wants the keys and then looks up the ones
+    /// it cares about with [`Vm::hash_get`].
+    pub fn hash_keys(&self, v: Value) -> Option<Vec<Value>> {
+        let o = v.obj()?;
+        match &self.heap.get(o).kind {
+            ObjKind::Hash(hd) => Some(hd.entries().iter().map(|(k, _)| k.get()).collect()),
+            _ => None,
+        }
+    }
     pub fn expect_str(&mut self, v: Value, what: &str) -> VmResult<Vec<u8>> {
         match self.str_bytes(v) {
             Some(b) => Ok(b.to_vec()),
@@ -1408,7 +1436,7 @@ impl Vm {
         if self.find_method(class, mid).is_none() { let n = self.sym_name(mid); let cn = self.class_name(class); return Err(self.name_error(mid, &format!("undefined method '{n}' for class '{cn}'"))); }
         let t = self.def_target(class);
         self.heap.class_mut(t).methods.insert(mid, Method::Undef);
-        Ok(())
+        self.method_undefined_hook(class, mid)
     }
     /// The table that receives definitions for `class` (its origin when modules are prepended).
     pub fn def_target(&self, class: ObjId) -> ObjId {
@@ -1473,14 +1501,44 @@ impl Vm {
             _ => {}
         }
     }
-    /// `mrb_method_added`: `method_added` / `singleton_method_added` hook.
-    pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+    /// The hook a change to a method table fires. mruby has the same shape in three places
+    /// (`mrb_method_added`, `undef_method` and `remove_method_id`, src/class.c): the name goes
+    /// to the class itself, or — when the table belongs to a singleton class — to the object
+    /// that class is attached to, under the `singleton_` name. The default definitions on
+    /// `Module` and `BasicObject` do nothing, and finding one of those is what
+    /// `mrb_func_basic_p` answers there: the call is skipped rather than made.
+    fn method_table_hook(&mut self, class: ObjId, mid: Sym, plain: &str, singleton: &str) -> VmResult<()> {
         let cd = self.heap.class(class);
-        let (recv, hook) = if cd.is_singleton { (cd.attached.map(|s| s.get()).unwrap_or(Value::Nil), self.intern("singleton_method_added")) } else { (Value::Obj(class), self.intern("method_added")) };
+        let (recv, hook) = if cd.is_singleton { (cd.attached.map(|s| s.get()).unwrap_or(Value::Nil), self.intern(singleton)) } else { (Value::Obj(class), self.intern(plain)) };
         if let Some((Method::Native(_) | Method::Closure(_), owner)) = self.find_method(self.class_of(recv), hook) {
             if owner == self.core.module || owner == self.core.basic_object { return Ok(()); }
         }
         if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(mid)], Value::Nil)?; }
+        Ok(())
+    }
+    /// `mrb_method_added`: `method_added` / `singleton_method_added` hook.
+    pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        self.method_table_hook(class, mid, "method_added", "singleton_method_added")
+    }
+    /// `undef_method`'s hook: `method_undefined` / `singleton_method_undefined`.
+    pub fn method_undefined_hook(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        self.method_table_hook(class, mid, "method_undefined", "singleton_method_undefined")
+    }
+    /// `remove_method_id`'s hook: `method_removed` / `singleton_method_removed`.
+    pub fn method_removed_hook(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        self.method_table_hook(class, mid, "method_removed", "singleton_method_removed")
+    }
+    /// `const_added` (`mrb_const_set`, src/variable.c): the module is told the name of a
+    /// constant that was just assigned to it. mruby fires it from `mrb_const_set` alone, which
+    /// is `OP_SETCONST`, `OP_SETMCNST` and `Module#const_set` — **not** `class Foo; end`, which
+    /// goes through `setup_class` and writes the constant without the hook.
+    pub fn const_added(&mut self, module: ObjId, name: Sym) -> VmResult<()> {
+        let hook = self.intern("const_added");
+        let recv = Value::Obj(module);
+        if let Some((Method::Native(_) | Method::Closure(_), owner)) = self.find_method(self.class_of(recv), hook) {
+            if owner == self.core.module { return Ok(()); }
+        }
+        if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(name)], Value::Nil)?; }
         Ok(())
     }
     /// The class whose `methods`/`vis` tables a chain node reads: an include class
@@ -2138,15 +2196,19 @@ impl Vm {
     /// `send`/`__send__` issued by a SEND: shifts the arguments down and
     /// dispatches the named method in the same frame (visibility ignored).
     fn op_send_redirect(&mut self, base: usize, a: usize, argc: usize, kw: bool, has_blk: bool, blk: Value) -> VmResult<()> {
-        let (mut args, kd) = self.native_args(base + a, argc, kw);
-        if kd.is_some() { args.pop(); }
+        let (args, kd) = self.native_args(base + a, argc, kw);
         if args.is_empty() { return Err(self.argnum_error(0, "1+")); }
         let mid = match args[0] {
             Value::Sym(m) => m,
             v => match self.str_bytes(v) { Some(b) => { let n = String::from_utf8_lossy(b).into_owned(); self.intern(&n) } None => { let d = self.inspect_str(v)?; return Err(self.raise_type(&format!("{d} is not a symbol nor a string"))) } },
         };
         let rest: Vec<Value> = args[1..].to_vec();
-        let c = self.relay_args(base + a, rest, kd, blk);
+        // mruby's `send_method` keeps the shape it was called with: `n == 15` stays 15
+        // (`mrb_ary_subseq` of the packed Array), anything else is shifted down one
+        // register. Unpacking here instead would hand `OP_ENTER` a frame it reads by its
+        // fast path, which counts `ci->kw` as an argument — `[1,2,3].__send__(:each,
+        // *[], **{}, &b)`, which is what `Enumerator#each` does, would be one too many.
+        let c = self.relay_args(base + a, rest, kd, blk, argc == 15);
         self.op_send_vis(base, a, mid, c, has_blk, false, false)
     }
 
@@ -2156,8 +2218,15 @@ impl Vm {
     /// leaving the frame: `send` drops its first argument ([`Vm::op_send_redirect`]) and
     /// `method_missing` gains one ([`Vm::op_send_vis`]). 15 or more positional arguments
     /// go into one Array, which is what `n == 15` means to `OP_ENTER`.
-    fn relay_args(&mut self, nbase: usize, args: Vec<Value>, kd: Option<Value>, blk: Value) -> usize {
-        let (n, mut next) = if args.len() >= 15 {
+    ///
+    /// `pack` puts them into that Array whatever their number. mruby's two re-dispatches
+    /// differ exactly there: `send_method` (src/vm.c) shifts the registers down and leaves
+    /// `ci->n` as it was, while `prepare_missing` goes through `mrb_args_pack_positional`,
+    /// which always sets `ci->n = CALL_MAXARGS`. It is not a free choice of layout when the
+    /// frame carries a keyword Hash, because `OP_ENTER`'s fast path — the one that counts
+    /// `ci->kw` as an argument — is only taken while `argc < 15`.
+    fn relay_args(&mut self, nbase: usize, args: Vec<Value>, kd: Option<Value>, blk: Value, pack: bool) -> usize {
+        let (n, mut next) = if pack || args.len() >= 15 {
             let packed = self.ary_new(args);
             if self.stack.len() < nbase + 2 { self.stack.resize(nbase + 2, Slot::NIL); }
             self.stack[nbase + 1] = Slot::from(packed);
@@ -3336,6 +3405,7 @@ impl Vm {
                                 self.heap.class_mut(o).outer = Some(tc);
                             }
                         }
+                        self.const_added(tc, s)?;
                     }
                 }
                 Op::Getmcnst => {
@@ -3355,6 +3425,7 @@ impl Vm {
                         Value::Obj(o) if self.heap.is_class(o) => {
                             self.heap.class_mut(o).consts.insert(s, Slot::from(v));
                             if let Value::Obj(c) = v { if self.heap.is_class(c) && self.heap.class(c).name.is_none() { self.heap.class_mut(c).name = Some(s); self.heap.class_mut(c).outer = Some(o); } }
+                            self.const_added(o, s)?;
                         }
                         _ => return Err(self.raise_type("not a class/module")),
                     }
@@ -3610,6 +3681,10 @@ impl Vm {
                             let meta = if is_module { self.core.module } else { self.core.class };
                             let ncls = self.heap.alloc(meta, ObjKind::Class(ClassData { name: Some(s), superclass: sup, is_module, outer: Some(outer), ..Default::default() }));
                             self.heap.class_mut(outer).consts.insert(s, Slot::from(Value::Obj(ncls)));
+                            // `setup_class` is `mrb_const_set` (src/class.c), so defining a
+                            // class or a module fires `const_added` on the outer one — before
+                            // `inherited`, which `mrb_vm_define_class` calls after it
+                            self.const_added(outer, s)?;
                             if !is_module { self.singleton_class(Value::Obj(ncls))?; }
                             if let Some(sup) = sup { self.call_inherited(sup, ncls)?; }
                             ncls
@@ -3987,18 +4062,35 @@ impl Vm {
         Ok((n, kw, blk))
     }
 
-    /// Positional arguments of a frame laid out by `prepare_call`, with the
-    /// keyword Hash appended when present and non-empty (what a native method
-    /// sees; mruby's `mrb_get_args` does the same for functions without `:`).
+    /// The positional arguments of a frame laid out by `prepare_call`, and the
+    /// keyword Hash the frame carries (`ci->kw`) when it has one — **also when
+    /// that Hash is empty**. mruby keeps an empty keyword Hash on the stack with
+    /// `ci->kw` still set (`mrb_get_args` folds a keyword Hash into the positional
+    /// arguments only `if (mrb_hash_size(kdict) > 0)`, and only then clears
+    /// `ci->kw`), so a re-dispatch that rewrites the frame — `send`, `method_missing`
+    /// — has to carry it along: `def one(x); end; send(:one, **{})` binds `x` to the
+    /// empty Hash, because `OP_ENTER`'s fast path counts `ci->kw` as an argument.
     fn native_args(&self, nbase: usize, n: usize, kw: bool) -> (Vec<Value>, Option<Value>) {
-        let mut args = self.send_args(nbase, n);
+        let args = self.send_args(nbase, n);
         let npos = if n == 15 { 1 } else { n };
-        let mut kd = None;
-        if kw {
-            let h = self.stack[nbase + npos + 1].get();
-            let empty = match h.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.is_empty(), _ => true };
-            if !empty { args.push(h); kd = Some(h); }
-        }
+        let kd = if kw { Some(self.stack[nbase + npos + 1].get()) } else { None };
+        (args, kd)
+    }
+
+    /// The keyword Hash when it has entries — what mruby appends to the positional
+    /// arguments of a function whose format has no `:` (and what it hands a block's
+    /// `OP_ENTER` that takes no keywords). An empty one is left out of the arguments.
+    fn kdict_nonempty(&self, kd: Option<Value>) -> Option<Value> {
+        let h = kd?;
+        match h.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) if !hd.is_empty() => Some(h), _ => None }
+    }
+
+    /// What a native method sees: [`Vm::native_args`] with the keyword Hash appended
+    /// when it has entries, and that same Hash as the second element (`pending_kw`).
+    fn native_call_args(&self, nbase: usize, n: usize, kw: bool) -> (Vec<Value>, Option<Value>) {
+        let (mut args, kd) = self.native_args(nbase, n, kw);
+        let kd = self.kdict_nonempty(kd);
+        if let Some(h) = kd { args.push(h); }
         (args, kd)
     }
 
@@ -4133,8 +4225,7 @@ impl Vm {
                         // insert the method name as the first argument
                         let (args, kd) = self.native_args(base + a, argc, kw);
                         let mut nargs = vec![Value::Sym(mid)];
-                        let pos = if kd.is_some() { &args[..args.len() - 1] } else { &args[..] };
-                        nargs.extend_from_slice(pos);
+                        nargs.extend_from_slice(&args);
                         if matches!(m, Method::Ruby(_)) {
                             // A `method_missing` written in Ruby takes the call *in this
                             // frame*, the way `send` does (mruby's `prepare_missing` rewrites
@@ -4146,11 +4237,11 @@ impl Vm {
                             // next `method_missing` up the chain, and going through
                             // `op_send_vis` with `explicit` false is what lets a private one
                             // answer, as it does in the reference and in CRuby.
-                            let c = self.relay_args(base + a, nargs, kd, blk);
+                            let c = self.relay_args(base + a, nargs, kd, blk, true);
                             return self.op_send_vis(base, a, mm, c, has_blk, false, false);
                         }
                         let r = match m {
-                            Method::Closure(f) => { if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_closure_direct(&f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
+                            Method::Closure(f) => { let kd = self.kdict_nonempty(kd); if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_closure_direct(&f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
                             _ => Value::Nil,
                         };
                         self.stack[base + a] = Slot::from(r);
@@ -4159,7 +4250,7 @@ impl Vm {
                 }
                 let name = self.sym_name(mid);
                 let desc = self.describe_for_error(recv);
-                let args = self.native_args(base + a, argc, kw).0;
+                let args = self.native_call_args(base + a, argc, kw).0;
                 let msg = if is_super { format!("no superclass method '{name}' for {desc}") } else { format!("undefined method '{name}' for {desc}") };
                 let e = self.no_method_error(mid, recv, &msg);
                 if let VmError::Raise(Value::Obj(o)) = e { let av = self.ary_new(args); let k = self.intern("@args"); self.heap.ivar_set(o, k, av); }
@@ -4175,7 +4266,7 @@ impl Vm {
                     // so `Fiber.yield` and `break` inside the callee still work.
                     return self.op_send_redirect(base, a, argc, kw, has_blk, blk);
                 }
-                let (args, kd) = self.native_args(base + a, argc, kw);
+                let (args, kd) = self.native_call_args(base + a, argc, kw);
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
                 let r = self.call_native_direct(f, recv, &args, blk, base + a);
                 self.pending_kw = saved;
@@ -4185,7 +4276,7 @@ impl Vm {
             MethodRef::Closure => {
                 self.native_mid = Some(mid);
                 let f = match self.closure_of(owner, mid) { Some(f) => f, None => return Err(VmError::Internal("closure vanished between lookup and call".into())) };
-                let (args, kd) = self.native_args(base + a, argc, kw);
+                let (args, kd) = self.native_call_args(base + a, argc, kw);
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
                 let r = self.call_closure_direct(&f, recv, &args, blk, base + a);
                 self.pending_kw = saved;
@@ -4193,12 +4284,12 @@ impl Vm {
                 if !switched { self.stack[base + a] = Slot::from(v); }
             }
             MethodRef::AttrReader(iv) => {
-                let (args, _) = self.native_args(base + a, argc, kw);
+                let (args, _) = self.native_call_args(base + a, argc, kw);
                 if !args.is_empty() { return Err(self.argnum_error(args.len(), "0")); }
                 self.stack[base + a] = Slot::from(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil));
             }
             MethodRef::AttrWriter(iv) => {
-                let (args, _) = self.native_args(base + a, argc, kw);
+                let (args, _) = self.native_call_args(base + a, argc, kw);
                 if args.len() != 1 { return Err(self.argnum_error(args.len(), "1")); }
                 let v = args[0];
                 match recv { Value::Obj(o) => self.heap.ivar_set(o, iv, v), _ => return Err(self.raise_type("can't set instance variable")) }

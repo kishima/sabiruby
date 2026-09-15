@@ -19,7 +19,7 @@ impl Player {
     fn hp(&self) -> i64 { self.hp }                  // player.hp
 }
 
-Player::register(&mut vm);
+Player::register(&mut vm)?;
 ```
 
 The crate does **not** depend on `sabiruby`: what it generates names `::sabiruby::…` and a host
@@ -55,7 +55,9 @@ special case anywhere: they are all just `IntoRuby`.
 
 `#[ruby_methods]` gives the `impl` block back unchanged (minus the `#[ruby(…)]` attributes,
 which are its own) and adds `T::register(&mut vm)`, which defines the class, installs the store
-and its tag, and calls `Vm::define_fn` once per method. Reading a signature:
+and its tag, and calls `Vm::define_fn` once per method. It answers `VmResult<ObjId>`: asking a
+class for its singleton class (where the class methods go) is a `VmResult`, and the generated
+code has no business deciding on the host's behalf that the answer cannot fail. Reading a signature:
 
 | in Rust | in Ruby |
 |---|---|
@@ -63,6 +65,7 @@ and its tag, and calls `Vm::define_fn` once per method. Reading a signature:
 | `&self` | an instance method that reads |
 | `&mut self` | an instance method that writes |
 | a leading `&mut Vm` (after `self`) | the call's context, not an argument |
+| a trailing `Block` | the block the caller passed, not an argument |
 | everything else | the arguments, in order, at most six |
 | the return type | the answer, through `IntoRuby` |
 
@@ -95,8 +98,13 @@ are two shapes of generated body:
 
 ## What it does not cover
 
-* **Optional, rest and keyword arguments, and blocks.** A method that wants them takes the raw
-  call with `Vm::define_closure`, as it would without the macros.
+* **Optional, rest and keyword arguments.** A method that wants them takes the raw call with
+  `Vm::define_closure`, as it would without the macros. A **block** it does take: a last
+  parameter spelled `Block` is the caller's block (`None` when there was none), it is not
+  counted in the arity, and it comes with the `&mut Vm` — `define_fn` has no shape without it,
+  and calling the block needs it anyway (`Vm::call_block`). A method that takes the block and
+  the `&mut Vm` has its receiver out of the store for the call, so a block that calls back into
+  the same object raises rather than seeing it half-written, as any `&mut Vm` method does.
 * **Generic types and generic `fn`s**, `async fn`, `unsafe fn`, and a method that takes `self`
   by value (it would leave the Ruby object naming nothing). All are refused with a message
   saying why.
@@ -108,7 +116,11 @@ are two shapes of generated body:
 * **Modules and nesting**: the class is defined under `Object`. A class inside a module is
   defined by hand, as `Vm::define_class` is.
 * **Inheritance**: `Player.allocate`, or a Ruby subclass's `allocate`, makes an ordinary object
-  with no handle in it; calling a method on one is a `TypeError` naming the class. A host that
+  with no handle in it; calling a method on one is a `TypeError` saying so —
+  `uninitialized Ghost (expected Player): the object has no Player behind it — `Player.allocate`
+  makes one without running `initialize``, worded after mruby's `mrb_data_check_type`
+  (`uninitialized %t (expected %s)`, src/etc.c, for an `RData` whose `DATA_TYPE` is still NULL).
+  A receiver of another class keeps `wrong argument type String (expected Player)`. A host that
   wants Ruby subclasses of a host class defines `new` in Ruby over the host's own constructor.
 
 ## Where the pieces are

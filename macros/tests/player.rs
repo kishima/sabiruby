@@ -56,6 +56,27 @@ impl Player {
         let them = String::from_ruby(vm, them)?;
         Ok(format!("{} greets {}", self.name, them))
     }
+    /// Takes the caller's block: `Block` last, and the `&mut Vm` that calling it needs.
+    /// `player.each_hit(3) { |n| ... }` calls the block `n` times with what is left.
+    fn each_hit(&mut self, vm: &mut Vm, times: i64, blk: sabiruby::convert::Block) -> sabiruby::error::VmResult<i64> {
+        let b = match blk.0 {
+            Some(b) => b,
+            None => return Err(vm.raise_arg("no block given")),
+        };
+        for _ in 0..times {
+            self.hp -= 1;
+            vm.call_block(b, &[Value::Int(self.hp)])?;
+        }
+        Ok(self.hp)
+    }
+    /// A class method with a block, and no arguments at all besides it.
+    fn from_block(vm: &mut Vm, blk: sabiruby::convert::Block) -> sabiruby::error::VmResult<Self> {
+        let hp = match blk.0 {
+            Some(b) => { let v = vm.call_block(b, &[])?; i64::from_ruby(vm, v)? }
+            None => 0,
+        };
+        Ok(Player { hp, name: String::from("anon") })
+    }
     /// The one the host keeps to itself.
     #[ruby(skip)]
     fn secret(&self) -> i64 {
@@ -102,7 +123,7 @@ fn run(vm: &mut Vm, src: &str) -> String {
 
 fn vm_with_player() -> Vm {
     let mut vm = Vm::with_mrblib().expect("vm");
-    Player::register(&mut vm);
+    Player::register(&mut vm).expect("Player registers");
     vm
 }
 
@@ -137,6 +158,42 @@ fn ruby_makes_a_player_and_drives_it() {
     ));
     // the values are in the store, not in the VM's heap
     assert_eq!(vm.host_store::<Player>().unwrap().len(), 3);
+}
+
+#[test]
+fn a_method_takes_the_callers_block() {
+    let mut vm = vm_with_player();
+    let out = run(&mut vm, r#"
+      pl = Player.new(10)
+      seen = []
+      p pl.each_hit(3) { |left| seen << left }
+      p seen
+      p pl.hp
+      # a block is not an argument: the arity is the arguments, and `block_given?` inside the
+      # block is the caller's own frame, so all the method can say is whether it got one
+      p Player.instance_method(:each_hit).arity
+      begin; pl.each_hit(1); rescue ArgumentError => e; p e.message; end
+      # and a class method with nothing but a block
+      p Player.from_block { 42 }.hp
+      p Player.from_block.hp
+      # the block can reach back into the object it was given to: the value is out of the
+      # store for the call, so a re-entry is refused rather than seen half-written
+      begin
+        pl.each_hit(1) { pl.hp }
+      rescue RuntimeError => e
+        p e.message
+      end
+    "#);
+    assert_eq!(out, concat!(
+        "7\n",
+        "[9, 8, 7]\n",
+        "7\n",
+        "1\n",
+        "\"no block given\"\n",
+        "42\n",
+        "0\n",
+        "\"Player is already in use by a call on the same object\"\n",
+    ));
 }
 
 #[test]
@@ -192,9 +249,14 @@ fn an_argument_of_the_wrong_type_raises_where_the_vms_own_natives_do() {
 #[test]
 fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
     let mut vm = vm_with_player();
-    Beast::register(&mut vm);
+    Beast::register(&mut vm).expect("Beast registers");
     // `allocate` makes an ordinary object of the class, with no handle in it: the one way
-    // Ruby can reach a Player method with something that is not one
+    // Ruby can reach a Player method with something that is not one. It is worth its own
+    // sentence — "wrong argument type Player (expected Player)" reads like a bug in the VM —
+    // and mruby words it the same way (`uninitialized %t (expected %s)`, src/etc.c), naming
+    // the object's own class, so a subclass says Ghost and the expected one says Player.
+    // Reaching the same method through `instance_exec` on something else is the other half:
+    // there the class really is wrong, and the message stays the one for that.
     let out = run(&mut vm, r#"
       pl = Player.new(1)
       class Ghost < Player; end
@@ -203,10 +265,18 @@ fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
       p pl.hp
     "#);
     assert_eq!(out, concat!(
-        "\"wrong argument type Ghost (expected Player)\"\n",
-        "\"wrong argument type Player (expected Player)\"\n",
+        "\"uninitialized Ghost (expected Player): the object has no Player behind it \
+           — `Player.allocate` makes one without running `initialize`\"\n",
+        "\"uninitialized Player (expected Player): the object has no Player behind it \
+           — `Player.allocate` makes one without running `initialize`\"\n",
         "1\n",
     ));
+    // something that is not a Player at all keeps the message for that, allocated or not:
+    // the class is what is wrong, not the missing value
+    run(&mut vm, r#"$s = "s""#);
+    let s = vm.global_get("$s");
+    let err = Player::borrow(&mut vm, s).expect_err("not a Player");
+    assert_eq!(vm.describe_error(&err), "wrong argument type String (expected Player) (TypeError)");
     // and a handle of the other type is not this one's, tag against tag
     run(&mut vm, r#"$beast = Monster.new("orc")"#);
     let beast = vm.global_get("$beast");
@@ -217,7 +287,7 @@ fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
 #[test]
 fn two_types_in_one_vm_keep_their_own_tags_and_stores() {
     let mut vm = vm_with_player();
-    Beast::register(&mut vm);
+    Beast::register(&mut vm).expect("Beast registers");
     let p_tag = Player::tag(&mut vm);
     let b_tag = Beast::tag(&mut vm);
     assert_ne!(p_tag, b_tag);

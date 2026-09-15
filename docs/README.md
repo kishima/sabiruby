@@ -48,7 +48,7 @@ in English; plans and the worklog are in Japanese.
 | [eval-require-plan.md](plans/eval-require-plan.md) | done (2026-09-13); written as a study, kept for the reasoning |
 | [after-gems-plan.md](plans/after-gems-plan.md) | done (2026-09-13): rubevy on one VM with tasks, backtraces, `sleep`/`strftime` |
 | [playground-plan.md](plans/playground-plan.md) | done (2026-09-12); the playground repository carries the visualizer plan |
-| [leftovers-plan.md](plans/leftovers-plan.md) | to do (2026-09-16): the small items each stage left behind — `foo(**{})`, the macro's `expect`, `printf`/`putc`, `items()` copies, `Arg::Value`, API gaps |
+| [leftovers-plan.md](plans/leftovers-plan.md) | items 1–4, 8 and 9 done (2026-09-16); 5 and 6 want benchmarks, 7 is rubevy's, 10 is the author's — the small items each stage left behind |
 | [perf3-plan.md](plans/perf3-plan.md) | to do (2026-09-16): the third round of speed — String, the instruction loop, calls, the 8-byte `Slot` experiment, what is left of `so_lists` |
 | [from-mrubyedge-plan.md](plans/from-mrubyedge-plan.md) | items 1 and 3 done (2026-09-16); what mruby/edge does that is worth having — serde, RBS at the boundary, a coverage list, gems as features, `RUBY_ENGINE` |
 | [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b is rubevy's and 6c is both. Carries the findings of each stage |
@@ -74,6 +74,13 @@ and the one line of CRuby's JSON output that caught `serde_json::Map` sorting it
 [rbs-study](worklog/2026-09-16-rbs-study.md) is item 2, a study rather than a change: what the
 one build of `ruby-rbs` said (libclang), that mruby/edge's `.rbs` is not RBS at all, and the
 asymmetry between checking a signature and generating one when all the macro has is a spelling.
+
+[leftovers](worklog/2026-09-16-leftovers.md) is `leftovers-plan.md`'s items 1–4, 8 and 9: why an
+empty keyword Hash is something mruby carries rather than something it drops, the one place
+`send` and `method_missing` do not lay out a frame the same way, the reference's own wording for
+an object that has no Rust value behind it, the block a `#[ruby_methods]` method can now take,
+the three entry points rubevy was reaching through `funcall`, and the eight methods and hooks
+the coverage list said were missing.
 
 [regexp-feature](worklog/2026-09-16-regexp-feature.md) is the same plan's item 4: what a build
 without mruby-regexp must answer where the reference has no gem to ask, the `sub`/`gsub` that

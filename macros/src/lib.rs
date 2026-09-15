@@ -17,7 +17,7 @@
 //!
 //! # fn main() -> Result<(), sabiruby::VmError> {
 //! let mut vm = Vm::with_mrblib()?;
-//! Player::register(&mut vm);                           // the class, the store, the methods
+//! Player::register(&mut vm)?;                          // the class, the store, the methods
 //! # Ok(()) }
 //! ```
 //!
@@ -50,7 +50,7 @@ pub fn derive_ruby_class(input: TokenStream) -> TokenStream {
 }
 
 /// Registers the `fn`s of an inherent `impl` block as the Ruby class's methods, as
-/// `T::register(&mut vm)`.
+/// `T::register(&mut vm) -> VmResult<ObjId>`.
 ///
 /// A `fn` with no `self` is a class method (`Player.new`), `&self` and `&mut self` are
 /// instance methods, and a leading `&mut Vm` (after `self`) is the call's context rather than

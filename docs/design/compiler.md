@@ -129,8 +129,9 @@ the gems: the numeric tower, Struct, Set, Time, pack, eval and `binding`, UTF-8 
 `require`/`load`, Regexp and the task scheduler (`docs/design/gems.md`); the compiler's 0.2.0 adds
 the `host` feature, which is what `eval` asks for a compile. 0.4.0 adds what a host needs to
 drive the scheduler itself: `task_next_wakeup_ticks`, `task_pending`, and `task_queue_new` /
-`task_queue_push` (how a host answers a script that is parked on a question), plus `VERSION` and
-`REVISION` so an embedder can say which VM it runs.
+`task_queue_push` / `task_queue_len` / `task_queue_try_pop` (how a host answers a script that is
+parked on a question, and how it drains a queue the script pushes to), plus `Vm::hash_keys` and
+`VERSION` and `REVISION` so an embedder can say which VM it runs.
 
 A dev-dependency that names a version would be resolved from crates.io when the packaged crate
 is verified, so the one on `sabiruby-compiler` here carries a path and no version: a version

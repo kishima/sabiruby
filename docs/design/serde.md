@@ -131,7 +131,9 @@ Two entry points, in the shape stage 3b of `host-bridge-plan.md` gave the others
 
 * `Vm::hash_entries(v) -> Option<Vec<(Value, Value)>>` — a Hash's entries in insertion order,
   the counterpart of `ary_vals`. Without it a host can only read a Hash key by key, and it has
-  no way to get the keys.
+  no way to get the keys. (`Vm::hash_keys(v) -> Option<Vec<Value>>`, added later for the same
+  reason on rubevy's side, is the keys alone, for a host that then looks up only the ones it
+  wants with `hash_get`.)
 * `Vm::define_class_under(outer, name, superclass)` — `mrb_define_class_under`, so that
   `JSON::ParserError` is a constant of `JSON` and answers with its qualified name.
 

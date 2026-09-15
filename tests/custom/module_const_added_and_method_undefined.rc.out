@@ -1,0 +1,16 @@
+const_added A = 1
+const_added B = [2, 3]
+const_added C = :three
+const_added D = 4
+[:A, :B, :C, :D]
+const_added Inner = Watched::Inner
+const_added Deeper = Watched::Deeper
+true
+const_added Alias = Watched::Inner
+method_undefined m2
+[]
+Sub heard gone
+true
+NoMethodError
+nil
+nil

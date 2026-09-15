@@ -17,7 +17,7 @@ impl Player {
     fn hp(&self) -> i64 { self.hp }                  // player.hp
 }
 
-Player::register(&mut vm);                           // the class, the store, the methods
+Player::register(&mut vm)?;                          // the class, the store, the methods
 ```
 
 The value stays in Rust — it lives in a `HostStore` the VM carries and Ruby holds a handle to

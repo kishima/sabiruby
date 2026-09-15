@@ -194,8 +194,7 @@ pub fn init(vm: &mut Vm) {
                 if vm.heap.class_mut(owner).methods.remove(&mid).is_none() { let n = vm.sym_name(mid); let cn = vm.class_name(me); return Err(vm.name_error(mid, &format!("method '{n}' not defined in {cn}"))); }
                 vm.heap.class_mut(owner).vis.remove(&mid);
                 // the hook: `singleton_method_removed` on the attached object, else `method_removed`
-                let (recv, hook) = if vm.heap.class(me).is_singleton { (vm.heap.class(me).attached.map(|x| x.get()).unwrap_or(Value::Nil), vm.intern("singleton_method_removed")) } else { (s, vm.intern("method_removed")) };
-                vm.funcall(recv, hook, &[Value::Sym(mid)], Value::Nil)?;
+                vm.method_removed_hook(me, mid)?;
             }
             Ok(s)
         }),

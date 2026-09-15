@@ -48,6 +48,16 @@ pub(crate) fn num_args(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<(Value, V
 }
 
 /// mruby coerces a non-numeric operand with `mrb_ensure_float_type`, hence the message.
+/// `mrb_ensure_float_type` (src/object.c): the numeric types become a Float and everything else
+/// is a TypeError. It sends nothing — a class with a `to_f` is not converted — and `nil` has a
+/// message of its own.
+fn ensure_f64(vm: &mut Vm, v: Value) -> VmResult<f64> {
+    if let Some(f) = num_f64(vm, v) { return Ok(f); }
+    if v.is_nil() { return Err(vm.raise_type("can't convert nil into Float")); }
+    let d = vm.describe_for_type_error(v);
+    Err(vm.raise_type(&format!("{d} cannot be converted to Float")))
+}
+
 pub(crate) fn coerce_fail(vm: &mut Vm, other: Value, _op: &str) -> crate::error::VmError {
     let d = vm.describe_for_type_error(other);
     vm.raise_type(&format!("can't convert {d} into Float"))
@@ -490,6 +500,16 @@ pub fn init(vm: &mut Vm) {
         ("infinite?", |_vm, s, _a, _b| Ok(match s { Value::Float(f) if f.is_infinite() => Value::Int(if f > 0.0 { 1 } else { -1 }), _ => Value::Nil })),
         ("finite?", |_vm, s, _a, _b| Ok(Value::bool(!matches!(s, Value::Float(f) if !f.is_finite())))),
         ("step", |vm, _s, _a, _b| Err(vm.raise(vm.core.not_implemented_error, "Numeric#step is provided by mrblib"))),
+        // `num_fdiv` (src/numeric.c): the receiver goes through `mrb_ensure_float_type`, which
+        // converts the numeric types and raises for anything else — it does not send `to_f` —
+        // and then it is ordinary Float division. Integer and Float have their own `fdiv`; this
+        // is the one the rest of the tower (Rational, and a wide Integer) answers with.
+        ("fdiv", |vm, s, a, _b| {
+            argc!(vm, a, 1);
+            let p = ensure_f64(vm, s)?;
+            let q = ensure_f64(vm, a[0])?;
+            Ok(Value::Float(p / q))
+        }),
     ]);
     vm.define_methods(c.integer, &[
         ("+", |vm, s, a, _b| int_arith(vm, s, a, IntOp::Add)),

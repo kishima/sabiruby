@@ -1,0 +1,239 @@
+irep 0x56253f264ee0 nregs=9 nlocals=4 pools=0 syms=25 reps=8 ilen=285
+local variable names:
+  R1:w
+  R2:e
+  R3:o
+catch type: rescue   begin: 0099 end: 0105 target: 0108
+file: /w/singleton_method_hooks.rb
+    7 000 LOADNIL	R4	(nil)
+    7 002 LOADNIL	R5	(nil)
+    7 004 CLASS		R4	:Watcher
+    7 007 EXEC		R4	I[0]
+   19 010 GETCONST	R4	Watcher
+   19 013 SEND0		R4	:new
+   19 016 MOVE		R1	R4	; R1:w
+   20 019 MOVE		R4	R1	; R1:w
+   20 022 SDEF		R4	:one	I[1]
+   21 026 MOVE		R4	R1	; R1:w
+   21 029 LOADSYM	R5	:two
+   21 032 BLOCK		R6	I[2]
+   21 035 SENDB		R4	:define_singleton_method	n=1
+   22 039 MOVE		R5	R1	; R1:w
+   22 042 SEND0		R5	:one
+   22 045 MOVE		R6	R1	; R1:w
+   22 048 SEND0		R6	:two
+   22 051 SSEND		R4	:p	n=2
+   23 055 MOVE		R5	R1	; R1:w
+   23 058 SEND0		R5	:singleton_methods
+   23 061 SEND0		R5	:sort
+   23 064 SSEND		R4	:p	n=1
+   25 068 MOVE		R4	R1	; R1:w
+   25 071 SCLASS	R4
+   25 073 EXEC		R4	I[3]
+   30 076 MOVE		R5	R1	; R1:w
+   30 079 SEND0		R5	:three
+   30 082 SSEND		R4	:p	n=1
+   31 086 MOVE		R5	R1	; R1:w
+   31 089 SEND0		R5	:singleton_methods
+   31 092 SEND0		R5	:sort
+   31 095 SSEND		R4	:p	n=1
+   33 099 MOVE		R4	R1	; R1:w
+   33 102 SEND0		R4	:one
+   33 105 JMP		141
+   33 108 EXCEPT	R4	
+   34 110 GETCONST	R5	NoMethodError
+   34 113 RESCUE	R4	R5
+   34 116 JMPIF		R5	123
+   34 120 JMP		139
+   34 123 MOVE		R2	R4	; R2:e
+   35 126 MOVE		R5	R2	; R2:e
+   35 129 SEND0		R5	:class
+   35 132 SSEND		R4	:p	n=1
+   35 136 JMP		141
+   35 139 RAISEIF	R4	
+   39 141 LOADNIL	R4	(nil)
+   39 143 LOADNIL	R5	(nil)
+   39 145 CLASS		R4	:Watcher
+   39 148 EXEC		R4	I[4]
+   45 151 LOADNIL	R4	(nil)
+   45 153 LOADNIL	R5	(nil)
+   45 155 CLASS		R4	:Counted
+   45 158 EXEC		R4	I[5]
+   49 161 GETCONST	R5	Counted
+   49 164 SEND0		R5	:five
+   49 167 SSEND		R4	:p	n=1
+   52 171 LOADNIL	R4	(nil)
+   52 173 MODULE	R4	:Ext
+   52 176 EXEC		R4	I[6]
+   53 179 MOVE		R4	R1	; R1:w
+   53 182 GETCONST	R5	Ext
+   53 185 SEND		R4	:extend	n=1
+   54 189 MOVE		R5	R1	; R1:w
+   54 192 SEND0		R5	:six
+   54 195 SSEND		R4	:p	n=1
+   57 199 GETCONST	R4	Object
+   57 202 SEND0		R4	:new
+   57 205 MOVE		R3	R4	; R3:o
+   58 208 MOVE		R5	R3	; R3:o
+   58 211 LOADSYM	R6	:singleton_method_added
+   58 214 LOADSYM	R7	:a
+   58 217 SEND		R5	:send	n=2
+   58 221 SSEND		R4	:p	n=1
+   59 225 MOVE		R5	R3	; R3:o
+   59 228 LOADSYM	R6	:singleton_method_removed
+   59 231 LOADSYM	R7	:b
+   59 234 SEND		R5	:send	n=2
+   59 238 SSEND		R4	:p	n=1
+   60 242 MOVE		R5	R3	; R3:o
+   60 245 LOADSYM	R6	:singleton_method_undefined
+   60 248 LOADSYM	R7	:c
+   60 251 SEND		R5	:send	n=2
+   60 255 SSEND		R4	:p	n=1
+   64 259 LOADSYM	R5	:singleton_method_added
+   64 262 LOADSYM	R6	:singleton_method_removed
+   64 265 LOADSYM	R7	:singleton_method_undefined
+   64 268 ARRAY		R5	3
+   65 271 BLOCK		R6	I[7]
+   65 274 SENDB		R5	:map	n=0
+   65 278 SSEND		R4	:p	n=1
+   65 282 RETURN	R4	
+   65 284 STOP
+
+irep 0x56253f26b310 nregs=2 nlocals=1 pools=0 syms=3 reps=3 ilen=14
+file: /w/singleton_method_hooks.rb
+    8 000 TDEF		R1	:singleton_method_added	I[0]
+   11 004 TDEF		R1	:singleton_method_removed	I[1]
+   14 008 TDEF		R1	:singleton_method_undefined	I[2]
+   14 012 RETURN	R1	
+
+irep 0x56253f26ca40 nregs=6 nlocals=3 pools=1 syms=1 reps=0 ilen=18
+local variable names:
+  R1:name
+file: /w/singleton_method_hooks.rb
+    8 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    9 004 STRING	R4	L[0]	; added 
+    9 007 MOVE		R5	R1	; R1:name
+    9 010 STRCAT	R4	(R5)
+    9 012 SSEND		R3	:puts	n=1
+    9 016 RETURN	R3	
+
+irep 0x56253f26d530 nregs=6 nlocals=3 pools=1 syms=1 reps=0 ilen=18
+local variable names:
+  R1:name
+file: /w/singleton_method_hooks.rb
+   11 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   12 004 STRING	R4	L[0]	; removed 
+   12 007 MOVE		R5	R1	; R1:name
+   12 010 STRCAT	R4	(R5)
+   12 012 SSEND		R3	:puts	n=1
+   12 016 RETURN	R3	
+
+irep 0x56253f26dc90 nregs=6 nlocals=3 pools=1 syms=1 reps=0 ilen=18
+local variable names:
+  R1:name
+file: /w/singleton_method_hooks.rb
+   14 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   15 004 STRING	R4	L[0]	; undefined 
+   15 007 MOVE		R5	R1	; R1:name
+   15 010 STRCAT	R4	(R5)
+   15 012 SSEND		R3	:puts	n=1
+   15 016 RETURN	R3	
+
+irep 0x56253f26c610 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/singleton_method_hooks.rb
+   20 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   20 004 LOADI_1	R2	(1)
+   20 006 RETURN	R2	
+
+irep 0x56253f26c960 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/singleton_method_hooks.rb
+   21 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   21 004 LOADI_2	R2	(2)
+   21 006 RETURN	R2	
+
+irep 0x56253f26c4c0 nregs=4 nlocals=1 pools=0 syms=5 reps=1 ilen=20
+file: /w/singleton_method_hooks.rb
+   26 000 TDEF		R1	:three	I[0]
+   27 004 LOADSYM	R2	:two
+   27 007 SSEND		R1	:remove_method	n=1
+   28 011 LOADSYM	R2	:one
+   28 014 SSEND		R1	:undef_method	n=1
+   28 018 RETURN	R1	
+
+irep 0x56253f26c5a0 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/singleton_method_hooks.rb
+   26 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   26 004 LOADI_3	R2	(3)
+   26 006 RETURN	R2	
+
+irep 0x56253f26f3b0 nregs=2 nlocals=1 pools=0 syms=2 reps=2 ilen=12
+file: /w/singleton_method_hooks.rb
+   40 000 LOADSELF	R1	(R0)
+   40 002 SDEF		R1	:method_added	I[0]
+   41 006 TDEF		R1	:four	I[1]
+   41 010 RETURN	R1	
+
+irep 0x56253f26c0c0 nregs=6 nlocals=3 pools=1 syms=1 reps=0 ilen=18
+local variable names:
+  R1:name
+file: /w/singleton_method_hooks.rb
+   40 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   40 004 STRING	R4	L[0]	; class heard 
+   40 007 MOVE		R5	R1	; R1:name
+   40 010 STRCAT	R4	(R5)
+   40 012 SSEND		R3	:puts	n=1
+   40 016 RETURN	R3	
+
+irep 0x56253f270b60 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/singleton_method_hooks.rb
+   41 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   41 004 LOADI_4	R2	(4)
+   41 006 RETURN	R2	
+
+irep 0x56253f270cc0 nregs=2 nlocals=1 pools=0 syms=2 reps=2 ilen=14
+file: /w/singleton_method_hooks.rb
+   46 000 LOADSELF	R1	(R0)
+   46 002 SDEF		R1	:singleton_method_added	I[0]
+   47 006 LOADSELF	R1	(R0)
+   47 008 SDEF		R1	:five	I[1]
+   47 012 RETURN	R1	
+
+irep 0x56253f26f750 nregs=6 nlocals=3 pools=1 syms=1 reps=0 ilen=18
+local variable names:
+  R1:name
+file: /w/singleton_method_hooks.rb
+   46 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   46 004 STRING	R4	L[0]	; Counted added 
+   46 007 MOVE		R5	R1	; R1:name
+   46 010 STRCAT	R4	(R5)
+   46 012 SSEND		R3	:puts	n=1
+   46 016 RETURN	R3	
+
+irep 0x56253f26f890 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/singleton_method_hooks.rb
+   47 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   47 004 LOADI_5	R2	(5)
+   47 006 RETURN	R2	
+
+irep 0x56253f2708b0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/singleton_method_hooks.rb
+   52 000 TDEF		R1	:six	I[0]
+   52 004 RETURN	R1	
+
+irep 0x56253f271820 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=8
+file: /w/singleton_method_hooks.rb
+   52 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   52 004 LOADI_6	R2	(6)
+   52 006 RETURN	R2	
+
+irep 0x56253f271c00 nregs=6 nlocals=3 pools=0 syms=3 reps=0 ilen=19
+local variable names:
+  R1:m
+file: /w/singleton_method_hooks.rb
+   65 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   65 004 GETCONST	R3	BasicObject
+   65 007 MOVE		R4	R1	; R1:m
+   65 010 SEND		R3	:instance_method	n=1
+   65 014 SEND0		R3	:owner
+   65 017 RETURN	R3	
+
