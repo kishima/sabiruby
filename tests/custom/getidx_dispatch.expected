@@ -1,0 +1,83 @@
+[:set, :a, 1]
+[:get, :a]
+[:get, 0]
+[1, nil]
+["A2", 0]
+["A2", 0]
+"[0, \"5\", 0]"
+[RuntimeError, "boom 3"]
+[RuntimeError, "boom 0"]
+[ArgumentError, "no 1"]
+"MyA2"
+"MyHk"
+"MyS1"
+"MyA0"
+"MyH0"
+"MyS0"
+7
+7
+"sing1"
+"sing0"
+2
+9
+{a: 1}
+"S0"
+"S1"
+[20, 30]
+40
+[20, 30]
+[10, 20, 30, 40]
+nil
+nil
+:one
+:str
+:rng
+nil
+:zero
+"world"
+"hello"
+"world"
+"d"
+nil
+"h"
+nil
+:dflt
+:dflt
+"made y"
+"made 0"
+{y: "made y", 0 => "made 0"}
+99
+1
+"Z"
+"Zbc"
+7
+NoMethodError
+NoMethodError
+42
+0
+1
+1
+2
+9
+[:[], [1]]
+[:[], [0]]
+2
+FrozenError
+FrozenError
+FrozenError
+TypeError
+IndexError
+IndexError
+"ll"
+"o"
+"heLo"
+redef 1
+redef 0
+redef 1
+2
+1
+"redef q"
+"redef 0"
+loud:2
+loud:1
+"loud:[2, 3]"
