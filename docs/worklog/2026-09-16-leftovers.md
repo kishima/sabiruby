@@ -127,3 +127,43 @@ let __meta = vm.singleton_class(::sabiruby::Value::Obj(__class)).expect("a class
 これは rubevy のホストコード自身が書いた `expect` なので、今回の変更とは別（直すなら rubevy 側の判断）。
 
 固定した期待値（`macros/tests/expand.rs`）と、`macros/README.md`・`macros/src/lib.rs`・`docs/design/macros.md` の例も直した。
+
+---
+
+## 3. `allocate` で作った素のオブジェクトの文言
+
+`Player.allocate` は `initialize` を走らせずにオブジェクトだけ作るので、
+`#[derive(RubyClass)]` の店（`HostStore`）には何も入っていない。そこへ `hp` を呼ぶと
+`RubyClass::handle_of`（`src/host_store.rs`）が
+
+```
+wrong argument type Player (expected Player)
+```
+
+を返していた。同じ名前が 2 回出てくるので、**VM の不具合に見える**。ホストが知りたいのは
+「この `Player` には Rust の実体が無い」であって「型が違う」ではない。
+
+本家に同じ場所がある。`mrb_data_check_type`（`src/etc.c:35`）は `DATA_TYPE(obj)` を見て、
+別の型なら `wrong argument type %s (expected %s)`、**NULL なら `uninitialized %t (expected %s)`** を投げる。
+`%t` はオブジェクト自身のクラス名なので、部分クラスなら部分クラスの名前が出る。確かめた:
+
+```
+$ docker run … mruby -e 'begin; Time.allocate.to_i; rescue=>e; p e.message; end'
+"uninitialized Time (expected Time)"
+$ … 'class MyTime < Time; end; begin; MyTime.allocate.to_i; rescue=>e; p e.message; end'
+"uninitialized MyTime (expected Time)"
+```
+
+これに合わせて `handle_of` を 3 分岐にした。別のタグの `Data` は今まで通り `wrong argument type`、
+`Data` ですらないが**このクラス（か部分クラス）のインスタンス**なら `uninitialized …`、
+それ以外（String に `instance_exec` で届いた、など）は `wrong argument type`。
+
+`convert.rs` の `DataRef::from_ruby`（`This<DataRef>` で手書きの `define_fn` が使うほう）は触っていない。
+あちらは「期待するクラス」を持っていないので、素のオブジェクトと本当に間違った引数を区別できない。
+本家も引数として渡された非 `T_CDATA` は `mrb_check_type` 経由で `wrong argument type Object (expected Data)` と言うだけで、
+SabiRuby の今の文言と一致している（`tests/data.rs` がその 2 行を固定している）。
+読めない文言だったのは、クラスを知っている `handle_of` の側だけだった。
+
+テストは `macros/tests/player.rs` の
+`a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class` を書き換え、
+`Ghost.allocate`（部分クラス）・`Player.allocate`・String（クラスが違う側）の 3 つを固定した。

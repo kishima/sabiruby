@@ -194,7 +194,12 @@ fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
     let mut vm = vm_with_player();
     Beast::register(&mut vm).expect("Beast registers");
     // `allocate` makes an ordinary object of the class, with no handle in it: the one way
-    // Ruby can reach a Player method with something that is not one
+    // Ruby can reach a Player method with something that is not one. It is worth its own
+    // sentence — "wrong argument type Player (expected Player)" reads like a bug in the VM —
+    // and mruby words it the same way (`uninitialized %t (expected %s)`, src/etc.c), naming
+    // the object's own class, so a subclass says Ghost and the expected one says Player.
+    // Reaching the same method through `instance_exec` on something else is the other half:
+    // there the class really is wrong, and the message stays the one for that.
     let out = run(&mut vm, r#"
       pl = Player.new(1)
       class Ghost < Player; end
@@ -203,10 +208,18 @@ fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
       p pl.hp
     "#);
     assert_eq!(out, concat!(
-        "\"wrong argument type Ghost (expected Player)\"\n",
-        "\"wrong argument type Player (expected Player)\"\n",
+        "\"uninitialized Ghost (expected Player): the object has no Player behind it \
+           — `Player.allocate` makes one without running `initialize`\"\n",
+        "\"uninitialized Player (expected Player): the object has no Player behind it \
+           — `Player.allocate` makes one without running `initialize`\"\n",
         "1\n",
     ));
+    // something that is not a Player at all keeps the message for that, allocated or not:
+    // the class is what is wrong, not the missing value
+    run(&mut vm, r#"$s = "s""#);
+    let s = vm.global_get("$s");
+    let err = Player::borrow(&mut vm, s).expect_err("not a Player");
+    assert_eq!(vm.describe_error(&err), "wrong argument type String (expected Player) (TypeError)");
     // and a handle of the other type is not this one's, tag against tag
     run(&mut vm, r#"$beast = Monster.new("orc")"#);
     let beast = vm.global_get("$beast");

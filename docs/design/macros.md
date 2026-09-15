@@ -110,7 +110,11 @@ are two shapes of generated body:
 * **Modules and nesting**: the class is defined under `Object`. A class inside a module is
   defined by hand, as `Vm::define_class` is.
 * **Inheritance**: `Player.allocate`, or a Ruby subclass's `allocate`, makes an ordinary object
-  with no handle in it; calling a method on one is a `TypeError` naming the class. A host that
+  with no handle in it; calling a method on one is a `TypeError` saying so —
+  `uninitialized Ghost (expected Player): the object has no Player behind it — `Player.allocate`
+  makes one without running `initialize``, worded after mruby's `mrb_data_check_type`
+  (`uninitialized %t (expected %s)`, src/etc.c, for an `RData` whose `DATA_TYPE` is still NULL).
+  A receiver of another class keeps `wrong argument type String (expected Player)`. A host that
   wants Ruby subclasses of a host class defines `new` in Ruby over the host's own constructor.
 
 ## Where the pieces are
