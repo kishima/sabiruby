@@ -28,12 +28,38 @@ slots but something in those two kinds. Calls are 3.0–3.7x, instruction loops 
 alive — is *faster* than the reference (0.5x): the reference's generational collector re-marks the live
 set; at 100,000 objects it took 31 s to SabiRuby's 1.2 s.
 
+### After stages 2, 2b, 4 and 5 (`9fa5b0b`, 2026-09-15)
+
+Baseline `440d4ba` (main after stages 0, 1, 3) against the merged tree, best of 5, reference included
+(`bench/results/440d4ba.tsv`, `9fa5b0b.tsv`):
+
+| category | 440d4ba ms | 9fa5b0b ms | change | ratio to mruby (before → after) |
+|---|---:|---:|---:|---|
+| whole program | 11302 | 8992 | **−20.4%** | 3.53x → **2.88x** |
+| data structures | 7413 | 5848 | **−21.1%** | 10.88x → **8.79x** |
+| instruction loop | 29218 | 21618 | **−26.0%** | 5.77x → **4.37x** |
+| calls | 4557 | 3768 | **−17.3%** | 3.46x → **2.94x** |
+| memory | 2417 | 2053 | **−15.1%** | 1.08x → **0.95x** |
+| **all** | 54908 | 42279 | **−23.0%** | 4.40x → **3.47x** (median 3.15x) |
+
+Every one of the 22 benchmarks got faster. Stages 4 and 5 add no cost the benchmarks see (they do not
+touch the instruction loop; the merged tree measures the same as the perf branch alone, −22.0%).
+How each candidate was measured — alternating A/B rather than best of 5, and why — is in
+`docs/worklog/2026-09-15-stage2-perf.md`.
+
 Per stage (each measured against the commit before it):
 
 | stage | commit | what changed | all | notes |
 |---|---|---|---:|---|
 | 0 | `354b6bb` | opcode decode by table, no `unsafe` | +2.5% | dispatch-bound loops +3–7% (`loop_times` +6.6%), heavy-instruction benchmarks 0% (`bm_so_lists`). The `transmute` had no load; the table has one per instruction. To be won back in stage 2 |
 | 1 | `9837294` | the benchmarks themselves | — | no VM change |
+| 2 c0 | `5119773` | `Op::from_u8` as a 119-arm `match`, not a table | −1.7% | wins back stage 0; `objdump` shows the match folded to a range check |
+| 2 c3 | `68261b0` | `find_method` answers a Copy `MethodRef` on the dispatch path | −2.1% | wins back stage 3: `bm_fib` −5.2%, `call_args` −4.7% |
+| 2 c1 | `fcf0772` | the instruction loop reads three fields of `CallInfo`, not a clone of all thirteen | −2.8% | the widest win: nearly everything faster |
+| 2 c2 | `815ba7f` | `op_counts` off by default, and a fixed array when on (`Vm::set_op_counting`) | **−5.6%** | 20–25% on dense loops: a `Vec` pointer reload and a store→load dependency per instruction |
+| 2 c4 | `4a6826e` | a method cache invalidated by `Heap::method_serial` | −1.3% | every mutable access to a `ClassData` goes through `class_mut`, which bumps the serial |
+| 2b | `05f6f28` | `String#[]` without copying the whole string; one borrow per Hash scan | −8.7% | `ds_string` 7.9× faster, `ds_hash` −25 to −32% |
+| 4, 5 | `ccc60de`, `c667a9d` | `define_fn`, `ObjKind::Data` | — | not on the instruction loop |
 | 3 | `5c3eb6e` (merge of `93824b1`, `1472346`) | `Method::Closure`, host state | +1.8% | `bm_fib` +4.2%, `call_args` +4.0%, `app_tak` +3.8%: `Method`'s `Clone` is no longer a plain copy and `find_method` clones one per call (stage 2, candidate 3, removes that). `loop_while_add` +6.6% (reproduced twice, A/B on a quiet machine: 1100 → 1190 ms) is not explained by that — the loop makes no calls; `loop_times` moved −5.8% at the same time, so code layout is the likely cause. Data structures unchanged |
 
 ## Earlier measurements (the five reference benchmarks, best of 3)
