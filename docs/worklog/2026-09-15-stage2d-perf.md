@@ -400,3 +400,57 @@ micro（交互、min of 5、A = 変更 2、B = 変更 3）:
 3 つで回して **3 つとも 1 バイトも違わない**ことを確かめた。
 本家テスト utf8 `ALL OK`（108）、バイト文字列 `ALL OK`（106）、`cargo test --workspace` 失敗 0、
 `no_std OK`、`unsafe` 0、`cargo doc --no-deps` 警告 0。
+
+---
+
+# 6. 変更 4: `vm_optimization_bench` を 5 つに割る
+
+## なぜ
+
+`vm_optimization_bench` は本家の `benchmark/vm_optimization_bench.rb` をそのまま持ってきたもので、
+`measure` で 35 個の計測を順に回す。分類は「命令ループ」だったが、中身は
+ディスパッチ・算術・メソッド呼び出し・Array/Hash の添字・ループの形・定数の読み込み・分岐予測・
+レジスタ圧・複合（fib、tak、配列操作、文字列操作、**5 万要素の Hash**）と、分類 5 つ全部にまたがっている。
+段階 2c の索引が「命令ループ −11.8%」に出たのも、この 1 本の中の `hash_ops` が動いたからで、
+**分類の名前が中身を説明しなくなっていた**（段階 2c の worklog の最後にもそう書かれている）。
+
+## どう割ったか
+
+本家のセクション区切りに沿って `bench/src/vmo_*.rb` の 5 本にした。`measure` の定義と各ブロックの
+中身は**本家のまま 1 行も変えていない**（`N`、`M`、warm up 3 回、iterations も同じ）。
+
+| 新しいベンチ | 分類 | 本家のどのセクション |
+|---|---|---|
+| `vmo_dispatch` | 命令ループ | 1 ディスパッチ（`empty_loop`、`nop_sequence`）、5a/5d ループの形、8 レジスタ圧 |
+| `vmo_arith` | 命令ループ | 2 算術、6a–6c 定数の読み込み、7 分岐予測 |
+| `vmo_calls` | 呼び出し | 3 メソッド呼び出し、5b/5c `times` と `each` |
+| `vmo_index` | データ構造 | 4 Array/Hash の添字（1000 要素） |
+| `vmo_objects` | データ構造 | 6d 文字列リテラル、9c 配列操作、9d 文字列操作、9e **5 万要素の Hash** |
+
+9a `fibonacci_30` と 9b `tak_18_12_6` は `bm_fib` と `app_tak` がすでに測っているので入れなかった
+（だから 5 本の合計は元の 1 本と一致しない。9.6 秒 対 10.7 秒）。
+元の `vm_optimization_bench` は**そのまま残し、分類を「実アプリ寄り」に移した**。
+35 個の計測を一度に回すのは「実アプリ」に近い形であって、命令ループの計測ではない。
+
+`.mrb` は本家の `mrbc`（Docker の `kishima/mruby:4.1.0-rc`）で `tools/bench.sh` と同じ形
+（`cd /w && mrbc -o NAME.mrb src/NAME.rb`）で作った。`compiler/tests/golden.rs` の `bench_matches_mrbc` は
+`bench/src/*.rb` を総なめして `.mrb` があるものを突き合わせるので、置いただけで対象に入る ―― 通った
+（SabiRuby のコンパイラが本家と 1 バイトも違わない出力を出す）。
+
+## 割った結果（`bench/results/vmo-split.tsv`、変更 3 のバイナリ、本家込み、`--core 2 --runs 5`）
+
+| 分類 | 本家 ms | SabiRuby ms | 本家比 |
+|---|---:|---:|---:|
+| `vmo_dispatch`（命令ループ） | 564 | 2097 | 3.72x |
+| `vmo_arith`（命令ループ） | 960 | 3591 | 3.74x |
+| `vmo_calls`（呼び出し） | 791 | 2776 | 3.51x |
+| `vmo_index`（データ構造） | 155 | 539 | 3.48x |
+| `vmo_objects`（データ構造） | 319 | 597 | **1.87x** |
+| 合計 | 2789 | 9600 | 3.44x |
+
+一度に見えるようになったこと: この 1 本の中では**ディスパッチと算術がいちばん遅く**（3.7x）、
+5 万要素の Hash と文字列を回す `vmo_objects` は**もう本家の 1.87 倍**しかない。
+分けなければ「`vm_optimization_bench` 4.6x」の 1 行で、どこが遅いか分からなかった。
+
+ベンチ 1 周は 31 秒から 41 秒に伸びる（元のファイルを残したので、その分は二重に測っている）。
+交互 A/B を 5 ラウンドで 14 分。

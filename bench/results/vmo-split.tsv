@@ -1,0 +1,6 @@
+category	benchmark	ms_best	ms_median	instructions	ref_ms_best	ref_ms_median
+instruction loop	vmo_arith	3590.627	3634.812	761803553	960	975
+calls	vmo_calls	2776.160	2836.411	320128166	791	793
+instruction loop	vmo_dispatch	2096.734	2139.835	453859315	564	566
+data structures	vmo_index	539.493	542.552	72821218	155	156
+data structures	vmo_objects	597.076	600.408	30349025	319	326
