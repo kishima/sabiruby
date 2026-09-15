@@ -17,7 +17,7 @@ pub fn init(vm: &mut Vm) {
     let c = vm.core;
     vm.define_methods(c.basic_object, &[
         ("initialize", |_vm, _s, _a, _b| Ok(Value::Nil)),
-        ("==", |_vm, s, a, _b| { Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false))) }),
+        ("==", |vm, s, a, _b| { Ok(Value::bool(a.first().map(|x| vm.same_value(*x, s)).unwrap_or(false))) }),
         ("equal?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| same_object(*x, s)).unwrap_or(false)))),
         ("!", |_vm, s, _a, _b| Ok(Value::bool(!s.truthy()))),
         ("!=", |vm, s, a, _b| { argc!(vm, a, 1); let r = vm.equal(s, a[0])?; Ok(Value::bool(!r)) }),
@@ -31,7 +31,7 @@ pub fn init(vm: &mut Vm) {
         ("singleton_class", |vm, s, _a, _b| Ok(Value::Obj(vm.singleton_class(s)?))),
         ("object_id", |_vm, s, _a, _b| Ok(object_id(s))),
         ("hash", |vm, s, _a, _b| Ok(Value::Int(vm.value_hash(s)))),
-        ("eql?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| *x == s).unwrap_or(false)))),
+        ("eql?", |vm, s, a, _b| Ok(Value::bool(a.first().map(|x| vm.same_value(*x, s)).unwrap_or(false)))),
         ("===", |vm, s, a, _b| { argc!(vm, a, 1); Ok(Value::bool(vm.equal(s, a[0])?)) }),
 
         ("nil?", |_vm, s, _a, _b| Ok(Value::bool(s.is_nil()))),
@@ -350,6 +350,10 @@ pub fn check_const_name(vm: &mut Vm, n: crate::symbol::Sym) -> VmResult<()> {
 /// `Kernel#clone`: like dup, but keeps the singleton class and the frozen state.
 fn clone(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
     let o = match s { Value::Obj(o) => o, _ => return Ok(s) };
+    if matches!(vm.heap.get(o).kind, ObjKind::Data { .. }) {
+        let n = { let c = vm.real_class_of(s); vm.class_name(c) };
+        return Err(vm.raise_type(&format!("can't clone {n}")));
+    }
     let d = dup(vm, s, &[], Value::Nil)?;
     let Value::Obj(n) = d else { return Ok(d) };
     if n == o { return Ok(d); }
@@ -421,6 +425,12 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             // (`regexp_init_copy`), which `initialize_copy` does below; a MatchData is never
             // copied, `dup` on one answering a plain object as the reference's does
             ObjKind::Regexp(_) | ObjKind::MatchData { .. } => ObjKind::Object,
+            // a handle names one value the host owns, and the free hook fires once per object
+            // that carries it: copying it would tell the host to drop that value twice, and
+            // the second object would go on naming what is no longer there. Only the host
+            // knows how to copy its own value, so only the host can define `dup` (a closure
+            // that allocates a new one and calls `Vm::data_new` again).
+            ObjKind::Data { .. } => { let n = { let c = vm.real_class_of(s); vm.class_name(c) }; return Err(vm.raise_type(&format!("can't dup {n}"))); }
             ObjKind::BigInt(b) => ObjKind::BigInt(b.clone()),
             ObjKind::Class(cd) => {
                 let (hc, data, is_module, ivars) = (h.class, crate::object::ClassData { name: None, superclass: cd.superclass, methods: cd.methods.clone(), vis: cd.vis.clone(), consts: cd.consts.clone(), cvars: cd.cvars.clone(), is_module: cd.is_module, instance_kind: cd.instance_kind, outer: None, ..Default::default() }, cd.is_module, h.ivars.clone());
@@ -546,6 +556,14 @@ impl Vm {
                 ObjKind::String(b) => fnv(b),
                 // `mrb_bint_hash`: by value, so a wide integer works as a Hash key
                 ObjKind::BigInt(b) => fnv(&b.hash_bytes()),
+                // by the handle, to agree with `==`: two objects naming the same host value
+                // are one key in a Hash (`Vm::data_new`)
+                ObjKind::Data { tag, handle } => {
+                    let mut bytes = [0u8; 12];
+                    bytes[..4].copy_from_slice(&tag.to_le_bytes());
+                    bytes[4..].copy_from_slice(&handle.to_le_bytes());
+                    fnv(&bytes)
+                }
                 _ => (o.0 as i64 + 1) * 8,
             },
             Value::Int(i) => i,

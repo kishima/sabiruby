@@ -98,6 +98,14 @@ fiber and kept elsewhere) is detached: its window is copied into `values` (mruby
 * VM-internal helpers that call Ruby from an instruction (`GETIDX` → a Ruby `[]`, `to_proc`,
   `to_a`, `const_missing`, ...) must keep their values in registers, or count as a native
   (`native_active`) while the Ruby code runs, as `key_hash` does.
+* **The free hook** (`Vm::set_on_free`, for `ObjKind::Data` objects: a value the host owns,
+  named by a `(tag, handle)` pair) runs at the very end of `gc_collect`, once the sweep has
+  rebuilt the free list and the counters are updated — not from inside the sweep. The sweep
+  only records what it freed, in `Heap::freed_data`. The hook is given the two numbers and
+  **not** a `&mut Vm`: it is called from the collector, so there is nothing in the VM it could
+  safely read, and the type is what enforces that rather than a rule in prose. A hook that
+  needs to run Ruby queues the work for the host's next call into the VM. Only what the
+  collector reclaims reaches the hook; what is still live when the `Vm` is dropped does not.
 
 ## Decisions from review (2026-09-11)
 

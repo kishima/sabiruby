@@ -455,6 +455,9 @@ pub struct Vm {
     /// (`Vm::set_host_state`, `Vm::host_state`). The VM never looks inside it.
     #[doc(hidden)]
     pub host_state: Option<alloc::boxed::Box<dyn core::any::Any + Send + Sync>>,
+    /// What the host wants told when a Data object is collected (`Vm::set_on_free`).
+    #[doc(hidden)]
+    pub on_free: Option<alloc::boxed::Box<dyn Fn(u32, u64) + Send + Sync>>,
 }
 
 /// Result of [`Vm::step`].
@@ -593,7 +596,7 @@ impl Vm {
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
-            host_state: None,
+            host_state: None, on_free: None,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -1079,8 +1082,14 @@ impl Vm {
     where
         F: Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync + 'static,
     {
+        self.define_closure_body(class, name, -1, alloc::boxed::Box::new(f));
+    }
+
+    /// [`Vm::define_closure`] with the arity the method reports, for a caller that knows how
+    /// many arguments the body reads ([`Vm::define_fn`], which builds it from a Rust signature).
+    pub(crate) fn define_closure_body(&mut self, class: ObjId, name: &str, arity: i64, f: alloc::boxed::Box<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>) {
         let n = self.intern(name);
-        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(crate::object::ClosureBody(alloc::boxed::Box::new(f)))));
+        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(crate::object::ClosureBody { f, arity })));
     }
 
     // ------------------------------------------------------------------ host state
@@ -1117,6 +1126,67 @@ impl Vm {
     /// Takes the value [`Vm::set_host_state`] left out of the VM.
     pub fn take_host_state(&mut self) -> Option<alloc::boxed::Box<dyn core::any::Any + Send + Sync>> {
         self.host_state.take()
+    }
+
+    // ------------------------------------------------------------------ data objects
+
+    /// An object of `class` that stands for a value the host owns: `tag` says what kind of
+    /// thing it is and `handle` which one (the index in a slab of the host's, say). This is
+    /// mruby's `RData` without the pointer — the VM carries the two numbers and never reads
+    /// through them, so no raw pointer is involved and a stale handle cannot corrupt anything
+    /// (the worst it can do is name the wrong thing in the host's own table).
+    ///
+    /// The object is an ordinary Ruby object otherwise: its class, its instance variables,
+    /// `freeze`, `respond_to?` and the rest work as on any other. What is special is that
+    /// `==`, `eql?` and `hash` go by `(tag, handle)` rather than by identity (so two objects
+    /// naming the same host value are the same key in a Hash, while `equal?` still asks
+    /// whether they are the same object), that `dup` and `clone` refuse (a handle must not be
+    /// copied behind the host's back: see [`Vm::set_on_free`]), and that the host is told when
+    /// it is collected.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), sabiruby::VmError> {
+    /// let mut vm = sabiruby::Vm::with_mrblib()?;
+    /// let player = vm.define_class("Player", vm.core.object);
+    /// let v = vm.data_new(player, 1, 42);
+    /// assert_eq!(vm.data_of(v), Some((1, 42)));
+    /// # Ok(()) }
+    /// ```
+    pub fn data_new(&mut self, class: ObjId, tag: u32, handle: u64) -> Value {
+        Value::Obj(self.heap.alloc(class, ObjKind::Data { tag, handle }))
+    }
+    /// The `(tag, handle)` of a [`Vm::data_new`] object; `None` for anything else.
+    pub fn data_of(&self, v: Value) -> Option<(u32, u64)> {
+        match v.obj().map(|o| &self.heap.get(o).kind) {
+            Some(ObjKind::Data { tag, handle }) => Some((*tag, *handle)),
+            _ => None,
+        }
+    }
+    /// Sets what to run when a [`Vm::data_new`] object is collected, so the host can drop the
+    /// value the handle named. One hook is kept for the whole VM; setting it again replaces it.
+    ///
+    /// It is called once per collected object, after the sweep, with the `(tag, handle)` the
+    /// object carried. It is **not** given the `&mut Vm`, and that is the point: it runs while
+    /// the collector is finishing, so there is no VM state a hook could safely read, let alone
+    /// change. A hook that needs to reach the host's own data captures it (an `Arc<Mutex<_>>`
+    /// of a slab, say); a hook that wants to run Ruby code queues the work for the next call
+    /// the host makes into the VM.
+    ///
+    /// The hook fires for what the collector reclaims, so a handle held by a live object, or
+    /// by one the VM is dropped with, never reaches it: a host that keeps its own table clears
+    /// what is left when it puts the VM away.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), sabiruby::VmError> {
+    /// use std::sync::{Arc, Mutex};
+    /// let freed = Arc::new(Mutex::new(Vec::<u64>::new()));
+    /// let sink = freed.clone();
+    /// let mut vm = sabiruby::Vm::with_mrblib()?;
+    /// vm.set_on_free(Box::new(move |_tag, handle| sink.lock().unwrap().push(handle)));
+    /// # Ok(()) }
+    /// ```
+    pub fn set_on_free(&mut self, hook: alloc::boxed::Box<dyn Fn(u32, u64) + Send + Sync>) {
+        self.on_free = Some(hook);
     }
     pub fn alias_method(&mut self, class: ObjId, new: Sym, old: Sym) -> VmResult<()> {
         match self.find_method(class, old) {
@@ -1707,7 +1777,7 @@ impl Vm {
     #[inline]
     pub fn call_closure(&mut self, f: &crate::object::NativeClosure, recv: Value, args: &[Value], blk: Value) -> VmResult<Value> {
         self.native_active += 1;
-        let r = (f.0)(self, recv, args, blk);
+        let r = (f.f)(self, recv, args, blk);
         self.native_active -= 1;
         if self.task.native_sampling { crate::builtins::ext_task::count_native(self); }
         r
@@ -2158,6 +2228,17 @@ impl Vm {
         self.heap.alloc_threshold = if self.gc_stress { 1 } else { (live * (ratio - 100) / 100).max(GC_MIN_INTERVAL) };
         self.gc_count += 1;
         if let (Some(t0), Some(c)) = (t0, self.gc_clock) { self.gc_time_ns += c().saturating_sub(t0); }
+        // Last, with the collection over and the VM whole again: the host's free hook. It is
+        // called here rather than from the sweep so that it never runs while the heap is half
+        // rebuilt, and it is handed numbers rather than a `&mut Vm` so that it cannot re-enter
+        // (`Vm::set_on_free`). The list is drained even with no hook set, so that a hook set
+        // later does not hear about objects freed before it.
+        if !self.heap.freed_data.is_empty() {
+            let freed = core::mem::take(&mut self.heap.freed_data);
+            if let Some(hook) = &self.on_free {
+                for (tag, handle) in freed { hook(tag, handle); }
+            }
+        }
     }
 
     /// The root set (see `docs/gc.md`). Contexts to scan go to `ctxs`.
@@ -3349,6 +3430,16 @@ impl Vm {
         match self.str_bytes(r) { Some(b) => Ok(b.to_vec()), None => Ok(b"".to_vec()) }
     }
 
+    /// The identity `BasicObject#==` and `Object#eql?` go by: the same value, or two
+    /// [`Vm::data_new`] objects naming the same host value. `equal?` is the plain identity and
+    /// is not this.
+    pub fn same_value(&self, a: Value, b: Value) -> bool {
+        if a == b { return true; }
+        match (self.data_of(a), self.data_of(b)) {
+            (Some(x), Some(y)) => x == y,
+            _ => false,
+        }
+    }
     /// `eql?`-style equality used for Hash keys.
     pub fn eql(&self, a: Value, b: Value) -> bool {
         match (a, b) {
@@ -3356,6 +3447,8 @@ impl Vm {
                 if x == y { return true; }
                 match (&self.heap.get(x).kind, &self.heap.get(y).kind) {
                     (ObjKind::String(p), ObjKind::String(q)) => p == q,
+                    // as `Object#eql?` does (`Vm::same_value`)
+                    (ObjKind::Data { tag: t1, handle: h1 }, ObjKind::Data { tag: t2, handle: h2 }) => t1 == t2 && h1 == h2,
                     _ => false,
                 }
             }
