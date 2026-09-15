@@ -1,0 +1,127 @@
+irep 0x5f1ffc58df20 nregs=8 nlocals=2 pools=2 syms=12 reps=1 ilen=330
+local variable names:
+  R1:e
+catch type: rescue   begin: 0174 end: 0190 target: 0193
+catch type: rescue   begin: 0226 end: 0241 target: 0244
+catch type: rescue   begin: 0277 end: 0291 target: 0294
+file: /w/numeric_fdiv.rb
+    7 000 LOADI_1	R3	(1)
+    7 002 LOADI_2	R4	(2)
+    7 004 SEND		R3	:fdiv	n=1
+    7 008 SSEND		R2	:p	n=1
+    8 012 LOADL		R3	L[0]	; 1.000000
+    8 015 LOADI_2	R4	(2)
+    8 017 SEND		R3	:fdiv	n=1
+    8 021 SSEND		R2	:p	n=1
+    9 025 LOADI_1	R4	(1)
+    9 027 LOADI_2	R5	(2)
+    9 029 SSEND		R3	:Rational	n=2
+    9 033 LOADI_2	R4	(2)
+    9 035 SEND		R3	:fdiv	n=1
+    9 039 SSEND		R2	:p	n=1
+   10 043 LOADI_3	R4	(3)
+   10 045 LOADI_4	R5	(4)
+   10 047 SSEND		R3	:Rational	n=2
+   10 051 LOADI_1	R5	(1)
+   10 053 LOADI_2	R6	(2)
+   10 055 SSEND		R4	:Rational	n=2
+   10 059 SEND		R3	:fdiv	n=1
+   10 063 SSEND		R2	:p	n=1
+   11 067 LOADI8	R3	10
+   11 070 LOADI8	R4	30
+   11 073 SEND		R3	:**	n=1
+   11 077 LOADI8	R4	10
+   11 080 LOADI8	R5	29
+   11 083 SEND		R4	:**	n=1
+   11 087 SEND		R3	:fdiv	n=1
+   11 091 SSEND		R2	:p	n=1
+   14 095 GETCONST	R3	Numeric
+   14 098 LOADSYM	R4	:fdiv
+   14 101 SEND		R3	:instance_method	n=1
+   14 105 SEND0		R3	:owner
+   14 108 SSEND		R2	:p	n=1
+   15 112 LOADI_1	R3	(1)
+   15 114 LOADSYM	R4	:fdiv
+   15 117 SEND		R3	:method	n=1
+   15 121 SEND0		R3	:owner
+   15 124 LOADL		R4	L[0]	; 1.000000
+   15 127 LOADSYM	R5	:fdiv
+   15 130 SEND		R4	:method	n=1
+   15 134 SEND0		R4	:owner
+   15 137 SSEND		R2	:p	n=2
+   16 141 LOADI_1	R4	(1)
+   16 143 LOADI_2	R5	(2)
+   16 145 SSEND		R3	:Rational	n=2
+   16 149 LOADSYM	R4	:fdiv
+   16 152 SEND		R3	:method	n=1
+   16 156 SEND0		R3	:owner
+   16 159 SSEND		R2	:p	n=1
+   19 163 LOADNIL	R2	(nil)
+   19 165 GETCONST	R3	Numeric
+   19 168 CLASS		R2	:Odd
+   19 171 EXEC		R2	I[0]
+   23 174 GETCONST	R3	Odd
+   23 177 SEND0		R3	:new
+   23 180 LOADI_2	R4	(2)
+   23 182 SEND		R3	:fdiv	n=1
+   23 186 SSEND		R2	:p	n=1
+   23 190 JMP		226
+   23 193 EXCEPT	R2	
+   24 195 GETCONST	R3	TypeError
+   24 198 RESCUE	R2	R3
+   24 201 JMPIF		R3	208
+   24 205 JMP		224
+   24 208 MOVE		R1	R2	; R1:e
+   25 211 MOVE		R3	R1	; R1:e
+   25 214 SEND0		R3	:message
+   25 217 SSEND		R2	:p	n=1
+   25 221 JMP		226
+   25 224 RAISEIF	R2	
+   30 226 LOADI_1	R3	(1)
+   30 228 LOADI_2	R4	(2)
+   30 230 SSEND		R2	:Rational	n=2
+   30 234 STRING	R3	L[1]	; 2
+   30 237 SEND		R2	:fdiv	n=1
+   30 241 JMP		277
+   30 244 EXCEPT	R2	
+   31 246 GETCONST	R3	TypeError
+   31 249 RESCUE	R2	R3
+   31 252 JMPIF		R3	259
+   31 256 JMP		275
+   31 259 MOVE		R1	R2	; R1:e
+   32 262 MOVE		R3	R1	; R1:e
+   32 265 SEND0		R3	:message
+   32 268 SSEND		R2	:p	n=1
+   32 272 JMP		277
+   32 275 RAISEIF	R2	
+   35 277 LOADI_1	R3	(1)
+   35 279 LOADI_2	R4	(2)
+   35 281 SSEND		R2	:Rational	n=2
+   35 285 LOADNIL	R3	(nil)
+   35 287 SEND		R2	:fdiv	n=1
+   35 291 JMP		327
+   35 294 EXCEPT	R2	
+   36 296 GETCONST	R3	TypeError
+   36 299 RESCUE	R2	R3
+   36 302 JMPIF		R3	309
+   36 306 JMP		325
+   36 309 MOVE		R1	R2	; R1:e
+   37 312 MOVE		R3	R1	; R1:e
+   37 315 SEND0		R3	:message
+   37 318 SSEND		R2	:p	n=1
+   37 322 JMP		327
+   37 325 RAISEIF	R2	
+   37 327 RETURN	R2	
+   37 329 STOP
+
+irep 0x5f1ffc592ca0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/numeric_fdiv.rb
+   20 000 TDEF		R1	:to_f	I[0]
+   20 004 RETURN	R1	
+
+irep 0x5f1ffc5943f0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/numeric_fdiv.rb
+   20 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   20 004 LOADL		R2	L[0]	; 3.000000
+   20 007 RETURN	R2	
+

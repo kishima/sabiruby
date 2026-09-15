@@ -1,0 +1,21 @@
+nil
+Proc
+"abab"
+{"ab" => "abab"}
+nil
+:plain
+[:from_proc, :missing]
+nil
+:plain_again
+nil
+nil
+nil
+nil
+"default_proc takes two arguments (2 for 1)"
+[:lambda, :x]
+[:splat, 2]
+"wrong argument type Integer (expected Proc)"
+[FrozenError, "can't modify frozen Hash"]
+[:splat, 2]
+Proc
+[:block, :w]

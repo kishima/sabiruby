@@ -25,25 +25,25 @@ The reference is the `mruby` of the image `kishima/mruby:4.1.0-rc`
 
 | | classes and modules | methods |
 |---|---:|---:|
-| SabiRuby has | 70 | 1345 |
+| SabiRuby has | 70 | 1351 |
 | the reference has | 224 | 1545 |
-| both | 64 | 1188 |
-| only SabiRuby | 6 | 157 |
-| only the reference | 160 | 357 |
+| both | 64 | 1195 |
+| only SabiRuby | 6 | 156 |
+| only the reference | 160 | 350 |
 
 A difference in that table is not the same as a method that does not answer. Of the
-357 the reference has and SabiRuby has not:
+350 the reference has and SabiRuby has not:
 
 * **312** belong to the POSIX gems, which are not planned (`design/gems.md`, "Remaining gems").
 * **3** are the other half of a module-function pair: the same name on the same
   module, singleton on one side and instance on the other.
 * **20** answer here from another ancestor — the same method, a different owner.
-* **22** do not answer at all. That is the first list at the end of this file.
+* **15** do not answer at all. That is the first list at the end of this file.
 
-And of the 157 SabiRuby has and the reference has not:
+And of the 156 SabiRuby has and the reference has not:
 **0** are in classes of a not-planned gem, **0** are the other half of a
 module-function pair, **39** are the same method on another owner, and
-**118** are additions.
+**117** are additions.
 
 The gem a method comes from is not asked per method: mruby tells a script nothing about
 where a method was defined (there is no `Method#source_location`, and `Method#owner`
@@ -66,7 +66,7 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 |---|---|---:|---:|
 | `ArgumentError` | core | 0 | 0 |
 | `Array` | core | 125 | 114 |
-| `BasicObject` | core | 10 | 13 |
+| `BasicObject` | core | 13 | 13 |
 | `Binding` | mruby-binding | 8 | 9 |
 | `Class` | core | 7 | 8 |
 | `CMath` | mruby-cmath | 34 | – |
@@ -87,10 +87,10 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 | `Float` | core | 29 | 33 |
 | `FrozenError` | core | 0 | 0 |
 | `GC` | core | 18 | 14 |
-| `Hash` | core | 81 | 76 |
+| `Hash` | core | 82 | 76 |
 | `IndexError` | core | 0 | 0 |
 | `Integer` | core | 57 | 58 |
-| `Kernel` | core | 131 | 128 |
+| `Kernel` | core | 130 | 128 |
 | `KeyError` | core | 0 | 0 |
 | `LoadError` | sabiruby (require/load) | 0 | – |
 | `LocalJumpError` | core | 0 | 0 |
@@ -98,14 +98,14 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 | `Math::DomainError` | mruby-math | 0 | 0 |
 | `Math` | mruby-math | 52 | 52 |
 | `Method` | mruby-method | 17 | 17 |
-| `Module` | core | 64 | 60 |
+| `Module` | core | 66 | 60 |
 | `NameError` | core | 3 | 3 |
 | `NilClass` | core | 12 | 13 |
 | `NoMatchingPatternError` | core | 0 | 0 |
 | `NoMemoryError` | core | – | 0 |
 | `NoMethodError` | core | 2 | 2 |
 | `NotImplementedError` | core | 0 | 0 |
-| `Numeric` | core | 23 | 15 |
+| `Numeric` | core | 24 | 15 |
 | `ObjectSpace` | mruby-objectspace | 2 | 2 |
 | `Object` | core | 0 | 0 |
 | `Proc` | core | 23 | 20 |
@@ -144,14 +144,10 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 
 ## In the reference, not in SabiRuby
 
-22 methods that do not answer here (the POSIX gems left out).
+15 methods that do not answer here (the POSIX gems left out).
 
-* `BasicObject#singleton_method_added`
-* `BasicObject#singleton_method_removed`
-* `BasicObject#singleton_method_undefined`
 * `Enumerable#__update_hash`
 * `Enumerable.__update_hash`
-* `Hash#default_proc=`
 * `Kernel#__method_recursive?`
 * `Kernel#gets`
 * `Kernel#open`
@@ -165,9 +161,6 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 * `Kernel.putc`
 * `Kernel.readline`
 * `Kernel.readlines`
-* `Module#const_added`
-* `Module#method_undefined`
-* `Numeric#fdiv`
 
 ### The same method, another owner
 
@@ -206,7 +199,7 @@ SabiRuby as a public instance method, or the other way round. Both are callable.
 
 ## In SabiRuby, not in the reference
 
-118 methods the reference does not have.
+117 methods the reference does not have.
 
 * `Array#__ary_cmp`
 * `Array#__ary_eq`
@@ -269,7 +262,6 @@ SabiRuby as a public instance method, or the other way round. Both are callable.
 * `Kernel#instance_variable_names`
 * `Kernel#load`
 * `Kernel#require`
-* `Kernel#singleton_method_added`
 * `Kernel#sleep`
 * `Kernel#sleep_ms`
 * `Kernel#usleep`
@@ -380,7 +372,7 @@ same module, instance on this side and singleton on the reference's.
 
 ## On both sides, with a different visibility
 
-45 methods both VMs define on the same class but under a different visibility.
+50 methods both VMs define on the same class but under a different visibility.
 Protected counts as public here, so every line is a private method on one side and a
 public one on the other.
 
@@ -388,6 +380,9 @@ public one on the other.
 * `Array#initialize_copy`: public here, private in the reference
 * `BasicObject#initialize`: public here, private in the reference
 * `BasicObject#method_missing`: public here, private in the reference
+* `BasicObject#singleton_method_added`: public here, private in the reference
+* `BasicObject#singleton_method_removed`: public here, private in the reference
+* `BasicObject#singleton_method_undefined`: public here, private in the reference
 * `Binding#initialize_copy`: public here, private in the reference
 * `Class#inherited`: public here, private in the reference
 * `Data#initialize`: public here, private in the reference
@@ -414,9 +409,11 @@ public one on the other.
 * `Kernel#proc`: public here, private in the reference
 * `Kernel#respond_to_missing?`: public here, private in the reference
 * `Kernel#sprintf`: public here, private in the reference
+* `Module#const_added`: public here, private in the reference
 * `Module#extended`: public here, private in the reference
 * `Module#included`: public here, private in the reference
 * `Module#method_added`: public here, private in the reference
+* `Module#method_undefined`: public here, private in the reference
 * `Module#module_function`: public here, private in the reference
 * `Module#prepended`: public here, private in the reference
 * `Module#private`: public here, private in the reference

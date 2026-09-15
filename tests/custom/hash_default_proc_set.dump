@@ -1,0 +1,237 @@
+irep 0x57212494d1f0 nregs=13 nlocals=7 pools=2 syms=21 reps=7 ilen=457
+local variable names:
+  R1:h
+  R2:g
+  R3:e
+  R4:f
+  R5:d
+  R6:n
+catch type: rescue   begin: 0187 end: 0200 target: 0203
+catch type: rescue   begin: 0280 end: 0292 target: 0295
+catch type: rescue   begin: 0337 end: 0354 target: 0357
+file: /w/hash_default_proc_set.rb
+    7 000 HASH		R1	0	; R1:h
+    8 003 MOVE		R8	R1	; R1:h
+    8 006 SEND0		R8	:default_proc
+    8 009 SSEND		R7	:p	n=1
+    9 013 MOVE		R7	R1	; R1:h
+    9 016 BLOCK		R9	I[0]
+    9 019 SSENDB	R8	:proc	n=0
+    9 023 SEND		R7	:default_proc=	n=1
+   10 027 MOVE		R8	R1	; R1:h
+   10 030 SEND0		R8	:default_proc
+   10 033 SEND0		R8	:class
+   10 036 SSEND		R7	:p	n=1
+   11 040 MOVE		R8	R1	; R1:h
+   11 043 STRING	R9	L[0]	; ab
+   11 046 GETIDX	R8	(R9)
+   11 048 SSEND		R7	:p	n=1
+   12 052 MOVE		R8	R1	; R1:h
+   12 055 SSEND		R7	:p	n=1
+   13 059 MOVE		R8	R1	; R1:h
+   13 062 SEND0		R8	:default
+   13 065 SSEND		R7	:p	n=1
+   16 069 GETCONST	R7	Hash
+   16 072 LOADSYM	R8	:plain
+   16 075 SEND		R7	:new	n=1
+   16 079 MOVE		R2	R7	; R2:g
+   17 082 MOVE		R8	R2	; R2:g
+   17 085 LOADSYM	R9	:missing
+   17 088 GETIDX	R8	(R9)
+   17 090 SSEND		R7	:p	n=1
+   18 094 MOVE		R7	R2	; R2:g
+   18 097 BLOCK		R9	I[1]
+   18 100 SSENDB	R8	:proc	n=0
+   18 104 SEND		R7	:default_proc=	n=1
+   19 108 MOVE		R8	R2	; R2:g
+   19 111 LOADSYM	R9	:missing
+   19 114 GETIDX	R8	(R9)
+   19 116 MOVE		R9	R2	; R2:g
+   19 119 SEND0		R9	:default
+   19 122 SSEND		R7	:p	n=2
+   20 126 MOVE		R7	R2	; R2:g
+   20 129 LOADSYM	R8	:plain_again
+   20 132 SEND		R7	:default=	n=1
+   21 136 MOVE		R8	R2	; R2:g
+   21 139 LOADSYM	R9	:missing
+   21 142 GETIDX	R8	(R9)
+   21 144 MOVE		R9	R2	; R2:g
+   21 147 SEND0		R9	:default_proc
+   21 150 SSEND		R7	:p	n=2
+   24 154 MOVE		R7	R1	; R1:h
+   24 157 LOADNIL	R8	(nil)
+   24 159 SEND		R7	:default_proc=	n=1
+   25 163 MOVE		R8	R1	; R1:h
+   25 166 SEND0		R8	:default_proc
+   25 169 MOVE		R9	R1	; R1:h
+   25 172 SEND0		R9	:default
+   25 175 MOVE		R10	R1	; R1:h
+   25 178 STRING	R11	L[1]	; zz
+   25 181 GETIDX	R10	(R11)
+   25 183 SSEND		R7	:p	n=3
+   29 187 MOVE		R8	R1	; R1:h
+   29 190 LAMBDA	R9	I[2]
+   29 193 MOVE		R7	R9
+   29 196 SEND		R8	:default_proc=	n=1
+   29 200 JMP		236
+   29 203 EXCEPT	R7	
+   30 205 GETCONST	R8	TypeError
+   30 208 RESCUE	R7	R8
+   30 211 JMPIF		R8	218
+   30 215 JMP		234
+   30 218 MOVE		R3	R7	; R3:e
+   31 221 MOVE		R8	R3	; R3:e
+   31 224 SEND0		R8	:message
+   31 227 SSEND		R7	:p	n=1
+   31 231 JMP		236
+   31 234 RAISEIF	R7	
+   33 236 MOVE		R7	R1	; R1:h
+   33 239 LAMBDA	R8	I[3]
+   33 242 SEND		R7	:default_proc=	n=1
+   34 246 MOVE		R8	R1	; R1:h
+   34 249 LOADSYM	R9	:x
+   34 252 GETIDX	R8	(R9)
+   34 254 SSEND		R7	:p	n=1
+   35 258 MOVE		R7	R1	; R1:h
+   35 261 LAMBDA	R8	I[4]
+   35 264 SEND		R7	:default_proc=	n=1
+   36 268 MOVE		R8	R1	; R1:h
+   36 271 LOADSYM	R9	:y
+   36 274 GETIDX	R8	(R9)
+   36 276 SSEND		R7	:p	n=1
+   40 280 MOVE		R8	R1	; R1:h
+   40 283 LOADI_1	R9	(1)
+   40 285 MOVE		R7	R9
+   40 288 SEND		R8	:default_proc=	n=1
+   40 292 JMP		328
+   40 295 EXCEPT	R7	
+   41 297 GETCONST	R8	TypeError
+   41 300 RESCUE	R7	R8
+   41 303 JMPIF		R8	310
+   41 307 JMP		326
+   41 310 MOVE		R3	R7	; R3:e
+   42 313 MOVE		R8	R3	; R3:e
+   42 316 SEND0		R8	:message
+   42 319 SSEND		R7	:p	n=1
+   42 323 JMP		328
+   42 326 RAISEIF	R7	
+   46 328 HASH		R7	0
+   46 331 SEND0		R7	:freeze
+   46 334 MOVE		R4	R7	; R4:f
+   48 337 MOVE		R8	R4	; R4:f
+   48 340 BLOCK		R10	I[5]
+   48 343 SSENDB	R9	:proc	n=0
+   48 347 MOVE		R7	R9
+   48 350 SEND		R8	:default_proc=	n=1
+   48 354 JMP		399
+   48 357 EXCEPT	R7	
+   48 359 GETCONST	R8	StandardError
+   48 362 RESCUE	R7	R8
+   48 365 JMPIF		R8	372
+   48 369 JMP		397
+   48 372 MOVE		R3	R7	; R3:e
+   50 375 MOVE		R8	R3	; R3:e
+   50 378 SEND0		R8	:class
+   50 381 MOVE		R9	R3	; R3:e
+   50 384 SEND0		R9	:message
+   50 387 ARRAY		R8	2
+   50 390 SSEND		R7	:p	n=1
+   50 394 JMP		399
+   50 397 RAISEIF	R7	
+   54 399 MOVE		R7	R1	; R1:h
+   54 402 SEND0		R7	:dup
+   54 405 MOVE		R5	R7	; R5:d
+   55 408 MOVE		R8	R5	; R5:d
+   55 411 LOADSYM	R9	:z
+   55 414 GETIDX	R8	(R9)
+   55 416 SSEND		R7	:p	n=1
+   56 420 GETCONST	R7	Hash
+   56 423 BLOCK		R8	I[6]
+   56 426 SENDB		R7	:new	n=0
+   56 430 MOVE		R6	R7	; R6:n
+   57 433 MOVE		R8	R6	; R6:n
+   57 436 SEND0		R8	:default_proc
+   57 439 SEND0		R8	:class
+   57 442 MOVE		R9	R6	; R6:n
+   57 445 LOADSYM	R10	:w
+   57 448 GETIDX	R9	(R10)
+   57 450 SSEND		R7	:p	n=2
+   57 454 RETURN	R7	
+   57 456 STOP
+
+irep 0x5721249550e0 nregs=10 nlocals=4 pools=0 syms=1 reps=0 ilen=27
+local variable names:
+  R1:hash
+  R2:key
+file: /w/hash_default_proc_set.rb
+    9 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+    9 004 MOVE		R5	R1	; R1:hash
+    9 007 MOVE		R6	R2	; R2:key
+    9 010 MOVE		R7	R2	; R2:key
+    9 013 SEND0		R7	:to_s
+    9 016 LOADI_2	R8	(2)
+    9 018 MUL		R7	(R8)
+    9 020 MOVE		R4	R7
+    9 023 SETIDX	R5	(R6)	(R7)
+    9 025 RETURN	R4	
+
+irep 0x572124955bb0 nregs=6 nlocals=4 pools=0 syms=1 reps=0 ilen=15
+local variable names:
+  R1:_
+  R2:k
+file: /w/hash_default_proc_set.rb
+   18 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   18 004 LOADSYM	R4	:from_proc
+   18 007 MOVE		R5	R2	; R2:k
+   18 010 ARRAY		R4	2
+   18 013 RETURN	R4	
+
+irep 0x572124956330 nregs=4 nlocals=3 pools=0 syms=0 reps=0 ilen=6
+local variable names:
+  R1:k
+file: /w/hash_default_proc_set.rb
+   29 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   29 004 RETURN	R1		; R1:k
+
+irep 0x572124957290 nregs=6 nlocals=4 pools=0 syms=1 reps=0 ilen=15
+local variable names:
+  R1:hash
+  R2:key
+file: /w/hash_default_proc_set.rb
+   33 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   33 004 LOADSYM	R4	:lambda
+   33 007 MOVE		R5	R2	; R2:key
+   33 010 ARRAY		R4	2
+   33 013 RETURN	R4	
+
+irep 0x5721249579d0 nregs=6 nlocals=3 pools=0 syms=2 reps=0 ilen=18
+local variable names:
+  R1:a
+file: /w/hash_default_proc_set.rb
+   35 000 ENTER		0:0:1:0:0:0:0:0 (0x1000)
+   35 004 LOADSYM	R3	:splat
+   35 007 MOVE		R4	R1	; R1:a
+   35 010 SEND0		R4	:size
+   35 013 ARRAY		R3	2
+   35 016 RETURN	R3	
+
+irep 0x572124954ce0 nregs=5 nlocals=4 pools=0 syms=0 reps=0 ilen=8
+local variable names:
+  R1:_
+  R2:_
+file: /w/hash_default_proc_set.rb
+   48 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   48 004 LOADI_1	R4	(1)
+   48 006 RETURN	R4	
+
+irep 0x572124954ff0 nregs=6 nlocals=4 pools=0 syms=1 reps=0 ilen=15
+local variable names:
+  R1:_
+  R2:k
+file: /w/hash_default_proc_set.rb
+   56 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   56 004 LOADSYM	R4	:block
+   56 007 MOVE		R5	R2	; R2:k
+   56 010 ARRAY		R4	2
+   56 013 RETURN	R4	
+

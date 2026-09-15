@@ -1436,7 +1436,7 @@ impl Vm {
         if self.find_method(class, mid).is_none() { let n = self.sym_name(mid); let cn = self.class_name(class); return Err(self.name_error(mid, &format!("undefined method '{n}' for class '{cn}'"))); }
         let t = self.def_target(class);
         self.heap.class_mut(t).methods.insert(mid, Method::Undef);
-        Ok(())
+        self.method_undefined_hook(class, mid)
     }
     /// The table that receives definitions for `class` (its origin when modules are prepended).
     pub fn def_target(&self, class: ObjId) -> ObjId {
@@ -1501,14 +1501,44 @@ impl Vm {
             _ => {}
         }
     }
-    /// `mrb_method_added`: `method_added` / `singleton_method_added` hook.
-    pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+    /// The hook a change to a method table fires. mruby has the same shape in three places
+    /// (`mrb_method_added`, `undef_method` and `remove_method_id`, src/class.c): the name goes
+    /// to the class itself, or — when the table belongs to a singleton class — to the object
+    /// that class is attached to, under the `singleton_` name. The default definitions on
+    /// `Module` and `BasicObject` do nothing, and finding one of those is what
+    /// `mrb_func_basic_p` answers there: the call is skipped rather than made.
+    fn method_table_hook(&mut self, class: ObjId, mid: Sym, plain: &str, singleton: &str) -> VmResult<()> {
         let cd = self.heap.class(class);
-        let (recv, hook) = if cd.is_singleton { (cd.attached.map(|s| s.get()).unwrap_or(Value::Nil), self.intern("singleton_method_added")) } else { (Value::Obj(class), self.intern("method_added")) };
+        let (recv, hook) = if cd.is_singleton { (cd.attached.map(|s| s.get()).unwrap_or(Value::Nil), self.intern(singleton)) } else { (Value::Obj(class), self.intern(plain)) };
         if let Some((Method::Native(_) | Method::Closure(_), owner)) = self.find_method(self.class_of(recv), hook) {
             if owner == self.core.module || owner == self.core.basic_object { return Ok(()); }
         }
         if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(mid)], Value::Nil)?; }
+        Ok(())
+    }
+    /// `mrb_method_added`: `method_added` / `singleton_method_added` hook.
+    pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        self.method_table_hook(class, mid, "method_added", "singleton_method_added")
+    }
+    /// `undef_method`'s hook: `method_undefined` / `singleton_method_undefined`.
+    pub fn method_undefined_hook(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        self.method_table_hook(class, mid, "method_undefined", "singleton_method_undefined")
+    }
+    /// `remove_method_id`'s hook: `method_removed` / `singleton_method_removed`.
+    pub fn method_removed_hook(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
+        self.method_table_hook(class, mid, "method_removed", "singleton_method_removed")
+    }
+    /// `const_added` (`mrb_const_set`, src/variable.c): the module is told the name of a
+    /// constant that was just assigned to it. mruby fires it from `mrb_const_set` alone, which
+    /// is `OP_SETCONST`, `OP_SETMCNST` and `Module#const_set` — **not** `class Foo; end`, which
+    /// goes through `setup_class` and writes the constant without the hook.
+    pub fn const_added(&mut self, module: ObjId, name: Sym) -> VmResult<()> {
+        let hook = self.intern("const_added");
+        let recv = Value::Obj(module);
+        if let Some((Method::Native(_) | Method::Closure(_), owner)) = self.find_method(self.class_of(recv), hook) {
+            if owner == self.core.module { return Ok(()); }
+        }
+        if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(name)], Value::Nil)?; }
         Ok(())
     }
     /// The class whose `methods`/`vis` tables a chain node reads: an include class
@@ -3375,6 +3405,7 @@ impl Vm {
                                 self.heap.class_mut(o).outer = Some(tc);
                             }
                         }
+                        self.const_added(tc, s)?;
                     }
                 }
                 Op::Getmcnst => {
@@ -3394,6 +3425,7 @@ impl Vm {
                         Value::Obj(o) if self.heap.is_class(o) => {
                             self.heap.class_mut(o).consts.insert(s, Slot::from(v));
                             if let Value::Obj(c) = v { if self.heap.is_class(c) && self.heap.class(c).name.is_none() { self.heap.class_mut(c).name = Some(s); self.heap.class_mut(c).outer = Some(o); } }
+                            self.const_added(o, s)?;
                         }
                         _ => return Err(self.raise_type("not a class/module")),
                     }
@@ -3649,6 +3681,10 @@ impl Vm {
                             let meta = if is_module { self.core.module } else { self.core.class };
                             let ncls = self.heap.alloc(meta, ObjKind::Class(ClassData { name: Some(s), superclass: sup, is_module, outer: Some(outer), ..Default::default() }));
                             self.heap.class_mut(outer).consts.insert(s, Slot::from(Value::Obj(ncls)));
+                            // `setup_class` is `mrb_const_set` (src/class.c), so defining a
+                            // class or a module fires `const_added` on the outer one — before
+                            // `inherited`, which `mrb_vm_define_class` calls after it
+                            self.const_added(outer, s)?;
                             if !is_module { self.singleton_class(Value::Obj(ncls))?; }
                             if let Some(sup) = sup { self.call_inherited(sup, ncls)?; }
                             ncls

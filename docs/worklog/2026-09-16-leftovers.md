@@ -241,3 +241,75 @@ Ruby の `Queue#pop` は空なら**タスクを park** する（`queue_pop_try` 
 テストは `tests/host_api.rs` に 2 本。Ruby 側の `$q.push` / `$q.size` と同じキューであること、
 FIFO であること、閉じたキュー、キューでないオブジェクトはエラーになること、
 `hash_keys` が `Hash#keys` と同じ並びであること、default proc を持つ Hash でも何も走らないことを見ている。
+
+---
+
+## 9. coverage が見つけた穴（`default_proc=`、`fdiv`、4 つのフック）
+
+`docs/verification/coverage.md` の「本家だけ」22 件のうち、POSIX gem でも `printf`/`putc`（項目 5）でもない 8 件。
+
+### `Hash#default_proc=`
+
+本家（`mrb_hash_set_default_proc`、`src/hash.c:1684`）は、素の既定値と既定 proc を
+**`ifnone` という 1 つの ivar** に入れ、`MRB_HASH_DEFAULT` と `MRB_HASH_PROC_DEFAULT` の 2 つのフラグで
+どちらかを言う。SabiRuby は素の既定値を `HashData::default`、proc を `__default_proc` という ivar に分けて持っている。
+形が違うので、**片方を書いたらもう片方を消す**のを手で揃える必要があった。
+
+これを書いていて `Hash#default=` の側の抜けが出た。本家の `mrb_hash_set_default` は
+`RHASH(hash)->flags &= ~MRB_HASH_PROC_DEFAULT` をするので、
+`g = Hash.new { ... }; g.default = :x; g[:missing]` は `:x`。SabiRuby は proc をそのまま残していたので proc が走っていた。
+`tests/custom/hash_default_proc_set.rb` の 9 行目がそれを捕まえた（本家 `:plain_again`、SabiRuby `[:from_proc, :missing]`）。
+`default=` の側も直した。1 行。
+
+lambda の引数チェック（`hash_set_default_proc`）も写した。`arity != 2` かつ `(arity >= 0 || arity < -3)` なら
+TypeError `default_proc takes two arguments (2 for N)`。`->(k){}` は弾かれ、`->(*a){}` は通る。
+素の proc は調べない（proc は渡されたものを何でも受けるので）。
+
+### `Numeric#fdiv`
+
+計画書は `mruby-numeric-ext` にあると書いていたが、**本家では `src/numeric.c` のコア**（`numeric_rom_entries` の
+`num_fdiv`、`MRB_NO_FLOAT` でないときだけ）。`Integer#fdiv`（`int_fdiv`）と `Float#fdiv`（`flo_div`）は別にあり、
+`Numeric#fdiv` は「それ以外の数値」——Rational と、Numeric の部分クラス——が答えるもの。
+
+中身は `flo_div(mrb_ensure_float_type(x))`。`mrb_ensure_float_type`（`src/object.c:715`）は
+Integer・Float・Rational・Complex・多倍長 Integer を Float にして、**それ以外は `to_f` を送らずに TypeError**。
+`nil` だけ文言が違う（`can't convert nil into Float`、他は `%Y cannot be converted to Float`）。
+最初 SabiRuby の既存の `coerce_fail`（`can't convert X into Float`）を使って書いたら、
+`Rational(1,2).fdiv("2")` の 1 行だけ本家と食い違った。`ensure_f64` を `mrb_ensure_float_type` の形で書き直して合わせた。
+
+**見つけたが直していない差** が 2 つある。どちらも今回の項目（`Numeric#fdiv`）の外なので触っていない:
+
+* `7.fdiv(0)` は本家が ZeroDivisionError（`int_fdiv` に `if (y == 0) mrb_int_zerodiv(mrb);` がある）、SabiRuby は `Infinity`。
+* `1.0.fdiv("2")` の文言が本家 `String cannot be converted to Float`、SabiRuby `String can't be coerced into Float`。
+
+### 4 つのフック
+
+本家の該当箇所は 3 か所に固まっている。
+
+* `mrb_method_added`（`src/class.c:4148`）: `c->tt == MRB_TT_SCLASS` なら `singleton_method_added` を
+  `__attached__` が指すオブジェクトへ、そうでなければ `method_added` をクラスへ。
+* `undef_method`（同 3784）と `remove_method_id`（同 3958）: 同じ形で `method_undefined` / `method_removed`。
+* `mrb_const_set`（`src/variable.c:1457`）: `const_added` をモジュールへ。
+
+SabiRuby には `Vm::method_added` がすでにこの形であったので、`method_table_hook(class, mid, plain, singleton)` に
+くくり出して 3 本（added / undefined / removed）を生やした。`ext_metaprog.rs` の `remove_method` は
+同じ形を手書きしていたので、そちらも共通のものに寄せた。手書きの側は
+**既定の no-op を確かめずに無条件で `funcall`** していたので、`singleton_method_removed` の既定が無いまま
+特異メソッドを `remove_method` すると NoMethodError になっていたはず（既定を足したので今は起きない）。
+
+`singleton_method_added` の既定は `Object` に置いてあった。本家は `bob_rom_entries`、つまり `BasicObject`。
+`method_table_hook` の「既定なら呼ばない」判定は `owner == Module || owner == BasicObject` を見るので、
+`Object` に置いてある間は**その判定が一度も当たらず、特異メソッドを定義するたびに `funcall` が 1 本走っていた**。
+`BasicObject` へ移し、`_removed`・`_undefined` も隣に足した。coverage の 3 件が消えるだけでなく、判定が効くようになる。
+
+`const_added` で 1 つ勘違いをした。本家の `mrb_const_set` は `class Foo; end` からは呼ばれない——
+と `mrb_vm_define_class` を読んで思ったのだが、`setup_class`（`src/class.c:344`）の中身は
+`mrb_const_set` そのもので、**クラス定義でも発火する**。`tests/custom/` の期待値を本家で作って初めて分かった
+（`const_added Inner = Watched::Inner` の 2 行が SabiRuby に無かった）。`Op::Class | Op::Module` にも足した。
+発火する場所は結局 `OP_SETCONST`・`OP_SETMCNST`・`Module#const_set`・`OP_CLASS`/`OP_MODULE` の 4 つ。
+Rust 側の `Vm::define_class` には足していない。本家も `mrb->bootstrapping` の間は呼ばないし、
+`define_class` は `-> ObjId` で `VmResult` を返せない。
+
+フックの既定は SabiRuby の既存のもの（`method_added`、`inherited`）に合わせて public のままにした。
+本家は `MRB_MT_PRIVATE`。可視性は計画書の項目 10（著者判断待ち）なので、ここで 4 件だけ private にはしない。
+coverage の「可視性が違う」の一覧が 45 件から増える。

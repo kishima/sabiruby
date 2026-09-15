@@ -16,6 +16,12 @@ fn default_allocate(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<
 pub fn init(vm: &mut Vm) {
     let c = vm.core;
     vm.define_methods(c.basic_object, &[
+        // the three hooks a change to an object's singleton class fires, as no-ops
+        // (`bob_rom_entries` of src/class.c: `mrb_do_nothing` for all three). The definition
+        // being the one here is what lets `Vm::method_table_hook` skip the call entirely.
+        ("singleton_method_added", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("singleton_method_removed", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("singleton_method_undefined", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("initialize", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("==", |vm, s, a, _b| { Ok(Value::bool(a.first().map(|x| vm.same_value(*x, s)).unwrap_or(false))) }),
         ("equal?", |_vm, s, a, _b| Ok(Value::bool(a.first().map(|x| same_object(*x, s)).unwrap_or(false)))),
@@ -45,7 +51,6 @@ pub fn init(vm: &mut Vm) {
         ("remove_instance_variable", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; match s { Value::Obj(o) => { if vm.heap.get(o).frozen { return Err(vm.frozen_error(s)); } let pos = vm.heap.get(o).ivars.iter().position(|(k, _)| *k == n); match pos { Some(i) => Ok(vm.heap.get_mut(o).ivars.remove(i).1.get()), None => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("instance variable {nn} not defined"))) } } } _ => { let nn = vm.sym_name(n); Err(vm.raise(vm.core.name_error, &format!("instance variable {nn} not defined"))) } } }),
         ("send", send),
         ("public_send", |vm, s, a, b| { if a.is_empty() { return Err(vm.raise_arg("no method name given")); } let m = sym_arg(vm, a[0])?; if let Some((_, owner)) = vm.find_method(vm.class_of(s), m) { if vm.method_vis(owner, m) != Vis::Public { let name = vm.sym_name(m); let d = vm.describe_for_error(s); let v = if vm.method_vis(owner, m) == Vis::Private { "private" } else { "protected" }; return Err(vm.no_method_error(m, s, &format!("{v} method '{name}' called for {d}"))); } } vm.funcall(s, m, &a[1..], b) }),
-        ("singleton_method_added", |_vm, _s, _a, _b| Ok(Value::Nil)),
         ("methods", |vm, s, a, _b| { let all = a.first().map(|v| v.truthy()).unwrap_or(true); let list = method_list(vm, vm.class_of(s), Some(Vis::Public), all); Ok(vm.ary_new(list)) }),
         ("public_methods", |vm, s, _a, _b| { let list = method_list(vm, vm.class_of(s), Some(Vis::Public), true); Ok(vm.ary_new(list)) }),
         ("private_methods", |vm, s, _a, _b| { let list = method_list(vm, vm.class_of(s), Some(Vis::Private), true); Ok(vm.ary_new(list)) }),
@@ -133,7 +138,7 @@ pub fn init(vm: &mut Vm) {
             check_const_name(vm, n)?;
             match vm.const_get(s.obj().unwrap(), n) { Some(v) => Ok(v), None => { let cm = vm.intern("const_missing"); vm.funcall(s, cm, &[Value::Sym(n)], Value::Nil) } }
         }),
-        ("const_set", |vm, s, a, _b| { argc!(vm, a, 2); let n = sym_arg(vm, a[0])?; check_const_name(vm, n)?; let m = s.obj().unwrap(); if vm.heap.get(m).frozen { return Err(vm.frozen_error(s)); } vm.heap.class_mut(m).consts.insert(n, Slot::from(a[1])); if let Value::Obj(o) = a[1] { if vm.heap.is_class(o) && vm.heap.class(o).name.is_none() { vm.heap.class_mut(o).name = Some(n); vm.heap.class_mut(o).outer = Some(m); } } Ok(a[1]) }),
+        ("const_set", |vm, s, a, _b| { argc!(vm, a, 2); let n = sym_arg(vm, a[0])?; check_const_name(vm, n)?; let m = s.obj().unwrap(); if vm.heap.get(m).frozen { return Err(vm.frozen_error(s)); } vm.heap.class_mut(m).consts.insert(n, Slot::from(a[1])); if let Value::Obj(o) = a[1] { if vm.heap.is_class(o) && vm.heap.class(o).name.is_none() { vm.heap.class_mut(o).name = Some(n); vm.heap.class_mut(o).outer = Some(m); } } vm.const_added(m, n)?; Ok(a[1]) }),
         ("const_defined?", |vm, s, a, _b| { argc!(vm, a, 1, 2); let n = sym_arg(vm, a[0])?; check_const_name(vm, n)?; Ok(Value::bool(vm.const_get(s.obj().unwrap(), n).is_some())) }),
         ("constants", |vm, s, _a, _b| { let list: Vec<Value> = vm.heap.class(s.obj().unwrap()).consts.keys().map(|k| Value::Sym(*k)).collect(); Ok(vm.ary_new(list)) }),
         ("class_variable_get", |vm, s, a, _b| { argc!(vm, a, 1); let n = sym_arg(vm, a[0])?; Ok(vm.heap.class(s.obj().unwrap()).cvars.get(&n).map(|s| s.get()).unwrap_or(Value::Nil)) }),
@@ -141,6 +146,10 @@ pub fn init(vm: &mut Vm) {
         ("module_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
         ("class_eval", |vm, s, _a, b| { if b.is_nil() { return Err(vm.raise_arg("no block given")); } vm.call_block_with_self(b, s, &[s]) }),
         ("method_added", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        // the other two no-op hooks of `mod_rom_entries` (src/class.c); `method_removed` is in
+        // `ext_metaprog.rs`, next to the `remove_method` that fires it
+        ("method_undefined", |_vm, _s, _a, _b| Ok(Value::Nil)),
+        ("const_added", |_vm, _s, _a, _b| Ok(Value::Nil)),
     ]);
     // Class
     vm.define_methods(c.class, &[

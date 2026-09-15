@@ -63,6 +63,41 @@ pub(crate) fn hash_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResu
     Ok(default_of(vm, s))
 }
 
+/// `Hash#default_proc=` (`mrb_hash_set_default_proc`, src/hash.c). Assigning one replaces the
+/// plain default, as it does there: mruby keeps both in the one `ifnone` ivar and the two flags
+/// say which it is, so writing either clears the other. `nil` takes the default away altogether.
+///
+/// The argument must be a Proc, and a **lambda** must be one that could be called with the two
+/// arguments the lookup passes (`hash_set_default_proc`): an arity of 2, or a negative one no
+/// smaller than -3 (`|*a|`, `|a, *b|`, `|a, b, *c|`). A plain proc is not checked, because a
+/// proc takes whatever it is given.
+fn default_proc_set(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    argc!(vm, a, 1);
+    let dp = default_proc_ivar(vm);
+    let o = match s.obj() { Some(o) => o, None => return Err(vm.raise_type("not a hash")) };
+    if vm.heap.get(o).frozen { return Err(vm.raise(vm.core.frozen_error, "can't modify frozen Hash")); }
+    if a[0].is_nil() {
+        vm.heap.ivar_set(o, dp, Value::Nil);
+        with_mut(vm, s, |h| h.default = Slot::NIL)?;
+        return Ok(Value::Nil);
+    }
+    let po = match a[0].obj() {
+        Some(p) if matches!(vm.heap.get(p).kind, ObjKind::Proc(_)) => p,
+        _ => { let d = vm.describe_for_type_error(a[0]); return Err(vm.raise_type(&format!("wrong argument type {d} (expected Proc)"))); }
+    };
+    let pd = vm.heap.proc_data(po);
+    if pd.strict {
+        let n = super::proc_::arity_of(&vm.ireps[pd.irep], true);
+        if n != 2 && (n >= 0 || n < -3) {
+            let n = if n < 0 { -n - 1 } else { n };
+            return Err(vm.raise_type(&format!("default_proc takes two arguments (2 for {n})")));
+        }
+    }
+    vm.heap.ivar_set(o, dp, a[0]);
+    with_mut(vm, s, |h| h.default = Slot::NIL)?;
+    Ok(a[0])
+}
+
 /// `Hash#[]=`. Named, not a closure in the table, because `OP_SETIDX` records it as the
 /// implementation it stands in for and calls it directly (`Vm::op_setidx`).
 pub(crate) fn hash_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
@@ -131,8 +166,11 @@ pub fn init(vm: &mut Vm) {
             with_mut(vm, s, |h| h.set_entries_with_hashes(to_slots(out), hs))?;
             Ok(s)
         }),
-        ("default=", |vm, s, a, _b| { argc!(vm, a, 1); with_mut(vm, s, |h| h.default = Slot::from(a[0]))?; Ok(a[0]) }),
+        // `mrb_hash_set_default`: writing the plain default clears MRB_HASH_PROC_DEFAULT, so a
+        // Hash made with a block answers with the plain default from then on
+        ("default=", |vm, s, a, _b| { argc!(vm, a, 1); with_mut(vm, s, |h| h.default = Slot::from(a[0]))?; let dp = default_proc_ivar(vm); if let Some(o) = s.obj() { vm.heap.ivar_set(o, dp, Value::Nil); } Ok(a[0]) }),
         ("default_proc", |vm, s, _a, _b| { let dp = default_proc_ivar(vm); Ok(s.obj().map(|o| vm.heap.ivar_get(o, dp)).unwrap_or(Value::Nil)) }),
+        ("default_proc=", default_proc_set),
         ("to_h", |_vm, s, _a, _b| Ok(s)),
         ("to_hash", |_vm, s, _a, _b| Ok(s)),
         ("to_a", |vm, s, _a, _b| { let pairs: Vec<Value> = entries(vm, s).into_iter().map(|(k, v)| vm.ary_new(vec![k, v])).collect(); Ok(vm.ary_new(pairs)) }),
