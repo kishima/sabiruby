@@ -27,6 +27,12 @@ impl Interner {
     pub fn intern_str(&mut self, name: &str) -> Sym {
         self.intern(name.as_bytes())
     }
+    /// The symbol a name already has, or `None` where nothing interned it. What a reader that
+    /// does not want to make one asks (`Vm::ivar_get`, `Vm::global_get`): a name no symbol
+    /// stands for cannot be the name of anything the VM holds.
+    pub fn lookup_str(&self, name: &str) -> Option<Sym> {
+        self.index.get(name.as_bytes()).copied()
+    }
     pub fn name(&self, s: Sym) -> &[u8] {
         &self.names[s.0 as usize]
     }

@@ -618,6 +618,12 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     in, innermost first, so a host showing one file of several can find the innermost frame in
     *that* file — a script parked inside a library method stands in the library, and what its
     author wants to see is the line of their own that is waiting.
+    `task_running` answers the task the scheduler currently has on the CPU, which is what a
+    native called from Ruby needs before it can use any of the above: the host that spawned the
+    task holds its `ObjId`, a method the script calls does not, and what a native usually wants
+    is something the host hung on that very task with `Vm::ivar_set` (rubevy gives each script
+    the entity it drives that way, and `is_exception` is how the host tells a task that raised
+    from one that answered — `Vm::task_value` returns both).
     `task_queue_new` and `task_queue_push` are how a host
     answers a script that asked it for something: hand the script a `Task::Queue`, do the work
     outside (a frame later, a thread, an event loop), push the result, and the `pop` the script

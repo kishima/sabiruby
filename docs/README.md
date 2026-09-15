@@ -46,8 +46,10 @@ in English; plans and the worklog are in Japanese.
 
 ## worklog/ — what happened, when
 
-One file per piece of work, `YYYY-MM-DD-<slug>.md`, written while the work happened. The three
-of 2026-09-15 are the records of `host-bridge-plan.md`'s stages 2, 2b, 2c, 4 and 5.
+One file per piece of work, `YYYY-MM-DD-<slug>.md`, written while the work happened. The four
+of 2026-09-15 are the records of `host-bridge-plan.md`'s stages 2, 2b, 2c, 4, 5 and 3b
+([stage3b-host-entry-points](worklog/2026-09-15-stage3b-host-entry-points.md): the entry points
+that let rubevy stop reaching into `Vm`'s fields).
 
 ## Where things were (before 2026-09-15)
 
