@@ -1,0 +1,96 @@
+# mruby/edge から取り込むもの（実装指示書）
+
+作成 2026-09-16。mruby/edge（`../ref/mrubyedge`、`c7dd9ae`、2026-04-14 のクローン）の実装を読んで、SabiRuby に取り込む価値があると判断した 5 件。
+著者の判断: `docs/plans/ecs-bridge-plan.md` の残り（`e[:Transform]` の読み）が終わってから、この順で。比較の記録は書籍側の
+`docs/notes/related-implementations.md`（本には書かない）。
+
+取り込まないもの（理由は同じ記録に）: `SharedMemory`、`Rc` の値表現、`insn-limit`、CLI の wasm 用 crate 生成。
+
+## 状況
+
+| # | 内容 | 状態 |
+|---|---|---|
+| 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | 未着手 |
+| 2 | RBS で境界を宣言する（検討→設計） | 未着手 |
+| 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | 未着手 |
+| 4 | Cargo feature で gem を落とせるようにする（まず regexp） | 未着手 |
+| 5 | `RUBY_ENGINE` をどう答えるか決める | 未着手 |
+
+## 1. `sabiruby-serde`
+
+**到達点**: Rust の serde 対応の型と Ruby の値を相互に変換でき、その上に `JSON` が載る。
+
+```rust
+let v: Value = sabiruby_serde::to_value(&mut vm, &config)?;      // Serialize → Ruby（Hash/Array/String/…）
+let config: Config = sabiruby_serde::from_value(&mut vm, v)?;    // Ruby → Deserialize
+```
+```ruby
+JSON.parse('{"a": [1, 2]}')   #=> {"a" => [1, 2]}
+JSON.generate(h)              # / h.to_json
+```
+
+**設計**:
+* 新しい crate `serde/`（`sabiruby-serde`）。`sabiruby` に依存し、`serde` に依存する。`sabiruby` 本体は serde に依存しない（`no_std` と依存の小ささを保つ）。
+  ワークスペースの `members` に足し、`cargo publish --dry-run --workspace` が通る形に（`version`/`license`/`description`/`repository`）。
+* `Serializer` の実装: serde のデータモデル（struct → Hash（キーは文字列。シンボルにするかは option）、seq → Array、map → Hash、
+  数値 → Integer/Float、`Option` → nil、enum の unit variant → シンボル、newtype/tuple variant → `{name: value}`）。
+  `Deserializer` はその逆。`Value` を借りるのに `&mut Vm` が要るので、`to_value(&mut Vm, &T)` / `from_value(&mut Vm, Value)` の形。
+* **`FromRuby`/`IntoRuby` との関係**: `T: Serialize` に対する `IntoRuby` の blanket impl は、既存の impl（`i64`、`String`…）と重なるので書けない。
+  代わりに `Serde<T>` のような包み型で `define_fn` から使えるようにする（`|cfg: Serde<Config>| …`）。理由を rustdoc に。
+* `JSON` は `mruby-serde-json` と同じく **Ruby 側の `JSON` クラスを Rust で**（`JSON.parse`/`generate`/`pretty_generate`、`Object#to_json`）。
+  `serde_json` の `Value` を経由するのが最短。本家には mruby-json（非公式 gem）があるが互換は目標にしない（「選べる実装」）。
+* テスト: 往復（Rust → Ruby → Rust）が同一、CRuby の `JSON` と出力を突き合わせる `tests/custom/` の case（`json_roundtrip.rb`。期待値は CRuby）。
+  `tests/serde.rs`（struct/enum/Option/nested、数値の境界、非 UTF-8 の String は `Bytes` で）。
+
+**大きさ**: 中。
+
+## 2. RBS で境界を宣言する（まず検討）
+
+**到達点（この段階では設計文書）**: ホストが Ruby に出す関数・クラスを RBS で書き、それをどう使うかを決める。`docs/design/rbs.md`。
+
+**検討すること**:
+* 何に使うか: (a) `#[ruby_methods]` の生成コードに、RBS の型と Rust の型の一致を検査させる、(b) Playground とゲーム内エディタの補完・ホバーの文書、
+  (c) rubevy の `Rubevy.ask` の `kind` ごとの引数と答えの文書（今は文字列で、何を渡せるかがコードを読まないと分からない）。
+* RBS のパーサ: mruby/edge の `rbs_parser`（nom、`def name: (T, T) -> T` の 1 形だけ）程度の小ささで足りるか、`rbs` crate の有無。
+* 逆向き（Rust の `#[ruby_methods]` から RBS を**生成**する）のほうが、二重管理が無く筋がよい可能性。まずこちらを試す。
+
+**大きさ**: 小（文書）。実装は別の段階に。
+
+## 3. 対応メソッド一覧の生成
+
+**到達点**: `docs/verification/coverage.md` に、SabiRuby が持つ組込みクラスとメソッドの一覧（クラスごと、`.class_method` / `#instance_method`、
+どの gem 由来か）。生成物で、`tools/coverage.sh` が作る。
+
+**設計**: VM を `with_mrblib` で起こし、`ObjectSpace` と `Module#instance_methods` / `singleton_methods` / `ancestors` を Ruby のスクリプトで回して
+Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどうかは `docs/design/gems.md` の一覧と突き合わせ（手で持たず、`Method#owner` と
+定義元のファイル名で判定できる範囲で）。本家 4.1.0-rc の同じ一覧も Docker で取り、**差分**（本家にあって無いもの、その逆）を出す。
+これは `mrbtest` の通過率とは別の「何があるか」の答えになる。
+
+**大きさ**: 小。
+
+## 4. Cargo feature で gem を落とせるようにする
+
+**到達点**: `sabiruby` を `default-features = false, features = ["utf8"]` のように regexp なしでビルドでき、thumbv7em のサイズが減る。
+
+**設計**:
+* `regexp` feature（既定オン）。オフのとき `ext_regexp` と `regex-automata` を外し、`Regexp` 定数を定義しない。`String` の regexp を取る形
+  （`sub`/`gsub`/`scan`/`match`/`=~`/`split` の Regexp 引数）は `TypeError` か `NotImplementedError`（本家で regexp gem を外したときの振る舞いに合わせる）。
+* `mrblib` の `.mrb` のうち regexp 依存のもの（`regexp.mrb`）を読まない。`tools/mrbtest.sh` に `--no-regexp` を足し、regexp の test ファイルを除いた基準を持つ
+  （`baseline-noregexp.txt`）。CI に「regexp なしで thumbv7em がビルドできる」を 1 行。
+* サイズを `docs/verification/` に記録（`.text` の大きさ、thumbv7em、release、`opt-level = "z"`）: regexp あり／なし。
+* 同じ形で `random`、`time`、`pack` も外せるようにするかは、regexp の結果を見て決める。
+
+**大きさ**: 中。
+
+## 5. `RUBY_ENGINE`
+
+**到達点**: 何を答えるか決めて、`docs/design/gems.md` の「Intended differences」か `corelib` の節に理由を書く。
+
+**今**: `RUBY_ENGINE = "mruby"`、`RUBY_ENGINE_VERSION = "4.1.0"`（`src/builtins/object.rs`）。本家テストは `RUBY_ENGINE` を見て分岐する箇所がある
+（`grep` で数える）。
+
+**選択肢**: (a) `"mruby"` のまま（互換）。(b) `"sabiruby"` にし、`RUBY_ENGINE_VERSION` に SabiRuby の版、`MRUBY_VERSION` に本家の版。
+本家テストの分岐が壊れる件数と、「SabiRuby で動いているか」をスクリプトが知る手段（mruby/edge の `wasm?` に当たるもの）の両方を見て決める。
+(b) なら `SABIRUBY_VERSION` 定数を足す案も。
+
+**大きさ**: 小。
