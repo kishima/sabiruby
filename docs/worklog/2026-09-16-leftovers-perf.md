@@ -182,15 +182,44 @@ micro（`bench/micro`、`tools/ab_micro.sh`、7 ラウンドの交互 A/B）:
 （第 2 群の 3 つだけは、答えが `Vec<Slot>` のまま済むので別）。`Vm::ary_new` に `Vec<Slot>` を取る入口を足せば
 この群も 1 回にできるが、公開 API が増えるうえ効き先は micro だけなので、指示書の範囲外として置いた。
 
-**(b) 要素ごとに Ruby を呼ぶ走査を添字の借り直しに**（`Array#-`・`&`・`|`・`uniq`・`assoc`・`to_h`・
+**(b) 要素ごとに Ruby を呼ぶ走査を添字の借り直しに**（`Array#-`・`&`・`|`・`uniq`・`to_h`・
 `delete_if`・`select!`・`sort_by`・`sum`、ext_array の集合演算）。これらは `items` を**ループの外で 1 回**呼ぶので、
 すでに O(n) であって O(n²) ではない（O(n²) だった `include?`/`member?`/`count` は 2d の `f222934` で直っている）。
 1 要素あたりのコストは `vm.equal`／`memb_in`／`call_block`、つまり Ruby のディスパッチが支配していて、
-複製 1 回はその中に埋もれる。上の micro の `m_ary_walk`（`index`/`count {}`/`assoc`、200 要素 × 20000 回）が
-第 1 群でも第 2 群でも ±0.7% しか動かないのが、その裏付けである。
-さらに**添字で借り直すと意味が変わる**: 今の形はブロックに入る前の snapshot を配るが、添字なら
-ブロックが配列を変えた結果が見える。本家（`mrb_ary_ptr` を毎回読み直す）に寄る変更ではあるが、
-速くもならないのに振る舞いを変えることになるので取らない。
+複製 1 回はその中に埋もれる。第 3 群（下）で実測したとおり効き目は雑音の底あたりなので、
+**結果を捨てる `select!`/`delete_if` の類と、snapshot を配ることに意味がある `sort_by`/`sum` には手を付けない**。
 
 **(c) `flatten_internal`・`transpose`・`product`・`intersection` の `items`**: どれも中身を全部要るので、
 複製は仕事そのもの。
+
+### 第 3 群: `assoc`・`rassoc`・`__ary_index` を本家と同じ「毎回読み直す」形に（`5f5a0bf`）
+
+第 2 群まで書いてから、(b) のうち **`assoc`/`rassoc`/`__ary_index` だけは別**だと分かった。本家の
+`ary_assoc`（`mrbgems/mruby-array-ext/src/array.c:86`）は
+
+```c
+for (mrb_int i = 0; i < RARRAY_LEN(ary); i++) {
+  mrb_value v = mrb_check_array_type(mrb, RARRAY_PTR(ary)[i]);
+  mrb_gc_protect(mrb, v); // v may be removed from ary by mrb_equal()
+```
+
+と、**長さも要素も毎回読み直す**（コメントまで「`mrb_equal` が消すかもしれない」と言っている）。
+SabiRuby の `index`/`include?`/`member?`/`__count` はすでにこの形（2d の `f222934`）で、
+`assoc`/`rassoc`/`__ary_index` だけが snapshot を配る形で残っていた。つまりこれは速度の話ではなく
+**取り残し**である。直したうえで数値も取った:
+
+| micro | A（第 2 群） | B（第 3 群） | 変化 |
+|---|---:|---:|---:|
+| m_ary_walk（`index`/`count {}`/`assoc`） | 1818.802 | 1766.830 | −2.9% |
+| m_loop_only（空のループ） | 7.337 | 7.191 | **−2.0%** |
+| m_ary_read | 87.428 | 86.199 | −1.4% |
+| m_ary_dup | 37.169 | 36.619 | −1.5% |
+| m_ary_set | 274.748 | 271.545 | −1.2% |
+| m_ary_copy | 101.520 | 101.061 | −0.5% |
+| m_ary_ends | 46.420 | 46.251 | −0.4% |
+
+**この回は B のバイナリが全体に速く出ている**（空のループが −2.0%、触っていない micro も −0.4〜−1.5%）。
+差し引くと `m_ary_walk` の正味は **−1% 前後、雑音の底と同じ大きさ**である。`assoc`/`rassoc` だけを変えた
+1 回目（`rassoc` を入れる前）は `m_ary_walk` −1.5%、空のループ −0.0% だったので、そちらの読みでも −1.5%。
+**速さを理由に採ったのではなく、本家と同じ走査にするために採った**（1 要素あたり `Vec` を 1 本作らなくなるのは
+そのついで）。数値は `bench/results/micro-items-g3.tsv`。

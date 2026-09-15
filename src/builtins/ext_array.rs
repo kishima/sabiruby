@@ -187,8 +187,8 @@ fn adjust_next_permutation_index(ind: &mut [i64], i: usize) {
 pub fn init(vm: &mut Vm) {
     let ary = vm.core.array;
     vm.define_methods(ary, &[
-        ("assoc", |vm, s, a, _b| { argc!(vm, a, 1); for v in items(vm, s) { if let Some(x) = check_array(vm, v)? { if !x.is_empty() && vm.equal(x[0], a[0])? { return Ok(v); } } } Ok(Value::Nil) }),
-        ("rassoc", |vm, s, a, _b| { argc!(vm, a, 1); for v in items(vm, s) { if let Some(x) = vm.ary_vals(v) { if x.len() > 1 && vm.equal(x[1], a[0])? { return Ok(v); } } } Ok(Value::Nil) }),
+        ("assoc", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let v = match slots(vm, s).get(i).map(|x| x.get()) { Some(v) => v, None => break }; if let Some(x) = check_array(vm, v)? { if !x.is_empty() && vm.equal(x[0], a[0])? { return Ok(v); } } i += 1; } Ok(Value::Nil) }),
+        ("rassoc", |vm, s, a, _b| { argc!(vm, a, 1); let mut i = 0; loop { let v = match slots(vm, s).get(i).map(|x| x.get()) { Some(v) => v, None => break }; if let Some(k) = vm.ary(v).and_then(|x| if x.len() > 1 { Some(x[1].get()) } else { None }) { if vm.equal(k, a[0])? { return Ok(v); } } i += 1; } Ok(Value::Nil) }),
         ("at", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let len = ary_len(vm, s) as i64; let i = if i < 0 { i + len } else { i }; Ok(if i < 0 { Value::Nil } else { slots(vm, s).get(i as usize).map(|x| x.get()).unwrap_or(Value::Nil) }) }),
         ("values_at", |vm, s, a, _b| {
             // mrb_get_values_at: Integers and Ranges (a Range past the end pads with nil)
