@@ -1080,7 +1080,7 @@ impl Vm {
         F: Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync + 'static,
     {
         let n = self.intern(name);
-        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(f)));
+        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(crate::object::ClosureBody(alloc::boxed::Box::new(f)))));
     }
 
     // ------------------------------------------------------------------ host state
@@ -1707,7 +1707,7 @@ impl Vm {
     #[inline]
     pub fn call_closure(&mut self, f: &crate::object::NativeClosure, recv: Value, args: &[Value], blk: Value) -> VmResult<Value> {
         self.native_active += 1;
-        let r = f(self, recv, args, blk);
+        let r = (f.0)(self, recv, args, blk);
         self.native_active -= 1;
         if self.task.native_sampling { crate::builtins::ext_task::count_native(self); }
         r

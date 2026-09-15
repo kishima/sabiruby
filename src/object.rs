@@ -22,7 +22,12 @@ pub type NativeFn = fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value>;
 ///
 /// `Arc` because [`Method`] is `Clone` (method lookup returns the method by value) and because
 /// a `Vm` is `Send + Sync`; the closure must be `Send + Sync` for the same reason.
-pub type NativeClosure = alloc::sync::Arc<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>;
+pub type NativeClosure = alloc::sync::Arc<ClosureBody>;
+
+/// The closure behind a [`NativeClosure`], boxed so the `Arc` is a thin pointer: a `Method`
+/// then stays 16 bytes, as it was before the variant existed, and method lookup (which clones
+/// a `Method`) keeps copying one machine word pair.
+pub struct ClosureBody(pub alloc::boxed::Box<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>);
 
 /// Index of a loaded irep in [`Vm`].
 pub type IrepId = usize;
