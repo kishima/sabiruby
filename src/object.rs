@@ -17,6 +17,13 @@ use crate::vm::Vm;
 /// Native (Rust) method: `fn(vm, self, args, block)`.
 pub type NativeFn = fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value>;
 
+/// A native method that carries an environment: the same signature as [`NativeFn`], but a
+/// closure the host built rather than a bare function. Registered with [`Vm::define_closure`].
+///
+/// `Arc` because [`Method`] is `Clone` (method lookup returns the method by value) and because
+/// a `Vm` is `Send + Sync`; the closure must be `Send + Sync` for the same reason.
+pub type NativeClosure = alloc::sync::Arc<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>;
+
 /// Index of a loaded irep in [`Vm`].
 pub type IrepId = usize;
 
@@ -25,6 +32,11 @@ pub enum Method {
     /// A method written in Ruby: the Proc (irep + target class) to run.
     Ruby(ObjId),
     Native(NativeFn),
+    /// A native method with an environment (`Vm::define_closure`). Everywhere a `Native` is
+    /// dispatched, checked or described, a `Closure` behaves the same; what it cannot do is
+    /// be compared by function address (`notimpl_fns`, `native_arity`, `Method#==` between
+    /// two natives), where it compares by `Arc` identity or answers as an unknown native.
+    Closure(NativeClosure),
     AttrReader(Sym),
     AttrWriter(Sym),
     /// `undef_method`: stops the lookup.

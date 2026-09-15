@@ -1,0 +1,226 @@
+//! Native methods a host builds at run time: `Vm::define_closure` (a closure that carries an
+//! environment, next to `Vm::define_method`'s bare function pointer) and `Vm::set_host_state`
+//! (one typed value the host leaves with the VM for its natives to read back).
+//!
+//! What is checked here is that a `Method::Closure` is treated everywhere a `Method::Native`
+//! is: dispatched by SEND and by `funcall`, seen by `respond_to?` / `method_defined?` /
+//! `instance_methods`, described the same by `Method#owner` / `#arity` / `#inspect`, aliased,
+//! reached through `method_missing`, and that an `Err` it returns raises in Ruby.
+
+use std::sync::{Arc, Mutex};
+
+use sabiruby::{Value, Vm};
+
+fn compile(src: &str) -> Vec<u8> {
+    sabiruby_compiler::compile(src.as_bytes(), &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile")
+}
+
+fn run(vm: &mut Vm, src: &str) -> String {
+    let bin = compile(src);
+    vm.load_and_run(&bin).expect("run");
+    String::from_utf8_lossy(&vm.take_output()).into_owned()
+}
+
+/// Runs and gives back the error message instead of panicking.
+fn run_err(vm: &mut Vm, src: &str) -> String {
+    let bin = compile(src);
+    match vm.load_and_run(&bin) {
+        Ok(_) => panic!("expected a raise, got none"),
+        Err(e) => vm.describe_error(&e),
+    }
+}
+
+#[test]
+fn a_closure_writes_to_the_environment_it_captured() {
+    let log: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let sink = log.clone();
+    let object = vm.core.object;
+    vm.define_closure(object, "record", move |_vm, _self_, args, _blk| {
+        if let Some(Value::Int(i)) = args.first() { sink.lock().unwrap().push(*i); }
+        Ok(Value::Nil)
+    });
+    assert_eq!(run(&mut vm, "record 1; record 2; [1,2,3].each { |i| record(i * 10) }; p :ok"), ":ok\n");
+    assert_eq!(*log.lock().unwrap(), vec![1, 2, 10, 20, 30]);
+}
+
+#[test]
+fn a_closure_returns_a_value_to_ruby() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let base = 100i64;
+    let object = vm.core.object;
+    vm.define_closure(object, "plus_base", move |_vm, _self_, args, _blk| {
+        match args.first() { Some(Value::Int(i)) => Ok(Value::Int(i + base)), _ => Ok(Value::Nil) }
+    });
+    assert_eq!(run(&mut vm, "p plus_base(5)"), "105\n");
+    // through funcall from native code, not only from bytecode
+    let mid = vm.intern("plus_base");
+    let top = Value::Obj(vm.top_self);
+    let v = vm.funcall(top, mid, &[Value::Int(7)], Value::Nil).expect("funcall");
+    assert_eq!(v, Value::Int(107));
+}
+
+#[test]
+fn an_err_from_a_closure_raises_in_ruby() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let object = vm.core.object;
+    vm.define_closure(object, "boom", |vm, _self_, _args, _blk| Err(vm.raise_arg("no good")));
+    // rescued on the Ruby side: the closure's Err is an ordinary raise
+    assert_eq!(run(&mut vm, "begin; boom; rescue ArgumentError => e; p e.message; end"), "\"no good\"\n");
+    // and unrescued it comes back out of `load_and_run`
+    assert!(run_err(&mut vm, "boom").contains("no good"));
+}
+
+#[test]
+fn a_closure_can_call_back_into_the_vm() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let object = vm.core.object;
+    // the block the caller passed, run from the closure
+    vm.define_closure(object, "twice", |vm, _self_, _args, blk| {
+        vm.call_block(blk, &[Value::Int(1)])?;
+        vm.call_block(blk, &[Value::Int(2)])
+    });
+    assert_eq!(run(&mut vm, "twice { |i| puts i }"), "1\n2\n");
+}
+
+#[test]
+fn a_closure_looks_like_a_native_to_reflection() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let c = vm.define_class("Widget", vm.core.object);
+    vm.define_closure(c, "spin", |_vm, _self_, _args, _blk| Ok(Value::Int(1)));
+    vm.define_method(c, "plain", |_vm, _self_, _args, _blk| Ok(Value::Int(1)));
+    let out = run(&mut vm, r#"
+      w = Widget.new
+      p w.respond_to?(:spin), w.respond_to?(:plain)
+      p Widget.method_defined?(:spin)
+      p Widget.instance_methods(false).sort
+      m = w.method(:spin)
+      p m.owner, m.name, m.arity, m.receiver == w
+      p m.call
+      p Widget.instance_method(:spin).class
+      p m.source_location
+      p m.inspect
+      p m == w.method(:spin), m == w.method(:plain)
+    "#);
+    assert_eq!(out, concat!(
+        "true\ntrue\n",
+        "true\n",
+        "[:plain, :spin]\n",
+        "Widget\n:spin\n-1\ntrue\n",
+        "1\n",
+        "UnboundMethod\n",
+        "nil\n",
+        "\"#<Method: Widget#spin>\"\n",
+        "true\nfalse\n",
+    ));
+}
+
+#[test]
+fn a_closure_is_aliased_and_undefined_like_a_native() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let c = vm.define_class("Gadget", vm.core.object);
+    vm.define_closure(c, "tick", |_vm, _self_, _args, _blk| Ok(Value::Int(42)));
+    let out = run(&mut vm, r#"
+      class Gadget
+        alias tock tick
+      end
+      g = Gadget.new
+      p g.tock, g.tick
+      class Gadget
+        undef_method :tick
+      end
+      p g.respond_to?(:tick), g.respond_to?(:tock)
+    "#);
+    assert_eq!(out, "42\n42\nfalse\ntrue\n");
+}
+
+#[test]
+fn a_closure_method_missing_takes_the_call() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let c = vm.define_class("Proxy", vm.core.object);
+    vm.define_closure(c, "method_missing", |vm, _self_, args, _blk| {
+        let name = match args.first() { Some(Value::Sym(s)) => vm.sym_name(*s), _ => "?".into() };
+        Ok(vm.str_from(format!("missing:{name}")))
+    });
+    // from bytecode (SEND) and from native code (funcall)
+    assert_eq!(run(&mut vm, "p Proxy.new.whatever"), "\"missing:whatever\"\n");
+    let obj = {
+        let bin = compile("$o = Proxy.new\n");
+        vm.load_and_run(&bin).expect("run");
+        let g = vm.intern("$o");
+        vm.globals.get(&g).map(|s| s.get()).expect("$o")
+    };
+    let mid = vm.intern("anything");
+    let v = vm.funcall(obj, mid, &[], Value::Nil).expect("funcall");
+    assert_eq!(vm.str_bytes(v).map(|b| String::from_utf8_lossy(b).into_owned()), Some("missing:anything".into()));
+}
+
+#[test]
+fn a_closure_is_a_singleton_method_too() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let c = vm.define_class("Single", vm.core.object);
+    let sc = vm.singleton_class(Value::Obj(c)).expect("singleton");
+    vm.define_closure(sc, "build", |_vm, _self_, _args, _blk| Ok(Value::Int(7)));
+    assert_eq!(run(&mut vm, "p Single.build; p Single.singleton_methods.sort"), "7\n[:build]\n");
+}
+
+#[test]
+fn host_state_is_reached_from_a_closure_and_from_a_plain_native() {
+    struct Counters { frames: u64 }
+    let mut vm = Vm::with_mrblib().expect("vm");
+    vm.set_host_state(Counters { frames: 0 });
+    let object = vm.core.object;
+    vm.define_closure(object, "tick", |vm, _self_, _args, _blk| {
+        let n = match vm.host_state_mut::<Counters>() { Some(c) => { c.frames += 1; c.frames } None => 0 };
+        Ok(Value::Int(n as i64))
+    });
+    // a bare fn reaches it the same way: the VM is the way through, not the closure
+    vm.define_method(object, "frames", |vm, _self_, _args, _blk| {
+        Ok(Value::Int(vm.host_state::<Counters>().map(|c| c.frames).unwrap_or(0) as i64))
+    });
+    assert_eq!(run(&mut vm, "p tick, tick, tick, frames"), "1\n2\n3\n3\n");
+    assert_eq!(vm.host_state::<Counters>().map(|c| c.frames), Some(3));
+    // the wrong type answers None, and a replacement takes over
+    assert!(vm.host_state::<String>().is_none());
+    vm.set_host_state(String::from("hello"));
+    assert_eq!(vm.host_state::<String>().map(|s| s.as_str()), Some("hello"));
+    assert!(vm.host_state::<Counters>().is_none());
+    assert_eq!(run(&mut vm, "p tick"), "0\n");
+    let taken = vm.take_host_state();
+    assert!(taken.is_some());
+    assert!(vm.host_state::<String>().is_none());
+}
+
+#[test]
+fn a_closure_survives_the_collector() {
+    let log: Arc<Mutex<Vec<i64>>> = Arc::new(Mutex::new(Vec::new()));
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let sink = log.clone();
+    let object = vm.core.object;
+    vm.define_closure(object, "record", move |_vm, _self_, args, _blk| {
+        if let Some(Value::Int(i)) = args.first() { sink.lock().unwrap().push(*i); }
+        Ok(Value::Nil)
+    });
+    vm.set_gc_stress(true);
+    assert_eq!(run(&mut vm, "100.times { |i| record(i) }; GC.start; record(-1); p :ok"), ":ok\n");
+    assert_eq!(log.lock().unwrap().len(), 101);
+}
+
+/// The reason both the closure and the host state are `Send + Sync`: a `Vm` is
+/// (`tests/send_sync.rs`), and an engine that keeps one in its world requires it.
+#[test]
+fn a_vm_with_a_closure_and_host_state_is_still_send_and_sync() {
+    fn assert_send_sync<T: Send + Sync>(_: &T) {}
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let shared = Arc::new(Mutex::new(0i64));
+    let s = shared.clone();
+    let object = vm.core.object;
+    vm.define_closure(object, "bump", move |_vm, _self_, _args, _blk| {
+        let mut g = s.lock().unwrap(); *g += 1; Ok(Value::Int(*g))
+    });
+    vm.set_host_state(Arc::new(Mutex::new(Vec::<u8>::new())));
+    assert_send_sync(&vm);
+    assert_eq!(run(&mut vm, "p bump, bump"), "1\n2\n");
+}
