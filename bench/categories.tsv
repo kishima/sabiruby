@@ -1,0 +1,27 @@
+# Which benchmark answers which question. `tools/bench.sh` reads this file; a
+# benchmark with no line here lands in "other". The categories come out in the
+# order they first appear below.
+#
+# benchmark	category
+loop_while_add	instruction loop
+loop_if_branch	instruction loop
+loop_times	instruction loop
+bm_so_mandelbrot	instruction loop
+vm_optimization_bench	instruction loop
+call_args	calls
+call_block_yield	calls
+call_kwargs	calls
+call_fiber	calls
+ds_array	data structures
+ds_hash	data structures
+ds_string	data structures
+bm_so_lists	data structures
+mem_short_lived	memory
+mem_retained	memory
+gc_churn	memory
+app_tak	whole program
+app_robot	whole program
+app_json_hash	whole program
+bm_fib	whole program
+bm_ao_render	whole program
+bm_mandel_term	whole program

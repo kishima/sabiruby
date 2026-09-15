@@ -154,8 +154,14 @@ suite keeps going and the table shows them as "crash".
 
 ## Performance
 
-`tools/bench.sh` runs mruby's own `benchmark/*.rb` on the reference `mruby` and on SabiRuby
-and writes [`docs/bench.md`](https://github.com/kishima/sabiruby/blob/main/docs/bench.md) (best of 3, plus instruction counts and
+`tools/bench.sh` runs the benchmarks of `bench/` — mruby's own `benchmark/*.rb` and a set
+grouped by what they ask about (instruction loop, calls, data structures, memory, whole
+program; `bench/categories.tsv`) — on the reference `mruby` and on SabiRuby, and writes a
+TSV and a Markdown report per category into `bench/results/`. `SABIRUBY_BIN` points it at a
+binary already built, so any two commits can be measured the same way and put side by side
+with `tools/bench_compare.sh`; without Docker the reference columns stay empty and SabiRuby's
+own numbers still come out. The kept results are in
+[`docs/bench.md`](https://github.com/kishima/sabiruby/blob/main/docs/bench.md) (best and median of the runs, plus instruction counts and
 ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
 first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
 The value representation (16-byte enum) and the heap (index into a `Vec`) are the

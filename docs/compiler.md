@@ -72,7 +72,7 @@ file name the generating script passed to `mrbc` (it ends up in the DBG section 
 |---|---:|---|---|
 | `tests/fixtures/*.rb` | 17 | none | identical |
 | `tests/mrbtest/src/*.rb` (mruby's test suite and gem tests) | 61 | `-g` (DBG and LVAR) | identical |
-| `bench/src/*.rb` | 7 | none | identical |
+| `bench/src/*.rb` | 22 | none | identical |
 
 A negative control (the test files without `-g`) makes all 61 differ. Checked once by hand as
 well: the ten embedded mrblib binaries (`src/mrblib*.mrb`) recompiled from their sources are
