@@ -132,11 +132,12 @@ fn a_fn_with_no_self_is_a_class_method_and_one_with_self_an_instance_method() {
             }
 
             impl Player {
-                pub fn register(vm: &mut ::sabiruby::Vm) -> ::sabiruby::value::ObjId {
+                pub fn register(vm: &mut ::sabiruby::Vm)
+                    -> ::sabiruby::error::VmResult<::sabiruby::value::ObjId>
+                {
                     let __class = <Player as ::sabiruby::host_store::RubyClass>::register_class(vm);
                     let _ = <Player as ::sabiruby::host_store::RubyClass>::tag(vm);
-                    let __meta = vm.singleton_class(::sabiruby::Value::Obj(__class))
-                        .expect("a class has a metaclass");
+                    let __meta = vm.singleton_class(::sabiruby::Value::Obj(__class))?;
 
                     vm.define_fn(__meta, "new", |vm: &mut ::sabiruby::Vm, __a0: i64|
                         -> ::sabiruby::error::VmResult<::sabiruby::Value>
@@ -167,7 +168,7 @@ fn a_fn_with_no_self_is_a_class_method_and_one_with_self_an_instance_method() {
                         ::sabiruby::convert::IntoRubyRet::into_ruby_ret(__out, vm)
                     });
 
-                    __class
+                    Ok(__class)
                 }
 
                 // asked for at the span of each parameter, so that a type `FromRuby` does not
@@ -198,7 +199,9 @@ fn a_method_given_the_vm_borrows_its_receiver_out_of_the_store_and_back() {
             }
 
             impl Player {
-                pub fn register(vm: &mut ::sabiruby::Vm) -> ::sabiruby::value::ObjId {
+                pub fn register(vm: &mut ::sabiruby::Vm)
+                    -> ::sabiruby::error::VmResult<::sabiruby::value::ObjId>
+                {
                     let __class = <Player as ::sabiruby::host_store::RubyClass>::register_class(vm);
                     let _ = <Player as ::sabiruby::host_store::RubyClass>::tag(vm);
 
@@ -213,7 +216,7 @@ fn a_method_given_the_vm_borrows_its_receiver_out_of_the_store_and_back() {
                         ::sabiruby::convert::IntoRubyRet::into_ruby_ret(__out, vm)
                     });
 
-                    __class
+                    Ok(__class)
                 }
 
                 #[allow(dead_code)]

@@ -102,7 +102,7 @@ fn run(vm: &mut Vm, src: &str) -> String {
 
 fn vm_with_player() -> Vm {
     let mut vm = Vm::with_mrblib().expect("vm");
-    Player::register(&mut vm);
+    Player::register(&mut vm).expect("Player registers");
     vm
 }
 
@@ -192,7 +192,7 @@ fn an_argument_of_the_wrong_type_raises_where_the_vms_own_natives_do() {
 #[test]
 fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
     let mut vm = vm_with_player();
-    Beast::register(&mut vm);
+    Beast::register(&mut vm).expect("Beast registers");
     // `allocate` makes an ordinary object of the class, with no handle in it: the one way
     // Ruby can reach a Player method with something that is not one
     let out = run(&mut vm, r#"
@@ -217,7 +217,7 @@ fn a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class() {
 #[test]
 fn two_types_in_one_vm_keep_their_own_tags_and_stores() {
     let mut vm = vm_with_player();
-    Beast::register(&mut vm);
+    Beast::register(&mut vm).expect("Beast registers");
     let p_tag = Player::tag(&mut vm);
     let b_tag = Beast::tag(&mut vm);
     assert_ne!(p_tag, b_tag);

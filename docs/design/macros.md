@@ -19,7 +19,7 @@ impl Player {
     fn hp(&self) -> i64 { self.hp }                  // player.hp
 }
 
-Player::register(&mut vm);
+Player::register(&mut vm)?;
 ```
 
 The crate does **not** depend on `sabiruby`: what it generates names `::sabiruby::…` and a host
@@ -55,7 +55,9 @@ special case anywhere: they are all just `IntoRuby`.
 
 `#[ruby_methods]` gives the `impl` block back unchanged (minus the `#[ruby(…)]` attributes,
 which are its own) and adds `T::register(&mut vm)`, which defines the class, installs the store
-and its tag, and calls `Vm::define_fn` once per method. Reading a signature:
+and its tag, and calls `Vm::define_fn` once per method. It answers `VmResult<ObjId>`: asking a
+class for its singleton class (where the class methods go) is a `VmResult`, and the generated
+code has no business deciding on the host's behalf that the answer cannot fail. Reading a signature:
 
 | in Rust | in Ruby |
 |---|---|

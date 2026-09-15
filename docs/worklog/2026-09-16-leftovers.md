@@ -99,3 +99,31 @@ Positional.new.zap(**{})
 （`Pub.new.public_send(:one, **{})` は本家が `{}`、SabiRuby は ArgumentError）。
 本家の `public_send` は `send_method(mrb, self, TRUE)` で `send` と同じフレーム書き換えなので、
 `op_send_redirect` に可視性の判定を足せば揃う。今回の計画書の範囲（`send` と `method_missing`）の外なので触っていない。
+
+---
+
+## 2. マクロの生成する `register` に残っていた `expect`
+
+段階 6a の worklog（`2026-09-15-stage6a-macros.md` の 204 行目）が
+「`register` を `VmResult` にすれば消えるが、計画書の `T::register(&mut vm)` の形から離れるので触っていない」
+と書き残した 1 つ。生成コードは
+
+```rust
+let __meta = vm.singleton_class(::sabiruby::Value::Obj(__class)).expect("a class has a metaclass");
+```
+
+を書いていた。到達不能ではある（`__class` は直前に `register_class` が作ったクラスオブジェクトで、
+`Vm::singleton_class` がクラスに対して `Err` を返す道は無い）。だが **`expect` はホストの選択であって、
+マクロが勝手に決めてよいものではない**。生成されたコードのパニックは、ホストから見ると自分が書いていない行で落ちる。
+
+`pub fn register(vm: &mut Vm) -> ::sabiruby::error::VmResult<::sabiruby::value::ObjId>` にして `?` に置き換えた。
+`__meta` はクラスメソッドが 1 つでもあるときだけ生成されるので、クラスメソッドが無い `impl` の `register` は
+`Err` を返す道が 1 本も無い `VmResult` になる。これは目をつぶった（形を揃えるほうが使う側に説明しやすい）。
+
+破壊的変更だが、この repo の中の利用者は `macros/tests/player.rs` の 3 か所だけ。
+`rubevy` は `#[ruby_methods]` をまだ使っていない（`grep -rn "ruby_methods\|RubyClass" rubevy/src` が空、
+クラス登録は `src/lib.rs` で手書き）ので、**rubevy 側に直す呼び出しは無い**。
+ただし rubevy `src/lib.rs:1215` に同じ形の `vm.singleton_class(Value::Obj(m)).expect("Rubevy singleton")` が手書きで 1 つある。
+これは rubevy のホストコード自身が書いた `expect` なので、今回の変更とは別（直すなら rubevy 側の判断）。
+
+固定した期待値（`macros/tests/expand.rs`）と、`macros/README.md`・`macros/src/lib.rs`・`docs/design/macros.md` の例も直した。
