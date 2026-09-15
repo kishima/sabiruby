@@ -162,8 +162,10 @@ binary already built, so any two commits can be measured the same way and put si
 with `tools/bench_compare.sh`; without Docker the reference columns stay empty and SabiRuby's
 own numbers still come out. The kept results are in
 [`docs/verification/bench.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/verification/bench.md) (best and median of the runs, plus instruction counts and
-ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
-first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
+ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch: the
+first baseline (2026-09-11) was 1.8x–3.5x slower on arithmetic and 16x on array-heavy code;
+after the work of 2026-09-15 the whole set is 2.8x (median 3.05x), Hash 2.9x and `so_lists`
+4.4x — what changed and why is [`docs/design/optimizations.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/optimizations.md) (Japanese).
 The value representation (16-byte enum) and the heap (index into a `Vec`) are the
 known structural costs; measure before changing them. Storage (registers, array elements,
 hash entries, ivars, envs, constants, globals) holds `Slot`; computation works on `Value`;
