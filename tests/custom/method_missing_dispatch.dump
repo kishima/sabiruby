@@ -1,0 +1,758 @@
+irep 0x57734e9ffad0 nregs=14 nlocals=7 pools=1 syms=67 reps=20 ilen=967
+local variable names:
+  R1:r
+  R2:k
+  R3:h
+  R4:e
+  R5:fib
+  R6:fib2
+catch type: rescue   begin: 0426 end: 0442 target: 0445
+catch type: rescue   begin: 0494 end: 0508 target: 0511
+catch type: rescue   begin: 0575 end: 0587 target: 0590
+catch type: rescue   begin: 0666 end: 0679 target: 0682
+catch type: rescue   begin: 0884 end: 0893 target: 0896
+file: /w/method_missing_dispatch.rb
+   10 000 LOADNIL	R7	(nil)
+   10 002 LOADNIL	R8	(nil)
+   10 004 CLASS		R7	:Recorder
+   10 007 EXEC		R7	I[0]
+   22 010 GETCONST	R7	Recorder
+   22 013 SEND0		R7	:new
+   22 016 MOVE		R1	R7	; R1:r
+   23 019 MOVE		R8	R1	; R1:r
+   23 022 SEND0		R8	:none
+   23 025 SSEND		R7	:p	n=1
+   24 029 MOVE		R8	R1	; R1:r
+   24 032 LOADI_1	R9	(1)
+   24 034 SEND		R8	:one	n=1
+   24 038 SSEND		R7	:p	n=1
+   25 042 MOVE		R8	R1	; R1:r
+   25 045 LOADNIL	R9	(nil)
+   25 047 LOADI_1	R10	(1)
+   25 049 LOADI8	R11	14
+   25 052 RANGE_INC	R10
+   25 054 SEND0		R10	:to_a
+   25 057 ARYCAT	R9	(R10)
+   25 059 SEND		R8	:fourteen	n=*
+   25 063 SSEND		R7	:p	n=1
+   26 067 MOVE		R8	R1	; R1:r
+   26 070 LOADNIL	R9	(nil)
+   26 072 LOADI_1	R10	(1)
+   26 074 LOADI8	R11	15
+   26 077 RANGE_INC	R10
+   26 079 SEND0		R10	:to_a
+   26 082 ARYCAT	R9	(R10)
+   26 084 SEND		R8	:fifteen	n=*
+   26 088 SSEND		R7	:p	n=1
+   27 092 MOVE		R8	R1	; R1:r
+   27 095 LOADNIL	R9	(nil)
+   27 097 LOADI_1	R10	(1)
+   27 099 LOADI8	R11	20
+   27 102 RANGE_INC	R10
+   27 104 SEND0		R10	:to_a
+   27 107 ARYCAT	R9	(R10)
+   27 109 SEND		R8	:twenty	n=*
+   27 113 SSEND		R7	:p	n=1
+   28 117 MOVE		R8	R1	; R1:r
+   28 120 LOADI_7	R9	(7)
+   28 122 BLOCK		R10	I[1]
+   28 125 SENDB		R8	:blocky	n=1
+   28 129 SSEND		R7	:p	n=1
+   29 133 MOVE		R8	R1	; R1:r
+   29 136 LOADNIL	R9	(nil)
+   29 138 LOADI_1	R10	(1)
+   29 140 LOADI8	R11	15
+   29 143 RANGE_INC	R10
+   29 145 SEND0		R10	:to_a
+   29 148 ARYCAT	R9	(R10)
+   29 150 BLOCK		R10	I[2]
+   29 153 SENDB		R8	:fifteen_and_block	n=*
+   29 157 SSEND		R7	:p	n=1
+   32 161 MOVE		R8	R1	; R1:r
+   32 164 LOADSYM	R9	:can_fly
+   32 167 SEND		R8	:respond_to?	n=1
+   32 171 MOVE		R9	R1	; R1:r
+   32 174 LOADSYM	R10	:cannot
+   32 177 SEND		R9	:respond_to?	n=1
+   32 181 ARRAY		R8	2
+   32 184 SSEND		R7	:p	n=1
+   33 188 MOVE		R8	R1	; R1:r
+   33 191 LOADSYM	R9	:can_fly
+   33 194 SEND		R8	:method	n=1
+   33 198 LOADI_1	R9	(1)
+   33 200 LOADI_2	R10	(2)
+   33 202 SEND		R8	:call	n=2
+   33 206 SSEND		R7	:p	n=1
+   36 210 LOADNIL	R7	(nil)
+   36 212 LOADNIL	R8	(nil)
+   36 214 CLASS		R7	:Keys
+   36 217 EXEC		R7	I[3]
+   41 220 GETCONST	R7	Keys
+   41 223 SEND0		R7	:new
+   41 226 MOVE		R2	R7	; R2:k
+   42 229 MOVE		R8	R2	; R2:k
+   42 232 LOADI_1	R9	(1)
+   42 234 LOADI_2	R10	(2)
+   42 236 SEND		R8	:plain	n=2
+   42 240 SSEND		R7	:p	n=1
+   43 244 MOVE		R8	R2	; R2:k
+   43 247 LOADSYM	R9	:x
+   43 250 LOADI_1	R10	(1)
+   43 252 LOADSYM	R11	:y
+   43 255 LOADI_2	R12	(2)
+   43 257 SEND		R8	:kw	n=0|nk=2
+   43 261 SSEND		R7	:p	n=1
+   44 265 MOVE		R8	R2	; R2:k
+   44 268 LOADI_1	R9	(1)
+   44 270 LOADI_2	R10	(2)
+   44 272 LOADSYM	R11	:x
+   44 275 LOADI_3	R12	(3)
+   44 277 SEND		R8	:both	n=2|nk=1
+   44 281 SSEND		R7	:p	n=1
+   45 285 MOVE		R8	R2	; R2:k
+   45 288 LOADNIL	R9	(nil)
+   45 290 LOADI_1	R10	(1)
+   45 292 LOADI8	R11	15
+   45 295 RANGE_INC	R10
+   45 297 SEND0		R10	:to_a
+   45 300 ARYCAT	R9	(R10)
+   45 302 LOADSYM	R10	:x
+   45 305 LOADI_1	R11	(1)
+   45 307 SEND		R8	:many	n=*|nk=1
+   45 311 SSEND		R7	:p	n=1
+   46 315 LOADSYM	R7	:a
+   46 318 LOADI_1	R8	(1)
+   46 320 LOADSYM	R9	:b
+   46 323 LOADI_2	R10	(2)
+   46 325 HASH		R7	2
+   46 328 MOVE		R3	R7	; R3:h
+   47 331 MOVE		R8	R2	; R2:k
+   47 334 HASH		R9	0
+   47 337 MOVE		R10	R3	; R3:h
+   47 340 HASHCAT	R9	(R10)
+   47 342 SEND		R8	:splat	n=0|nk=*
+   47 346 SSEND		R7	:p	n=1
+   51 350 LOADNIL	R7	(nil)
+   51 352 LOADNIL	R8	(nil)
+   51 354 CLASS		R7	:Base
+   51 357 EXEC		R7	I[4]
+   56 360 LOADNIL	R7	(nil)
+   56 362 GETCONST	R8	Base
+   56 365 CLASS		R7	:Middle
+   56 368 EXEC		R7	I[5]
+   61 371 LOADNIL	R7	(nil)
+   61 373 GETCONST	R8	Middle
+   61 376 CLASS		R7	:Leaf
+   61 379 EXEC		R7	I[6]
+   66 382 GETCONST	R8	Leaf
+   66 385 SEND0		R8	:new
+   66 388 LOADI_1	R9	(1)
+   66 390 LOADI_2	R10	(2)
+   66 392 SEND		R8	:walk	n=2
+   66 396 SSEND		R7	:p	n=1
+   69 400 LOADNIL	R7	(nil)
+   69 402 LOADNIL	R8	(nil)
+   69 404 CLASS		R7	:Hidden
+   69 407 EXEC		R7	I[7]
+   75 410 GETCONST	R8	Hidden
+   75 413 SEND0		R8	:new
+   75 416 LOADI_1	R9	(1)
+   75 418 SEND		R8	:anything	n=1
+   75 422 SSEND		R7	:p	n=1
+   77 426 GETCONST	R7	Hidden
+   77 429 SEND0		R7	:new
+   77 432 LOADSYM	R8	:method_missing
+   77 435 LOADSYM	R9	:direct
+   77 438 SEND		R7	:send	n=2
+   77 442 JMP		484
+   77 445 EXCEPT	R7	
+   78 447 GETCONST	R8	NoMethodError
+   78 450 RESCUE	R7	R8
+   78 453 JMPIF		R8	460
+   78 457 JMP		482
+   78 460 MOVE		R4	R7	; R4:e
+   79 463 LOADSYM	R8	:unreachable
+   79 466 MOVE		R9	R4	; R4:e
+   79 469 SEND0		R9	:message
+   79 472 ARRAY		R8	2
+   79 475 SSEND		R7	:p	n=1
+   79 479 JMP		494
+   79 482 RAISEIF	R7	
+   81 484 LOADSYM	R8	:send_reaches_it
+   81 487 ARRAY		R8	1
+   81 490 SSEND		R7	:p	n=1
+   87 494 GETCONST	R7	Object
+   87 497 SEND0		R7	:new
+   87 500 LOADI_1	R8	(1)
+   87 502 LOADI_2	R9	(2)
+   87 504 SEND		R7	:not_here	n=2
+   87 508 JMP		565
+   87 511 EXCEPT	R7	
+   88 513 GETCONST	R8	NoMethodError
+   88 516 RESCUE	R7	R8
+   88 519 JMPIF		R8	526
+   88 523 JMP		563
+   88 526 MOVE		R4	R7	; R4:e
+   89 529 MOVE		R8	R4	; R4:e
+   89 532 SEND0		R8	:class
+   89 535 MOVE		R9	R4	; R4:e
+   89 538 SEND0		R9	:message
+   89 541 MOVE		R10	R4	; R4:e
+   89 544 SEND0		R10	:name
+   89 547 MOVE		R11	R4	; R4:e
+   89 550 SEND0		R11	:args
+   89 553 ARRAY		R8	4
+   89 556 SSEND		R7	:p	n=1
+   89 560 JMP		565
+   89 563 RAISEIF	R7	
+   94 565 LOADNIL	R7	(nil)
+   94 567 LOADNIL	R8	(nil)
+   94 569 CLASS		R7	:Raiser
+   94 572 EXEC		R7	I[8]
+  100 575 GETCONST	R7	Raiser
+  100 578 SEND0		R7	:new
+  100 581 LOADI_1	R8	(1)
+  100 583 SEND		R7	:boom	n=1
+  100 587 JMP		656
+  100 590 EXCEPT	R7	
+  101 592 GETCONST	R8	ArgumentError
+  101 595 RESCUE	R7	R8
+  101 598 JMPIF		R8	605
+  101 602 JMP		654
+  101 605 MOVE		R4	R7	; R4:e
+  102 608 MOVE		R8	R4	; R4:e
+  102 611 SEND0		R8	:class
+  102 614 MOVE		R9	R4	; R4:e
+  102 617 SEND0		R9	:message
+  102 620 ARRAY		R8	2
+  102 623 SSEND		R7	:p	n=1
+  103 627 MOVE		R8	R4	; R4:e
+  103 630 SEND0		R8	:backtrace
+  103 633 BLOCK		R9	I[9]
+  103 636 SENDB		R8	:map	n=0
+  103 640 STRING	R9	L[0]	; 
+
+  103 643 SEND		R8	:join	n=1
+  103 647 SSEND		R7	:puts	n=1
+  103 651 JMP		656
+  103 654 RAISEIF	R7	
+  107 656 LOADNIL	R7	(nil)
+  107 658 LOADNIL	R8	(nil)
+  107 660 CLASS		R7	:Yielder
+  107 663 EXEC		R7	I[10]
+  113 666 GETCONST	R7	Yielder
+  113 669 SEND0		R7	:new
+  113 672 BLOCK		R8	I[11]
+  113 675 SENDB		R7	:go	n=0
+  113 679 JMP		715
+  113 682 EXCEPT	R7	
+  114 684 GETCONST	R8	RuntimeError
+  114 687 RESCUE	R7	R8
+  114 690 JMPIF		R8	697
+  114 694 JMP		713
+  114 697 MOVE		R4	R7	; R4:e
+  115 700 MOVE		R8	R4	; R4:e
+  115 703 SEND0		R8	:message
+  115 706 SSEND		R7	:p	n=1
+  115 710 JMP		715
+  115 713 RAISEIF	R7	
+  119 715 GETCONST	R7	Fiber
+  119 718 BLOCK		R8	I[12]
+  119 721 SENDB		R7	:new	n=0
+  119 725 MOVE		R5	R7	; R5:fib
+  127 728 MOVE		R8	R5	; R5:fib
+  127 731 SEND0		R8	:resume
+  127 734 SSEND		R7	:p	n=1
+  128 738 MOVE		R8	R5	; R5:fib
+  128 741 LOADSYM	R9	:answer
+  128 744 SEND		R8	:resume	n=1
+  128 748 SSEND		R7	:p	n=1
+  131 752 GETCONST	R7	Fiber
+  131 755 BLOCK		R8	I[13]
+  131 758 SENDB		R7	:new	n=0
+  131 762 MOVE		R6	R7	; R6:fib2
+  144 765 MOVE		R8	R6	; R6:fib2
+  144 768 SEND0		R8	:resume
+  144 771 SSEND		R7	:p	n=1
+  145 775 MOVE		R8	R6	; R6:fib2
+  145 778 SEND0		R8	:resume
+  145 781 SSEND		R7	:p	n=1
+  146 785 MOVE		R8	R6	; R6:fib2
+  146 788 SEND0		R8	:resume
+  146 791 SSEND		R7	:p	n=1
+  149 795 LOADNIL	R7	(nil)
+  149 797 LOADNIL	R8	(nil)
+  149 799 CLASS		R7	:Returner
+  149 802 EXEC		R7	I[14]
+  155 805 TDEF		R7	:call_returner	I[15]
+  159 809 GETCONST	R9	Returner
+  159 812 SEND0		R9	:new
+  159 815 SSEND		R8	:call_returner	n=1
+  159 819 SSEND		R7	:p	n=1
+  163 823 LOADNIL	R7	(nil)
+  163 825 LOADNIL	R8	(nil)
+  163 827 CLASS		R7	:Breaker
+  163 830 EXEC		R7	I[16]
+  169 833 TDEF		R7	:try_break	I[17]
+  172 837 GETCONST	R9	Breaker
+  172 840 SEND0		R9	:new
+  172 843 SSEND		R8	:try_break	n=1
+  172 847 SSEND		R7	:p	n=1
+  175 851 LOADNIL	R7	(nil)
+  175 853 LOADNIL	R8	(nil)
+  175 855 CLASS		R7	:Named
+  175 858 EXEC		R7	I[18]
+  180 861 GETCONST	R8	Named
+  180 864 SEND0		R8	:new
+  180 867 SEND0		R8	:whoami
+  180 870 SSEND		R7	:p	n=1
+  184 874 LOADNIL	R7	(nil)
+  184 876 LOADNIL	R8	(nil)
+  184 878 CLASS		R7	:Recur
+  184 881 EXEC		R7	I[19]
+  190 884 GETCONST	R7	Recur
+  190 887 SEND0		R7	:new
+  190 890 SEND0		R7	:a
+  190 893 JMP		964
+  190 896 EXCEPT	R7	
+  191 898 GETCONST	R8	SystemStackError
+  191 901 RESCUE	R7	R8
+  191 904 JMPIF		R8	911
+  191 908 JMP		933
+  191 911 MOVE		R4	R7	; R4:e
+  192 914 LOADSYM	R8	:stack
+  192 917 MOVE		R9	R4	; R4:e
+  192 920 SEND0		R9	:class
+  192 923 ARRAY		R8	2
+  192 926 SSEND		R7	:p	n=1
+  192 930 JMP		964
+  193 933 GETCONST	R8	NoMethodError
+  193 936 RESCUE	R7	R8
+  193 939 JMPIF		R8	946
+  193 943 JMP		962
+  193 946 MOVE		R4	R7	; R4:e
+  194 949 LOADSYM	R8	:nomethod
+  194 952 ARRAY		R8	1
+  194 955 SSEND		R7	:p	n=1
+  194 959 JMP		964
+  194 962 RAISEIF	R7	
+  194 964 RETURN	R7	
+  194 966 STOP
+
+irep 0x57734ea13670 nregs=2 nlocals=1 pools=0 syms=2 reps=2 ilen=10
+file: /w/method_missing_dispatch.rb
+   11 000 TDEF		R1	:method_missing	I[0]
+   17 004 TDEF		R1	:respond_to_missing?	I[1]
+   17 008 RETURN	R1	
+
+irep 0x57734ea14da0 nregs=10 nlocals=6 pools=0 syms=3 reps=0 ilen=46
+local variable names:
+  R1:name
+  R2:args
+  R4:blk
+  R5:r
+file: /w/method_missing_dispatch.rb
+   11 000 ENTER		1:0:1:0:0:0:1:0 (0x41001)
+   11 004 MOVE		R4	R3	; R4:blk
+   12 007 MOVE		R6	R1	; R1:name
+   12 010 MOVE		R7	R2	; R2:args
+   12 013 ARRAY		R5	R6	2	; R5:r
+   13 017 MOVE		R6	R4	; R4:blk
+   13 020 JMPNOT	R6	044
+   13 024 MOVE		R6	R5	; R5:r
+   13 027 MOVE		R7	R4	; R4:blk
+   13 030 MOVE		R8	R2	; R2:args
+   13 033 SEND0		R8	:size
+   13 036 SEND		R7	:call	n=1
+   13 040 SEND		R6	:<<	n=1
+   14 044 RETURN	R5		; R5:r
+
+irep 0x57734ea15890 nregs=7 nlocals=4 pools=1 syms=2 reps=0 ilen=27
+local variable names:
+  R1:name
+  R2:include_private
+file: /w/method_missing_dispatch.rb
+   17 000 ENTER		1:1:0:0:0:0:0:0 (0x42000)
+   17 004 JMP		010
+   17 007 JMP		012
+   17 010 LOADFALSE	R2	(false)	; R2:include_private
+   18 012 MOVE		R4	R1	; R1:name
+   18 015 SEND0		R4	:to_s
+   18 018 STRING	R5	L[0]	; can_
+   18 021 SEND		R4	:start_with?	n=1
+   18 025 RETURN	R4	
+
+irep 0x57734ea16030 nregs=5 nlocals=3 pools=1 syms=0 reps=0 ilen=14
+local variable names:
+  R1:n
+file: /w/method_missing_dispatch.rb
+   28 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   28 004 STRING	R3	L[0]	; block saw 
+   28 007 MOVE		R4	R1	; R1:n
+   28 010 STRCAT	R3	(R4)
+   28 012 RETURN	R3	
+
+irep 0x57734ea14c50 nregs=6 nlocals=3 pools=0 syms=0 reps=0 ilen=13
+local variable names:
+  R1:n
+file: /w/method_missing_dispatch.rb
+   29 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   29 004 MOVE		R3	R1	; R1:n
+   29 007 LOADI_2	R4	(2)
+   29 009 MUL		R3	(R4)
+   29 011 RETURN	R3	
+
+irep 0x57734ea14760 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+   37 000 TDEF		R1	:method_missing	I[0]
+   37 004 RETURN	R1	
+
+irep 0x57734ea14800 nregs=8 nlocals=5 pools=0 syms=0 reps=0 ilen=18
+local variable names:
+  R1:name
+  R2:args
+  R3:kw
+file: /w/method_missing_dispatch.rb
+   37 000 ENTER		1:0:1:0:0:1:0:0 (0x41002)
+   38 004 MOVE		R5	R1	; R1:name
+   38 007 MOVE		R6	R2	; R2:args
+   38 010 MOVE		R7	R3	; R3:kw
+   38 013 ARRAY		R5	3
+   38 016 RETURN	R5	
+
+irep 0x57734ea171c0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+   52 000 TDEF		R1	:method_missing	I[0]
+   52 004 RETURN	R1	
+
+irep 0x57734ea17490 nregs=7 nlocals=4 pools=1 syms=0 reps=0 ilen=18
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+   52 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+   53 004 STRING	R4	L[0]	; Base
+   53 007 MOVE		R5	R1	; R1:name
+   53 010 MOVE		R6	R2	; R2:args
+   53 013 ARRAY		R4	3
+   53 016 RETURN	R4	
+
+irep 0x57734ea196f0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+   57 000 TDEF		R1	:method_missing	I[0]
+   57 004 RETURN	R1	
+
+irep 0x57734ea199a0 nregs=9 nlocals=4 pools=1 syms=0 reps=0 ilen=21
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+   57 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+   58 004 STRING	R4	L[0]	; Middle
+   58 007 ARRAY		R4	1
+   58 010 ARGARY	R6	1:1:0:0 (0)
+   58 014 SUPER		R5	n=*
+   58 017 ADD		R4	(R5)
+   58 019 RETURN	R4	
+
+irep 0x57734ea17ad0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+   62 000 TDEF		R1	:method_missing	I[0]
+   62 004 RETURN	R1	
+
+irep 0x57734ea1aef0 nregs=9 nlocals=4 pools=1 syms=0 reps=0 ilen=21
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+   62 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+   63 004 STRING	R4	L[0]	; Leaf
+   63 007 ARRAY		R4	1
+   63 010 ARGARY	R6	1:1:0:0 (0)
+   63 014 SUPER		R5	n=*
+   63 017 ADD		R4	(R5)
+   63 019 RETURN	R4	
+
+irep 0x57734ea1b050 nregs=4 nlocals=1 pools=0 syms=2 reps=1 ilen=13
+file: /w/method_missing_dispatch.rb
+   70 000 TDEF		R1	:method_missing	I[0]
+   73 004 LOADSYM	R2	:method_missing
+   73 007 SSEND		R1	:private	n=1
+   73 011 RETURN	R1	
+
+irep 0x57734ea1a6f0 nregs=6 nlocals=4 pools=0 syms=1 reps=0 ilen=15
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+   70 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+   71 004 LOADSYM	R4	:hidden
+   71 007 MOVE		R5	R1	; R1:name
+   71 010 ARRAY		R4	2
+   71 013 RETURN	R4	
+
+irep 0x57734ea18650 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+   95 000 TDEF		R1	:method_missing	I[0]
+   95 004 RETURN	R1	
+
+irep 0x57734ea18750 nregs=8 nlocals=4 pools=1 syms=2 reps=0 ilen=21
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+   95 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+   96 004 GETCONST	R5	ArgumentError
+   96 007 STRING	R6	L[0]	; no 
+   96 010 MOVE		R7	R1	; R1:name
+   96 013 STRCAT	R6	(R7)
+   96 015 SSEND		R4	:raise	n=2
+   96 019 RETURN	R4	
+
+irep 0x57734ea19560 nregs=6 nlocals=3 pools=1 syms=2 reps=0 ilen=19
+local variable names:
+  R1:l
+file: /w/method_missing_dispatch.rb
+  103 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  103 004 MOVE		R3	R1	; R1:l
+  103 007 STRING	R4	L[0]	; /
+  103 010 SEND		R3	:split	n=1
+  103 014 SEND0		R3	:last
+  103 017 RETURN	R3	
+
+irep 0x57734ea1c7f0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+  108 000 TDEF		R1	:method_missing	I[0]
+  108 004 RETURN	R1	
+
+irep 0x57734ea1c8b0 nregs=7 nlocals=5 pools=0 syms=1 reps=0 ilen=15
+local variable names:
+  R1:name
+  R2:args
+  R4:blk
+file: /w/method_missing_dispatch.rb
+  108 000 ENTER		1:0:1:0:0:0:1:0 (0x41001)
+  108 004 MOVE		R4	R3	; R4:blk
+  109 007 MOVE		R5	R4	; R4:blk
+  109 010 SEND0		R5	:call
+  109 013 RETURN	R5	
+
+irep 0x57734ea1bc70 nregs=5 nlocals=2 pools=1 syms=1 reps=0 ilen=13
+file: /w/method_missing_dispatch.rb
+  113 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  113 004 STRING	R3	L[0]	; from the block
+  113 007 SSEND		R2	:raise	n=1
+  113 011 RETURN	R2	
+
+irep 0x57734ea1d840 nregs=7 nlocals=3 pools=0 syms=4 reps=1 ilen=33
+local variable names:
+  R2:o
+file: /w/method_missing_dispatch.rb
+  119 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  120 004 GETCONST	R3	Object
+  120 007 SEND0		R3	:new
+  120 010 MOVE		R2	R3	; R2:o
+  121 013 MOVE		R3	R2	; R2:o
+  121 016 SDEF		R3	:method_missing	I[0]
+  125 020 MOVE		R3	R2	; R2:o
+  125 023 LOADI_6	R4	(6)
+  125 025 LOADI_7	R5	(7)
+  125 027 SEND		R3	:question	n=2
+  125 031 RETURN	R3	
+
+irep 0x57734ea1d900 nregs=9 nlocals=5 pools=0 syms=4 reps=0 ilen=37
+local variable names:
+  R1:name
+  R2:args
+  R4:got
+file: /w/method_missing_dispatch.rb
+  121 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  122 004 GETCONST	R5	Fiber
+  122 007 LOADSYM	R6	:asked
+  122 010 MOVE		R7	R1	; R1:name
+  122 013 MOVE		R8	R2	; R2:args
+  122 016 ARRAY		R6	3
+  122 019 SEND		R5	:yield	n=1
+  122 023 MOVE		R4	R5	; R4:got
+  123 026 LOADSYM	R5	:resumed_with
+  123 029 MOVE		R6	R4	; R4:got
+  123 032 ARRAY		R5	2
+  123 035 RETURN	R5	
+
+irep 0x57734ea1cc80 nregs=5 nlocals=3 pools=0 syms=4 reps=1 ilen=28
+local variable names:
+  R2:a
+file: /w/method_missing_dispatch.rb
+  131 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  132 004 GETCONST	R3	Object
+  132 007 SEND0		R3	:new
+  132 010 MOVE		R2	R3	; R2:a
+  133 013 MOVE		R3	R2	; R2:a
+  133 016 SDEF		R3	:method_missing	I[0]
+  142 020 MOVE		R3	R2	; R2:a
+  142 023 SEND0		R3	:first
+  142 026 RETURN	R3	
+
+irep 0x57734ea1aac0 nregs=8 nlocals=5 pools=0 syms=8 reps=1 ilen=50
+local variable names:
+  R1:name
+  R2:args
+  R4:b
+file: /w/method_missing_dispatch.rb
+  133 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  134 004 GETCONST	R5	Fiber
+  134 007 LOADSYM	R6	:outer
+  134 010 MOVE		R7	R1	; R1:name
+  134 013 ARRAY		R6	2
+  134 016 SEND		R5	:yield	n=1
+  135 020 GETCONST	R5	Object
+  135 023 SEND0		R5	:new
+  135 026 MOVE		R4	R5	; R4:b
+  136 029 MOVE		R5	R4	; R4:b
+  136 032 SDEF		R5	:method_missing	I[0]
+  140 036 LOADSYM	R5	:outer_done
+  140 039 MOVE		R6	R4	; R4:b
+  140 042 SEND0		R6	:second
+  140 045 ARRAY		R5	2
+  140 048 RETURN	R5	
+
+irep 0x57734ea1ab80 nregs=7 nlocals=4 pools=0 syms=4 reps=0 ilen=25
+local variable names:
+  R1:n2
+  R2:a2
+file: /w/method_missing_dispatch.rb
+  136 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  137 004 GETCONST	R4	Fiber
+  137 007 LOADSYM	R5	:inner
+  137 010 MOVE		R6	R1	; R1:n2
+  137 013 ARRAY		R5	2
+  137 016 SEND		R4	:yield	n=1
+  138 020 LOADSYM	R4	:inner_done
+  138 023 RETURN	R4	
+
+irep 0x57734ea1a350 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+  150 000 TDEF		R1	:method_missing	I[0]
+  150 004 RETURN	R1	
+
+irep 0x57734ea1a3f0 nregs=6 nlocals=4 pools=0 syms=3 reps=0 ilen=24
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+  150 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  151 004 MOVE		R4	R2	; R2:args
+  151 007 SEND0		R4	:empty?
+  151 010 JMPNOT	R4	019
+  151 014 LOADSYM	R4	:early
+  151 017 RETURN	R4	
+  152 019 LOADSYM	R4	:late
+  152 022 RETURN	R4	
+
+irep 0x57734ea1f960 nregs=6 nlocals=4 pools=0 syms=2 reps=0 ilen=24
+local variable names:
+  R1:o
+  R3:v
+file: /w/method_missing_dispatch.rb
+  155 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  156 004 MOVE		R4	R1	; R1:o
+  156 007 SEND0		R4	:whatever
+  156 010 MOVE		R3	R4	; R3:v
+  157 013 LOADSYM	R4	:after
+  157 016 MOVE		R5	R3	; R3:v
+  157 019 ARRAY		R4	2
+  157 022 RETURN	R4	
+
+irep 0x57734ea1b710 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+  164 000 TDEF		R1	:method_missing	I[0]
+  164 004 RETURN	R1	
+
+irep 0x57734ea186a0 nregs=8 nlocals=5 pools=0 syms=2 reps=1 ilen=28
+local variable names:
+  R1:name
+  R2:args
+  R4:blk
+file: /w/method_missing_dispatch.rb
+  164 000 ENTER		1:0:1:0:0:0:1:0 (0x41001)
+  164 004 MOVE		R4	R3	; R4:blk
+  165 007 LOADI_1	R5	(1)
+  165 009 LOADI_2	R6	(2)
+  165 011 LOADI_3	R7	(3)
+  165 013 ARRAY		R5	3
+  165 016 BLOCK		R6	I[0]
+  165 019 SENDB		R5	:each	n=0
+  166 023 LOADSYM	R5	:not_broken
+  166 026 RETURN	R5	
+
+irep 0x57734ea18280 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=17
+local variable names:
+  R1:i
+file: /w/method_missing_dispatch.rb
+  165 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  165 004 GETUPVAR	R3	4	0
+  165 008 MOVE		R4	R1	; R1:i
+  165 011 SEND		R3	:call	n=1
+  165 015 RETURN	R3	
+
+irep 0x57734ea17e40 nregs=5 nlocals=3 pools=0 syms=1 reps=1 ilen=16
+local variable names:
+  R1:o
+file: /w/method_missing_dispatch.rb
+  169 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  170 004 MOVE		R3	R1	; R1:o
+  170 007 BLOCK		R4	I[0]
+  170 010 SENDB		R3	:loopy	n=0
+  170 014 RETURN	R3	
+
+irep 0x57734ea17ee0 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=27
+local variable names:
+  R1:i
+file: /w/method_missing_dispatch.rb
+  170 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  170 004 MOVE		R3	R1	; R1:i
+  170 007 LOADI_1	R4	(1)
+  170 009 EQ		R3	(R4)
+  170 011 JMPNOT	R3	023
+  170 015 LOADSYM	R3	:broke_at_1
+  170 018 BREAK		R3	
+  170 020 JMP		025
+  170 023 LOADNIL	R3	(nil)
+  170 025 RETURN	R3	
+
+irep 0x57734ea215c0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+  176 000 TDEF		R1	:method_missing	I[0]
+  176 004 RETURN	R1	
+
+irep 0x57734ea21660 nregs=6 nlocals=4 pools=0 syms=1 reps=0 ilen=15
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+  176 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  177 004 SSEND0	R4	:__method__
+  177 007 MOVE		R5	R1	; R1:name
+  177 010 ARRAY		R4	2
+  177 013 RETURN	R4	
+
+irep 0x57734ea23f40 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_missing_dispatch.rb
+  185 000 TDEF		R1	:method_missing	I[0]
+  185 004 RETURN	R1	
+
+irep 0x57734ea23fe0 nregs=7 nlocals=4 pools=2 syms=1 reps=0 ilen=25
+local variable names:
+  R1:name
+  R2:args
+file: /w/method_missing_dispatch.rb
+  185 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  186 004 STRING	R5	L[0]
+  186 007 MOVE		R6	R1	; R1:name
+  186 010 STRCAT	R5	(R6)
+  186 012 STRING	R6	L[1]	; x
+  186 015 STRCAT	R5	(R6)
+  186 017 INTERN	R5	
+  186 019 SSEND		R4	:send	n=1
+  186 023 RETURN	R4	
+
