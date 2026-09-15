@@ -167,3 +167,37 @@ SabiRuby の今の文言と一致している（`tests/data.rs` がその 2 行�
 テストは `macros/tests/player.rs` の
 `a_receiver_that_is_not_one_of_ours_is_a_type_error_naming_the_class` を書き換え、
 `Ghost.allocate`（部分クラス）・`Player.allocate`・String（クラスが違う側）の 3 つを固定した。
+
+---
+
+## 4. ブロックを取るメソッド（`#[ruby_methods]`）
+
+`Vm::define_fn` には最初から形がある（`src/convert.rs` の `MVmBlock` と `MVmThisBlock`:
+`Fn(&mut Vm, A…, Block)` と `Fn(&mut Vm, This<S>, A…, Block)`）。マクロが読んでいなかっただけ。
+
+`method_spec` に「末尾が `Block` なら引数ではなくブロック」を足した。`&mut Vm` の判定（`is_vm`）と同じで、
+**綴りだけを見る**（`Block`、`convert::Block`、`sabiruby::convert::Block` のどれでも）。
+型解決は proc-macro の手に無いので、これは段階 6a が `&mut Vm` で決めた妥協をそのまま広げたもの。
+
+`define_fn` には `&mut Vm` 無しでブロックを取る形が無い。ブロックを呼ぶには `Vm::call_block` が要るので
+実質的にも困らない。`Block` だけ書いて `&mut Vm` を書かなかったら、そう言うコンパイルエラーにした。
+`Block` が末尾以外にあるときも同じ（`&mut Vm` が先頭以外にあるときと対になる）。
+
+ブロックは**引数に数えない**。`Method#arity` は `define_fn` が数えるので、
+`each_hit(&mut self, vm, times: i64, blk: Block)` の arity は 1。生成される `__ruby_argument_types`
+（`FromRuby` を引数の綴りの位置で要求するやつ）にも `Block` は入らない（`Block` は `FromRuby` ではない）。
+
+テストは `macros/tests/player.rs` に `each_hit`（インスタンス、`&mut self` + 引数 + ブロック）と
+`from_block`（クラスメソッド、引数なしブロックだけ）を足し、Ruby から
+
+```ruby
+p pl.each_hit(3) { |left| seen << left }   #=> 7
+p Player.instance_method(:each_hit).arity  #=> 1
+begin; pl.each_hit(1); rescue ArgumentError => e; p e.message; end  #=> "no block given"
+pl.each_hit(1) { pl.hp }  #=> RuntimeError: Player is already in use by a call on the same object
+```
+
+まで固定した。最後の 1 行は狙って入れている。`&mut Vm` を取るメソッドは受け手を店から出したまま走るので、
+**ブロックの中から同じオブジェクトに触ると弾かれる**。ブロックを取れるようになって初めて Ruby から普通に書ける道なので、
+「書けるが、そこは `RefCell` の規則が効く」ことをテストに残した。
+`macros/tests/expand.rs` には生成コードの固定を 1 本と、2 つのコンパイルエラーを足した。

@@ -56,6 +56,27 @@ impl Player {
         let them = String::from_ruby(vm, them)?;
         Ok(format!("{} greets {}", self.name, them))
     }
+    /// Takes the caller's block: `Block` last, and the `&mut Vm` that calling it needs.
+    /// `player.each_hit(3) { |n| ... }` calls the block `n` times with what is left.
+    fn each_hit(&mut self, vm: &mut Vm, times: i64, blk: sabiruby::convert::Block) -> sabiruby::error::VmResult<i64> {
+        let b = match blk.0 {
+            Some(b) => b,
+            None => return Err(vm.raise_arg("no block given")),
+        };
+        for _ in 0..times {
+            self.hp -= 1;
+            vm.call_block(b, &[Value::Int(self.hp)])?;
+        }
+        Ok(self.hp)
+    }
+    /// A class method with a block, and no arguments at all besides it.
+    fn from_block(vm: &mut Vm, blk: sabiruby::convert::Block) -> sabiruby::error::VmResult<Self> {
+        let hp = match blk.0 {
+            Some(b) => { let v = vm.call_block(b, &[])?; i64::from_ruby(vm, v)? }
+            None => 0,
+        };
+        Ok(Player { hp, name: String::from("anon") })
+    }
     /// The one the host keeps to itself.
     #[ruby(skip)]
     fn secret(&self) -> i64 {
@@ -137,6 +158,42 @@ fn ruby_makes_a_player_and_drives_it() {
     ));
     // the values are in the store, not in the VM's heap
     assert_eq!(vm.host_store::<Player>().unwrap().len(), 3);
+}
+
+#[test]
+fn a_method_takes_the_callers_block() {
+    let mut vm = vm_with_player();
+    let out = run(&mut vm, r#"
+      pl = Player.new(10)
+      seen = []
+      p pl.each_hit(3) { |left| seen << left }
+      p seen
+      p pl.hp
+      # a block is not an argument: the arity is the arguments, and `block_given?` inside the
+      # block is the caller's own frame, so all the method can say is whether it got one
+      p Player.instance_method(:each_hit).arity
+      begin; pl.each_hit(1); rescue ArgumentError => e; p e.message; end
+      # and a class method with nothing but a block
+      p Player.from_block { 42 }.hp
+      p Player.from_block.hp
+      # the block can reach back into the object it was given to: the value is out of the
+      # store for the call, so a re-entry is refused rather than seen half-written
+      begin
+        pl.each_hit(1) { pl.hp }
+      rescue RuntimeError => e
+        p e.message
+      end
+    "#);
+    assert_eq!(out, concat!(
+        "7\n",
+        "[9, 8, 7]\n",
+        "7\n",
+        "1\n",
+        "\"no block given\"\n",
+        "42\n",
+        "0\n",
+        "\"Player is already in use by a call on the same object\"\n",
+    ));
 }
 
 #[test]

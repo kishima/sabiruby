@@ -65,6 +65,7 @@ code has no business deciding on the host's behalf that the answer cannot fail. 
 | `&self` | an instance method that reads |
 | `&mut self` | an instance method that writes |
 | a leading `&mut Vm` (after `self`) | the call's context, not an argument |
+| a trailing `Block` | the block the caller passed, not an argument |
 | everything else | the arguments, in order, at most six |
 | the return type | the answer, through `IntoRuby` |
 
@@ -97,8 +98,13 @@ are two shapes of generated body:
 
 ## What it does not cover
 
-* **Optional, rest and keyword arguments, and blocks.** A method that wants them takes the raw
-  call with `Vm::define_closure`, as it would without the macros.
+* **Optional, rest and keyword arguments.** A method that wants them takes the raw call with
+  `Vm::define_closure`, as it would without the macros. A **block** it does take: a last
+  parameter spelled `Block` is the caller's block (`None` when there was none), it is not
+  counted in the arity, and it comes with the `&mut Vm` — `define_fn` has no shape without it,
+  and calling the block needs it anyway (`Vm::call_block`). A method that takes the block and
+  the `&mut Vm` has its receiver out of the store for the call, so a block that calls back into
+  the same object raises rather than seeing it half-written, as any `&mut Vm` method does.
 * **Generic types and generic `fn`s**, `async fn`, `unsafe fn`, and a method that takes `self`
   by value (it would leave the Ruby object naming nothing). All are refused with a message
   saying why.
