@@ -214,3 +214,20 @@ fn a_host_reads_a_task_queue_without_sending_size_and_pop() {
     assert!(vm.task_queue_len(not_a_queue).is_err());
     assert!(vm.task_queue_try_pop(not_a_queue).is_err());
 }
+
+// `task_context` names the context a task runs in, so a host can pick that task's frames out of
+// `Vm::snapshot` — what an in-game inspector shows for one robot.
+#[test]
+fn task_context_is_the_index_into_the_snapshot() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    run(&mut vm, r#"
+        $t = Task.new(name: "probe") { def deep; sleep 1; end; deep }
+        Task.pass
+    "#);
+    let task = vm.global_get("$t").obj().expect("task object");
+    let i = vm.task_context(task).expect("a started task has a context");
+    let snap = vm.snapshot(1);
+    let ctx = snap.contexts.iter().find(|c| c.index == i).expect("the context is in the snapshot");
+    assert!(ctx.index != snap.cur, "a parked task is not the current context");
+    assert!(!vm.task_frames(task).is_empty(), "the parked task keeps its frames");
+}

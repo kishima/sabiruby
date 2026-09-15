@@ -262,6 +262,12 @@ pub(crate) fn task_result(vm: &Vm, task: ObjId) -> Value {
 }
 
 /// Whether a task has run to its end, for a host.
+/// The index of a task's context in the VM's context table, `None` for what is not a task or
+/// a task that has no context (never started, or finished and released).
+pub(crate) fn task_context(vm: &Vm, task: ObjId) -> Option<usize> {
+    match &vm.heap.get(task).kind { ObjKind::Task(t) if t.ctx != usize::MAX => Some(t.ctx), _ => None }
+}
+
 pub(crate) fn task_is_dormant(vm: &Vm, task: ObjId) -> bool {
     match &vm.heap.get(task).kind { ObjKind::Task(t) => t.status == DORMANT, _ => false }
 }

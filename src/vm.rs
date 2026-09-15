@@ -906,6 +906,14 @@ impl Vm {
         crate::builtins::ext_task::task_frames(self, task)
     }
 
+    /// Which context a task runs in — the index into [`Snapshot::contexts`](crate::inspect::Snapshot)
+    /// (`ContextView::index`), so a host that shows one script's frames and registers picks that
+    /// context out of [`Vm::snapshot`] instead of parsing `#<Task n ctx=i>`. `None` for a task
+    /// that has no context: not started yet, or over.
+    pub fn task_context(&self, task: ObjId) -> Option<usize> {
+        crate::builtins::ext_task::task_context(self, task)
+    }
+
     /// Whether a task has run to its end (`Task#status == :DORMANT`).
     pub fn task_finished(&self, task: ObjId) -> bool {
         crate::builtins::ext_task::task_is_dormant(self, task)
