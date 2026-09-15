@@ -839,14 +839,97 @@ impl Vm {
         crate::builtins::ext_task::task_is_dormant(self, task)
     }
 
+    // ------------------------------------------------------------------ host entry points
+    //
+    // The small reads and writes an embedder needs and had no public way to make. Each one wraps
+    // what the VM already uses internally (`Heap::ivar_get`, the globals table, `TaskState::running`,
+    // the object's kind) and means exactly the same thing; they are here so that a host does not
+    // have to reach into `Vm`'s public fields, which are public for the crate's own use across
+    // modules and are not a surface anything outside should depend on.
+
+    /// The task the scheduler is running, for a native that was called from inside one: which
+    /// script is asking. `None` where nothing is running under the scheduler — a [`Vm::funcall`]
+    /// the host made itself, or before the first [`Vm::task_run_once`].
+    ///
+    /// A host entry point, and the way into the rest of the `task_*` set above: those take a task
+    /// and read it ([`Vm::task_value`], [`Vm::task_instructions`], [`Vm::task_location`]), and a
+    /// host that spawned the task has its `ObjId` already — a native called from Ruby does not,
+    /// and this is where it gets one.
+    pub fn task_running(&self) -> Option<ObjId> {
+        self.task.running
+    }
+
+    /// An instance variable of an object by name (`@name`), or nil where it has none.
+    ///
+    /// A host entry point: where a host keeps something of its own on an object the VM owns — on
+    /// a task, say, so that a native called from it can find what that task stands for
+    /// ([`Vm::task_running`]). It is the same table `@name` reads in Ruby, so a script can see
+    /// and change what the host left there; a host that does not want that should pick a name a
+    /// script is unlikely to write.
+    ///
+    /// Takes `&self` rather than interning: a name the VM has never seen cannot be the name of an
+    /// instance variable, so there is nothing to look up and nothing to add to the symbol table.
+    /// [`Vm::ivar_set`] interns, as it must.
+    pub fn ivar_get(&self, obj: ObjId, name: &str) -> Value {
+        match self.syms.lookup_str(name) {
+            Some(n) => self.heap.ivar_get(obj, n),
+            None => Value::Nil,
+        }
+    }
+
+    /// Puts `v` in an object's instance variable by name, as `@name = v` does in Ruby.
+    /// A host entry point; [`Vm::ivar_get`] reads it back.
+    ///
+    /// The collector reaches instance variables through the object that holds them, so a
+    /// [`Value`] left here is safe for as long as `obj` itself is (`docs/design/gc.md`) — which
+    /// is the difference between this and a [`Value`] captured in a [`Vm::define_closure`].
+    pub fn ivar_set(&mut self, obj: ObjId, name: &str, v: Value) {
+        let n = self.intern(name);
+        self.heap.ivar_set(obj, n, v);
+    }
+
+    /// A global variable by name (`$name`), or nil where nothing set it.
+    ///
+    /// A host entry point: globals are the one namespace a host and every script share without
+    /// arranging anything, which is what a per-frame `$state` wants. `$~` is not here — a match
+    /// belongs to the scope that made it (`mrb_gv_define_virtual`), so it is not in this table.
+    ///
+    /// Takes `&self` for the same reason [`Vm::ivar_get`] does: an un-interned name names nothing.
+    pub fn global_get(&self, name: &str) -> Value {
+        match self.syms.lookup_str(name) {
+            Some(n) => self.globals.get(&n).map(|s| s.get()).unwrap_or(Value::Nil),
+            None => Value::Nil,
+        }
+    }
+
+    /// Sets a global variable by name, as `$name = v` does. A host entry point;
+    /// [`Vm::global_get`] reads it back, and every script sees it.
+    ///
+    /// The collector walks the globals table, so a [`Value`] left here stays alive until
+    /// something else is put in its place.
+    pub fn global_set(&mut self, name: &str, v: Value) {
+        let n = self.intern(name);
+        self.globals.insert(n, Slot::from(v));
+    }
+
+    /// Whether a value is an exception object — an instance of `Exception` or of a class below
+    /// it, which is what [`Vm::task_value`] answers for a task that ended by raising.
+    ///
+    /// A host entry point, and the reason it is one: the Ruby way to ask is `v.is_a?(Exception)`,
+    /// and a host that asked that way would be running Ruby code — a method call, a class walk,
+    /// possibly a redefined `is_a?` — to classify a value it is only about to print. This reads
+    /// the object's representation instead and cannot fail or re-enter the VM.
+    pub fn is_exception(&self, v: Value) -> bool {
+        matches!(v.obj().map(|o| &self.heap.get(o).kind), Some(ObjKind::Exception))
+    }
+
     /// Where `require` looks (`$LOAD_PATH`). The host decides: the `sabiruby` command uses the
     /// directory of the program and the working directory, an embedder whatever it serves files
     /// from. Empty by default, which makes every `require` of a plain name a LoadError.
     pub fn set_load_path(&mut self, paths: &[&str]) {
         let items: Vec<Value> = paths.iter().map(|p| self.str_new(p.as_bytes())).collect();
         let ary = self.ary_new(items);
-        let n = self.intern("$LOAD_PATH");
-        self.globals.insert(n, Slot::from(ary));
+        self.global_set("$LOAD_PATH", ary);
     }
 
     // ------------------------------------------------------------------ output
