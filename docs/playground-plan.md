@@ -13,7 +13,7 @@ WebAssembly で動かす。サーバは持たない（静的サイト、GitHub P
   Rust も `wasm32-wasip1` ターゲット、ブラウザ側は browser_wasi_shim で WASI の import（`fd_write`、`clock_time_get`、`random_get` など）を埋める。
   `wasm32-unknown-unknown` に libc を自作して載せる案は、Prism が `snprintf`／`strtod`／`stdio` を使うので勧めない。
 * CLI は `sabiruby-cli` に分かれ、`sabiruby` 0.2.0 は VM ライブラリだけになった（`4acc5db`）。Playground は `sabiruby`（lib）と `sabiruby-compiler` に依存する。
-  crates.io に出るまでは git 依存（`kishima/sabiruby` のパス）でよい。
+  crates.io に出るまでは git 依存（`sabiruby/sabiruby` のパス）でよい。
 * wasm は単一スレッド。CLI が使う「大きなスタックの別スレッド」は使えないので、リンク時にメインスタックを大きくする（`-C link-arg=-zstack-size=16777216`）。
   深い再帰は Prism の `PRISM_DEPTH_MAXIMUM=256` と VM の `CALL_LEVEL_MAX`／`NATIVE_DEPTH_MAX` で止まるので、16 MB で足りる（実測して決める）。
 * wasm-bindgen は使わない（wasip1 との組み合わせが複雑、依存が増える）。**C ABI の関数を `#[no_mangle] extern "C"` で公開**し、JS 側は素の `WebAssembly.instantiate` と
@@ -21,7 +21,7 @@ WebAssembly で動かす。サーバは持たない（静的サイト、GitHub P
 
 ## 1. 構成
 
-新しいリポジトリ `kishima/sabiruby-playground`（MIT。`sabiruby` リポジトリを大きくしない。Pages の配信元にする）。
+新しいリポジトリ `sabiruby/sabiruby-playground`（MIT。`sabiruby` リポジトリを大きくしない。Pages の配信元にする）。
 
 ```
 sabiruby-playground/

@@ -7,7 +7,7 @@ description = "The reference mruby 4.1.0-rc compiler (mruby-compiler with its Pr
 license = "MIT"
 keywords = ["mruby", "ruby", "compiler", "bytecode", "prism"]
 categories = ["compilers"]
-repository = "https://github.com/kishima/sabiruby"
+repository = "https://github.com/sabiruby/sabiruby"
 readme = "README.md"
 links = "sabiruby_mrc"
 # The golden tests read the reference mrbc output of the parent repository; they stay in git.

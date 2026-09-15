@@ -8,7 +8,7 @@ description = "SabiRuby: a VM for mruby 4.1 bytecode written in Rust (\"rusted R
 license = "MIT"
 keywords = ["mruby", "ruby", "bytecode", "vm", "embedded"]
 categories = ["compilers", "embedded", "game-development", "no-std"]
-repository = "https://github.com/kishima/sabiruby"
+repository = "https://github.com/sabiruby/sabiruby"
 readme = "README.md"
 # What crates.io gets: the library, the CLI, the design notes and the licences. The test
 # suite (fixtures, mruby's test/t copies and their .mrb), benchmarks and tools stay in git.

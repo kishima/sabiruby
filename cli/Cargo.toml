@@ -7,7 +7,7 @@ description = "The `sabiruby` command: run Ruby source and mruby 4.1 bytecode on
 license = "MIT"
 keywords = ["mruby", "ruby", "cli", "bytecode", "vm"]
 categories = ["command-line-utilities", "compilers"]
-repository = "https://github.com/kishima/sabiruby"
+repository = "https://github.com/sabiruby/sabiruby"
 readme = "README.md"
 include = ["/src/**/*", "/README.md"]
 

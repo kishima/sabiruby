@@ -20,7 +20,7 @@
   gembox 外の cmath、pack、eval、binding、proc-binding、require／load、task、UTF-8 文字列も済み。
   本家テストは 2484 件中 2313 件。落ちる件はすべて理由が付いている（`docs/mrbtest.md` の note 列、`tests/mrbtest/notes.tsv`、
   `docs/mrbtest-notes.md`）。エンジンの差異（regexp）、C 補助コード、NaN の同一性、`GC.generational_mode` が中身。
-* リポジトリ: VM `kishima/sabiruby`（この repo）、Bevy 統合 `kishima/rubevy`（`../rubevy`）、Playground
+* リポジトリ: VM `sabiruby/sabiruby`（この repo）、Bevy 統合 `sabiruby/rubevy`（`../rubevy`）、Playground
   `../sabiruby-playground`、移植キット `../mruby-porting-kit`（本の repo `/home/kishima/book/book_mruby3` の
   `tools/build_kit.rb` が生成する。手で編集しない）。
 * crates.io の `sabiruby` は 0.2.0（gem のほとんど無い版）。rubevy はそれに依存している（`sabiruby = "0.1"`）。

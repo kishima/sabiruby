@@ -36,4 +36,4 @@ The library crates are separate so that the VM stays pure Rust and `no_std`: use
 [`sabiruby`](https://crates.io/crates/sabiruby) to embed the VM, and add `sabiruby-compiler`
 only if the program itself compiles Ruby source.
 
-MIT. See the [repository](https://github.com/kishima/sabiruby) for the design notes.
+MIT. See the [repository](https://github.com/sabiruby/sabiruby) for the design notes.

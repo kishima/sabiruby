@@ -1,8 +1,8 @@
 # Browser playground
 
 A static page where Ruby is written, compiled by the reference mruby compiler and run on the
-SabiRuby VM, both as WebAssembly: **https://kishima.github.io/sabiruby-playground/**, source in
-[kishima/sabiruby-playground](https://github.com/kishima/sabiruby-playground) (kept out of this
+SabiRuby VM, both as WebAssembly: **https://sabiruby.github.io/sabiruby-playground/**, source in
+[sabiruby/sabiruby-playground](https://github.com/sabiruby/sabiruby-playground) (kept out of this
 repository so that it stays small; Pages serves from there). The plan it follows is
 [`playground-plan.md`](playground-plan.md); the departures are listed at the end.
 
@@ -274,7 +274,7 @@ compiler give the same results as wasm.
 * `-std=gnu99` in `sabiruby-compiler` for every target (the plan expected no change to build.rs
   beyond selecting the compiler).
 * Stack 4 MB instead of 16 MB, by measurement.
-* `wasm/` depends on `../sabiruby` by path, and CI checks out kishima/sabiruby at a pinned commit
+* `wasm/` depends on `../sabiruby` by path, and CI checks out sabiruby/sabiruby at a pinned commit
   next to the playground, instead of a git dependency: one pin for the VM, the compiler and the
   fixtures.
 * `sabi_step` takes a u32 budget (no BigInt in JS); `sabi_stats` also returns the number of
