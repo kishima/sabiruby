@@ -294,14 +294,14 @@ impl Vm {
                         s
                     }
                     ObjKind::Hash(h) => {
-                        if depth == 0 { return format!("#<Hash size={}>", h.entries.len()); }
-                        let shown = h.entries.len().min(4);
+                        if depth == 0 { return format!("#<Hash size={}>", h.len()); }
+                        let shown = h.len().min(4);
                         let mut s = String::from("{");
-                        for (i, (k, val)) in h.entries[..shown].iter().enumerate() {
+                        for (i, (k, val)) in h.entries()[..shown].iter().enumerate() {
                             if i > 0 { s.push_str(", "); }
                             s.push_str(&format!("{} => {}", self.render_text(k.get(), depth - 1), self.render_text(val.get(), depth - 1)));
                         }
-                        if h.entries.len() > shown { s.push_str(&format!(", ...(+{})", h.entries.len() - shown)); }
+                        if h.len() > shown { s.push_str(&format!(", ...(+{})", h.len() - shown)); }
                         s.push('}');
                         s
                     }

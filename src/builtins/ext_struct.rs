@@ -229,7 +229,7 @@ fn init_with_keywords(vm: &mut Vm, s: Value, hash: Value) -> VmResult<Value> {
         let v = vm.hash_get(hash, Value::Sym(*mem)).unwrap_or(Value::Nil);
         ary_set(vm, s, i, v)?;
     }
-    let keys: Vec<Value> = match hash.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.iter().map(|(k, _)| k.get()).collect(), _ => Vec::new() };
+    let keys: Vec<Value> = match hash.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries().iter().map(|(k, _)| k.get()).collect(), _ => Vec::new() };
     let mut invalid: Vec<alloc::string::String> = Vec::new();
     for k in keys {
         if !matches!(k, Value::Sym(x) if m.contains(&x)) { let b = vm.as_string(k)?; invalid.push(alloc::string::String::from_utf8_lossy(&b).into_owned()); }
@@ -241,7 +241,7 @@ fn init_with_keywords(vm: &mut Vm, s: Value, hash: Value) -> VmResult<Value> {
 /// `struct_init_body`: fill `s` from the constructor's arguments
 fn init_body(vm: &mut Vm, s: Value, a: &[Value]) -> VmResult<Value> {
     // keywords were given when the trailing Hash is the pending kdict and not empty
-    let kw_given = match (vm.pending_kw, a.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => matches!(k.obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(hd)) if !hd.entries.is_empty()), _ => false };
+    let kw_given = match (vm.pending_kw, a.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => matches!(k.obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(hd)) if !hd.is_empty()), _ => false };
     let c = vm.real_class_of(s);
     let ki = keyword_init(vm, c);
     let is_hash = |vm: &Vm, v: Value| matches!(v.obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(_)));

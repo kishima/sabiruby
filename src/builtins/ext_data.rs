@@ -58,7 +58,7 @@ fn alloc(vm: &mut Vm, c: ObjId, vals: &[Value]) -> Value {
 }
 
 fn hash_entries(vm: &Vm, h: Value) -> Vec<(Value, Value)> {
-    match h.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.iter().map(|(k, v)| (k.get(), v.get())).collect(), _ => Vec::new() }
+    match h.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries().iter().map(|(k, v)| (k.get(), v.get())).collect(), _ => Vec::new() }
 }
 
 /// the members as keywords: `required` ones must all be given, unknown ones are refused

@@ -253,7 +253,7 @@ fn random_kw(vm: &mut Vm, a: &[Value]) -> VmResult<(Vec<Value>, ObjId)> {
     let Some(kw) = kw else { return Ok((pos, random_default(vm)?)) };
     let krandom = vm.intern("random");
     let entries: Vec<(Value, Value)> = match kw.obj().map(|o| &vm.heap.get(o).kind) {
-        Some(ObjKind::Hash(hd)) => hd.entries.iter().map(|(k, v)| (k.get(), v.get())).collect(),
+        Some(ObjKind::Hash(hd)) => hd.entries().iter().map(|(k, v)| (k.get(), v.get())).collect(),
         _ => Vec::new(),
     };
     let mut r = None;

@@ -418,7 +418,7 @@ fn dup(vm: &mut Vm, s: Value, _a: &[Value], _b: Value) -> VmResult<Value> {
             ObjKind::Object => ObjKind::Object,
             ObjKind::String(b) => ObjKind::String(b.clone()),
             ObjKind::Array(v) => ObjKind::Array(v.clone()),
-            ObjKind::Hash(hd) => ObjKind::Hash(crate::object::HashData { entries: hd.entries.clone(), hashes: hd.hashes.clone(), default: hd.default }),
+            ObjKind::Hash(hd) => ObjKind::Hash(hd.clone()),
             ObjKind::Range { .. } => ObjKind::Object, // `initialize_copy` fills the copy in, as the reference's `range_initialize_copy` does
             ObjKind::Exception => ObjKind::Exception,
             // a Regexp copies its source and flags and compiles its own pattern

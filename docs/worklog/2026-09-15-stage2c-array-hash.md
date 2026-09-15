@@ -152,4 +152,84 @@ Rust の `alloc`/`dealloc` は除去可能な呼び出しとしてマークさ�
 
 # (B) Hash
 
+著者の判断は案 2、「まず `HashData` の `entries`/`hashes` を非公開にして書き込みを 1 本化し、
+そのうえで索引を持たせる」。**2 つのコミットに分けた**: B1 は非公開化だけで振る舞いも性能も変えない、
+B2 で索引を足す。分ける意味は、B2 で何か壊れたときに「索引のせい」と「入口を変えたせい」を
+切り分けられることと、B1 の時点で「ぶれの範囲」を測っておけば B2 の数字がそのまま索引の効果になること。
+
+## B1: 書き込みを 1 本化する
+
+### 何が問題だったか
+
+`HashData` は `entries: Vec<(Slot, Slot)>` と `hashes: Vec<i64>`（キーのハッシュ値、`entries` と平行）を
+`pub` で持っていた。前の担当が数えたとおり、`entries` を書き換える場所は 11 か所あり、
+そのうち削除（`Hash#delete`、`#shift`）は**位置をずらす**。索引は「ハッシュ値 → `entries` の添字」なので、
+位置がずれた瞬間に丸ごと嘘になる。
+
+いまのコードには「`hashes.len() != entries.len()` ならハッシュ値を作り直す」という遅延同期の合図があるが、
+削除は `entries` と `hashes` を**両方**縮めるので長さが一致したままで、この合図では捕まえられない。
+つまり索引の無効化は、**書き込み側が自分で覚えておく**しかない。覚えられるようにするのが B1。
+
+### 何を作ったか
+
+`entries` と `hashes` を非公開にして、読みと書きの入口を `HashData` のメソッドに集めた（`src/object.rs`）。
+
+読み: `entries()`（スライス）、`len()`、`is_empty()`、`hash_at(i)`、`hashes_stale()`、
+そして**探索の入口 2 つ** `first_candidate(kh)` と `next_candidate(p, kh)`。
+探索を `HashData` の中に入れたのは、B2 で「走査」を「索引引き」に差し替える場所をここ 1 か所にするため。
+探索が 2 つに割れているのは、候補を確かめるには `eql?` を呼ばねばならず、`eql?` は Ruby でありうるので
+**借用をまたげない**から。`Vm::hash_index` は「候補をもらう → 借用を手放して `eql?` → 次の候補をもらう」
+という形になった:
+
+```rust
+let mut cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.first_candidate(kh), _ => None };
+while let Some((p, ek)) = cand {
+    if self.key_eql(k, ek.get())? { return Ok(Some(p)); }
+    cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.next_candidate(p, kh), _ => None };
+}
+```
+
+書き: `push_entry(k, v, kh)` / `set_value_at(i, v)` / `remove_entry(i)` / `clear()` /
+`set_entries(entries)` / `set_entries_with_hashes(entries, hashes)` / `set_hashes(hashes)` /
+`from_entries(entries, default)`。`set_entries` と `set_entries_with_hashes` が別なのは、
+呼び手が「キーをハッシュ済みか」で分かれるから ―― `replace` や `merge` は他所から来たキーを渡すので
+ハッシュ値を計算できず（計算には VM が要る）空にして次の探索に任せる、`rehash` と `compact!` は
+自分で計算した値を持っているので渡す。
+
+書き換えたのは `object.rs` を除いて **11 ファイル・54 行**（`.entries` / `.hashes` の参照は 42 か所。
+前の担当の見積もりは 37 か所だった）。`ext_objectspace.rs` の
+`GC.stat` がハッシュを `clear` していたのはコンパイラに教えてもらった（数え漏れ）。
+`Hash#dup` が `HashData { .. }` を直接組み立てていた 1 か所は `from_entries` に、
+`Object#clone` の `HashData { entries: .., hashes: .., default: .. }` は `#[derive(Clone)]` を足して
+`hd.clone()` にした。
+
+### 確かめたこと
+
+`cargo test --workspace` 失敗 0、本家テスト全ファイル `ALL OK`、`check_no_std.sh` `no_std OK`、
+`unsafe` 0、`cargo doc --no-deps` 警告なし。
+
+### 数値（B1 = 非公開化だけ。交互 A/B、`bench/results/ab-aryshift-hashencap.tsv`）
+
+| 分類 | A（(A) の版）ms | B（非公開化）ms | 変化 |
+|---|---:|---:|---:|
+| 実アプリ寄り | 9596 | 9450 | −1.5% |
+| データ構造 | 3154 | 3170 | +0.5% |
+| 命令ループ | 21553 | 21539 | −0.1% |
+| 呼び出し | 3763 | 3791 | +0.7% |
+| メモリ | 2057 | 2043 | −0.7% |
+| **全体** | **40124** | **39994** | **−0.3%** |
+
+狙いどおり「ぶれの範囲」。個別は −6.7%（`app_robot`）〜 +2.8%（`app_json_hash`）で、
+どちらも Hash の書き込み方を変えていない（`app_robot` は Hash をほとんど使わない）ので、
+コード配置の揺れ。`ds_hash` は −0.4%、`app_json_hash` の +2.8% は次の B2 の計測では +0.1% に戻っている。
+
+**この計測は 1 回やり直した。** 最初に取った回は `app_tak` の best と median が 1138 / 1643（44% 差）、
+`vm_optimization_bench` が 18302 / 19615（7% 差）と荒れていて、全体 +1.4% という値が出た。
+荒れた原因ははっきりしていて、**計測中に自分が `cargo build` を 1 回走らせ、進捗を何度も `tail` で見ていた**。
+前の担当が「自分の道具も外乱になる」と書いていたとおりで、静かにして取り直したら best と median の差は
+どのベンチも 1% 以内に収まり、全体 −0.3% になった。荒れた回の TSV は残していない（`bench/results/` に
+入っているのは取り直した方）。
+
+## B2: 索引
+
 （続く）

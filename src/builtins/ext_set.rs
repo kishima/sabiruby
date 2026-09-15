@@ -35,11 +35,11 @@ fn check_set(vm: &mut Vm, v: Value) -> VmResult<()> {
 }
 
 fn elems(vm: &Vm, s: Value) -> Vec<Value> {
-    match s.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.iter().map(|(k, _)| k.get()).collect(), _ => Vec::new() }
+    match s.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries().iter().map(|(k, _)| k.get()).collect(), _ => Vec::new() }
 }
 
 fn size(vm: &Vm, s: Value) -> usize {
-    match s.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.len(), _ => 0 }
+    match s.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.len(), _ => 0 }
 }
 
 fn has(vm: &mut Vm, s: Value, v: Value) -> bool {
@@ -55,7 +55,7 @@ fn del(vm: &mut Vm, s: Value, v: Value) -> bool {
 }
 
 fn clear(vm: &mut Vm, s: Value) {
-    if let Some(ObjKind::Hash(hd)) = s.obj().map(|o| &mut vm.heap.get_mut(o).kind) { hd.entries.clear(); hd.hashes.clear(); }
+    if let Some(ObjKind::Hash(hd)) = s.obj().map(|o| &mut vm.heap.get_mut(o).kind) { hd.clear(); }
 }
 
 /// a new empty set of the receiver's class (`mrb_obj_new(class, 0, NULL)`)

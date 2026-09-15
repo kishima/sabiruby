@@ -341,14 +341,113 @@ impl core::ops::DerefMut for ArrayData {
     }
 }
 
-#[derive(Default)]
+/// A Hash: its entries in insertion order, the hash code of each key beside them, and the
+/// value `Hash#default` answers with.
+///
+/// `entries` and `hashes` are private, and every read and write goes through one of the
+/// methods below. That is not tidiness: the cached hash codes have to stay aligned with the
+/// entries, and anything derived from the entries' *positions* -- a lookup index, say -- has
+/// to be thrown away whenever a removal moves them. Spread over the forty-odd places that
+/// used to reach into the fields, one of them would eventually forget. The same reasoning
+/// made `Heap::class_mut` the single way to reach a `ClassData`: the method cache's
+/// invalidation hangs off it.
+#[derive(Clone, Default)]
 pub struct HashData {
     /// Insertion-ordered entries; lookup is linear with `eql?` semantics
     /// (like mruby's AR mode, without the hash-table switch yet).
-    pub entries: Vec<(Slot, Slot)>,
+    entries: Vec<(Slot, Slot)>,
     /// `hash` of each key, parallel to `entries` (rebuilt lazily when lengths differ).
-    pub hashes: Vec<i64>,
+    hashes: Vec<i64>,
     pub default: Slot,
+}
+
+impl HashData {
+    /// A hash holding `entries`, whose key hash codes the first lookup fills in
+    /// (`hashes_stale`).
+    pub fn from_entries(entries: Vec<(Slot, Slot)>, default: Slot) -> HashData {
+        HashData { entries, hashes: Vec::new(), default }
+    }
+    /// The entries in insertion order.
+    #[inline]
+    pub fn entries(&self) -> &[(Slot, Slot)] {
+        &self.entries
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    /// True while the cached hash codes do not describe the entries. Hashing a key can run
+    /// Ruby (`hash` is a method), which a `&mut HashData` cannot do, so the writes that
+    /// replace every entry leave the codes empty and [`Vm::hash_sync`](crate::vm::Vm) fills
+    /// them in at the next lookup.
+    #[inline]
+    pub fn hashes_stale(&self) -> bool {
+        self.hashes.len() != self.entries.len()
+    }
+    /// The hash code cached for entry `i`, if there is one.
+    #[inline]
+    pub fn hash_at(&self, i: usize) -> Option<i64> {
+        self.hashes.get(i).copied()
+    }
+    /// Where a lookup for a key hashing to `kh` starts: the first entry whose key hashes the
+    /// same, as `(position, key)`.
+    ///
+    /// A lookup only ever asks these two questions, and each answer is all it needs to leave
+    /// the borrow again: verifying a candidate means calling `eql?`, which can be Ruby, so
+    /// nothing may be held across it.
+    pub fn first_candidate(&self, kh: i64) -> Option<(usize, Slot)> {
+        self.scan_from(kh, 0)
+    }
+    /// The next entry whose key hashes to `kh`, for a lookup that has just rejected the one
+    /// at `p`. Keys in a hash are unique under `eql?`, so the order these come back in does
+    /// not matter — at most one of them can match.
+    pub fn next_candidate(&self, p: usize, kh: i64) -> Option<(usize, Slot)> {
+        self.scan_from(kh, p + 1)
+    }
+    fn scan_from(&self, kh: i64, from: usize) -> Option<(usize, Slot)> {
+        let n = self.hashes.len().min(self.entries.len());
+        if from >= n { return None; }
+        let d = self.hashes[from..n].iter().position(|c| *c == kh)?;
+        Some((from + d, self.entries[from + d].0))
+    }
+    /// Appends an entry that is known not to be in the hash yet, with its key's hash code.
+    pub fn push_entry(&mut self, k: Slot, v: Slot, kh: i64) {
+        self.entries.push((k, v));
+        self.hashes.push(kh);
+    }
+    /// Overwrites the value of entry `i`; the key and its hash code stay.
+    pub fn set_value_at(&mut self, i: usize, v: Slot) {
+        self.entries[i].1 = v;
+    }
+    /// Removes entry `i` and its hash code, keeping the order of the rest.
+    pub fn remove_entry(&mut self, i: usize) -> (Slot, Slot) {
+        if i < self.hashes.len() { self.hashes.remove(i); }
+        self.entries.remove(i)
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.hashes.clear();
+    }
+    /// Replaces every entry. The hash codes are dropped: the caller is handing over keys it
+    /// did not hash (`replace`, `initialize_copy`, `merge`), and hashing them needs the VM.
+    pub fn set_entries(&mut self, entries: Vec<(Slot, Slot)>) {
+        self.entries = entries;
+        self.hashes.clear();
+    }
+    /// Replaces every entry together with the hash codes the caller already computed for
+    /// them (`rehash`, `compact!`), which saves the next lookup from hashing them again.
+    pub fn set_entries_with_hashes(&mut self, entries: Vec<(Slot, Slot)>, hashes: Vec<i64>) {
+        self.entries = entries;
+        self.hashes = hashes;
+    }
+    /// Fills in the hash codes `hashes_stale` asked for.
+    pub fn set_hashes(&mut self, hashes: Vec<i64>) {
+        self.hashes = hashes;
+    }
 }
 
 impl Default for Value {
@@ -492,7 +591,7 @@ fn payload_bytes(kind: &ObjKind) -> usize {
     match kind {
         ObjKind::String(s) => s.len(),
         ObjKind::Array(a) => 16 * a.len(),
-        ObjKind::Hash(h) => 40 * h.entries.len(),
+        ObjKind::Hash(h) => 40 * h.len(),
         ObjKind::BigInt(b) => 4 * b.mag.len(),
         _ => 0,
     }
@@ -609,7 +708,7 @@ impl Heap {
                 ObjKind::Break { value, .. } => mark(*value),
                 ObjKind::Array(a) => { for v in a.iter() { mark(v.get()); } }
                 ObjKind::Hash(h) => {
-                    for (k, v) in &h.entries { mark(k.get()); mark(v.get()); }
+                    for (k, v) in h.entries() { mark(k.get()); mark(v.get()); }
                     mark(h.default.get());
                 }
                 ObjKind::Range { begin, end, .. } => { mark(begin.get()); mark(end.get()); }

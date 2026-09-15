@@ -10,7 +10,7 @@ use crate::value::{Slot, Value};
 use crate::vm::Vm;
 
 fn entries(vm: &Vm, v: Value) -> Vec<(Value, Value)> {
-    match v.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(h)) => h.entries.iter().map(|(k, v)| (k.get(), v.get())).collect(), _ => vec![] }
+    match v.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(h)) => h.entries().iter().map(|(k, v)| (k.get(), v.get())).collect(), _ => vec![] }
 }
 fn is_hash(vm: &Vm, v: Value) -> bool { matches!(v.obj().map(|o| &vm.heap.get(o).kind), Some(ObjKind::Hash(_))) }
 fn check_frozen(vm: &mut Vm, v: Value) -> VmResult<()> {
@@ -48,7 +48,7 @@ pub fn init(vm: &mut Vm) {
             check_frozen(vm, s)?;
             let o = match s.obj() { Some(o) => o, None => return Ok(Value::Nil) };
             let removed = match &mut vm.heap.get_mut(o).kind {
-                ObjKind::Hash(hd) => { let n = hd.entries.len(); let mut hs = Vec::with_capacity(n); let mut es: Vec<(Slot, Slot)> = Vec::with_capacity(n); for (i, e) in hd.entries.iter().enumerate() { if !e.1.get().is_nil() { es.push(*e); if let Some(h) = hd.hashes.get(i) { hs.push(*h); } } } let removed = n - es.len(); hd.entries = es; if hd.hashes.len() == n { hd.hashes = hs; } else { hd.hashes.clear(); } removed }
+                ObjKind::Hash(hd) => { let n = hd.len(); let stale = hd.hashes_stale(); let mut hs = Vec::with_capacity(n); let mut es: Vec<(Slot, Slot)> = Vec::with_capacity(n); for (i, e) in hd.entries().iter().enumerate() { if !e.1.get().is_nil() { es.push(*e); if let Some(h) = hd.hash_at(i) { hs.push(h); } } } let removed = n - es.len(); if stale { hd.set_entries(es); } else { hd.set_entries_with_hashes(es, hs); } removed }
                 _ => 0,
             };
             Ok(if removed == 0 { Value::Nil } else { s })
