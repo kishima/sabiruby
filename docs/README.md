@@ -22,6 +22,7 @@ in English; plans and the worklog are in Japanese.
 | [utf8.md](design/utf8.md) | strings as characters (feature `utf8`) and as bytes |
 | [playground.md](design/playground.md) | the browser playground: the wasm module's C ABI, the debugger, real-time `sleep` |
 | [serde.md](design/serde.md) | `sabiruby-serde`: the data model between serde and `Value`, the error mapping, `Serde<T>` in a `define_fn` signature, and why `JSON` lives there |
+| [rbs.md](design/rbs.md) | (Japanese) RBS at the host boundary: the three uses considered, the parsers there are (mruby/edge's, `ruby-rbs`, a hand-written one), the Rust type → RBS type table, and why the direction to take is *generating* RBS from `#[ruby_methods]` |
 
 ## verification/ — how it is checked and measured
 
@@ -67,6 +68,9 @@ opcode's arm costs in the instruction loop.
 [serde](worklog/2026-09-16-serde.md) is `from-mrubyedge-plan.md`'s item 1: why serde needs an
 error type of its own, why `Serde<T>` can implement `IntoRuby` or `IntoRubyRet` but not both,
 and the one line of CRuby's JSON output that caught `serde_json::Map` sorting its keys.
+[rbs-study](worklog/2026-09-16-rbs-study.md) is item 2, a study rather than a change: what the
+one build of `ruby-rbs` said (libclang), that mruby/edge's `.rbs` is not RBS at all, and the
+asymmetry between checking a signature and generating one when all the macro has is a spelling.
 [stage6c-method-missing](worklog/2026-09-15-stage6c-method-missing.md) is the VM's half of stage
 6c: reading `prepare_missing` in the reference, why packing the arguments into one Array and
 shifting them along one register are the same thing to `OP_ENTER`, and what a `method_missing`
