@@ -539,39 +539,7 @@ pub fn init(vm: &mut Vm) {
         ("concat", str_concat),
         ("[]", str_aref),
         ("slice", str_aref),
-        ("[]=", |vm, s, a, _b| {
-            // the arguments are read in order, so a replacement that is no String is reported
-            // before the count is (`mrb_str_aset_m`'s `mrb_get_args("oo|S!")`)
-            if a.len() >= 3 && !a[2].is_nil() { vm.expect_str(a[2], "value")?; }
-            argc!(vm, a, 2, 3);
-            let mut b = bytes(vm, s);
-            let val = vm.expect_str(a[a.len() - 1], "value")?;
-            if a.len() == 2 { if let Some(n) = vm.str_bytes(a[0]).map(|n| n.to_vec()) { match find(&b, &n, 0) { Some(i) => { b.splice(i..i + n.len(), val.iter().copied()); set(vm, s, b)?; return Ok(a[1]); } None => { let d = vm.inspect_str(a[0])?; return Err(vm.raise(vm.core.index_error, &format!("string not matched: {d}"))); } } } }
-            if a.len() == 3 { let n = vm.expect_int(a[1], "length")?; if n < 0 { return Err(vm.raise(vm.core.index_error, &format!("negative length {n}"))); } }
-            // a numeric index may name the end of the string, where the assignment appends
-            // (`mrb_str_aset` refuses `beg > charlen`, not `beg == charlen`), and a length
-            // past the end is cut back to what is there
-            let chars = char_mode(vm, s);
-            let num = match a[0] { Value::Int(i) => Some(i), Value::Float(f) => Some(f as i64), _ => None };
-            if let Some(i) = num {
-                let clen = char_len(&b, chars);
-                let i = if i < 0 { i + clen as i64 } else { i };
-                if i < 0 || i > clen as i64 {
-                    let d = vm.inspect_str(a[0])?;
-                    return Err(vm.raise(vm.core.index_error, &format!("index {d} out of string")));
-                }
-                let i = i as usize;
-                let n = if a.len() == 3 { (vm.expect_int(a[1], "length")? as usize).min(clen - i) } else { (clen - i).min(1) };
-                let (bi, bn) = char_span(&b, i, n, chars);
-                b.splice(bi..bi + bn, val.iter().copied());
-                set(vm, s, b)?;
-                return Ok(a[a.len() - 1]);
-            }
-            match index_args(vm, char_len(&b, chars), &a[..a.len() - 1])? {
-                Some((i, n)) => { let (bi, bn) = char_span(&b, i, n, chars); b.splice(bi..bi + bn, val.iter().copied()); set(vm, s, b)?; Ok(a[a.len() - 1]) }
-                None => { let d = vm.inspect_str(a[0])?; Err(vm.raise(vm.core.index_error, &format!("index {d} out of string"))) }
-            }
-        }),
+        ("[]=", str_aset),
         ("upcase", |vm, s, _a, _b| { let chars = char_mode(vm, s); let b = map_case_checked(vm, &bytes(vm, s), Case::Up, chars)?; Ok(vm.str_new_like(&b, s)) }),
         ("downcase", |vm, s, _a, _b| { let chars = char_mode(vm, s); let b = map_case_checked(vm, &bytes(vm, s), Case::Down, chars)?; Ok(vm.str_new_like(&b, s)) }),
         ("upcase!", |vm, s, _a, _b| { check_frozen(vm, s)?; let chars = char_mode(vm, s); let b = bytes(vm, s); let u = map_case_checked(vm, &b, Case::Up, chars)?; if u == b { Ok(Value::Nil) } else { set(vm, s, u)?; Ok(s) } }),
@@ -723,7 +691,44 @@ fn str_concat(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> 
     Ok(s)
 }
 
-fn str_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+/// `String#[]=`. Named, not a closure in the table, because `OP_SETIDX` records it as the
+/// implementation it stands in for and calls it directly (`Vm::op_setidx`); mruby-regexp takes
+/// the name and re-arms the slot on the same terms (`Vm::idx_op_rearm`).
+pub(crate) fn str_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    // the arguments are read in order, so a replacement that is no String is reported
+    // before the count is (`mrb_str_aset_m`'s `mrb_get_args("oo|S!")`)
+    if a.len() >= 3 && !a[2].is_nil() { vm.expect_str(a[2], "value")?; }
+    argc!(vm, a, 2, 3);
+    let mut b = bytes(vm, s);
+    let val = vm.expect_str(a[a.len() - 1], "value")?;
+    if a.len() == 2 { if let Some(n) = vm.str_bytes(a[0]).map(|n| n.to_vec()) { match find(&b, &n, 0) { Some(i) => { b.splice(i..i + n.len(), val.iter().copied()); set(vm, s, b)?; return Ok(a[1]); } None => { let d = vm.inspect_str(a[0])?; return Err(vm.raise(vm.core.index_error, &format!("string not matched: {d}"))); } } } }
+    if a.len() == 3 { let n = vm.expect_int(a[1], "length")?; if n < 0 { return Err(vm.raise(vm.core.index_error, &format!("negative length {n}"))); } }
+    // a numeric index may name the end of the string, where the assignment appends
+    // (`mrb_str_aset` refuses `beg > charlen`, not `beg == charlen`), and a length
+    // past the end is cut back to what is there
+    let chars = char_mode(vm, s);
+    let num = match a[0] { Value::Int(i) => Some(i), Value::Float(f) => Some(f as i64), _ => None };
+    if let Some(i) = num {
+        let clen = char_len(&b, chars);
+        let i = if i < 0 { i + clen as i64 } else { i };
+        if i < 0 || i > clen as i64 {
+            let d = vm.inspect_str(a[0])?;
+            return Err(vm.raise(vm.core.index_error, &format!("index {d} out of string")));
+        }
+        let i = i as usize;
+        let n = if a.len() == 3 { (vm.expect_int(a[1], "length")? as usize).min(clen - i) } else { (clen - i).min(1) };
+        let (bi, bn) = char_span(&b, i, n, chars);
+        b.splice(bi..bi + bn, val.iter().copied());
+        set(vm, s, b)?;
+        return Ok(a[a.len() - 1]);
+    }
+    match index_args(vm, char_len(&b, chars), &a[..a.len() - 1])? {
+        Some((i, n)) => { let (bi, bn) = char_span(&b, i, n, chars); b.splice(bi..bi + bn, val.iter().copied()); set(vm, s, b)?; Ok(a[a.len() - 1]) }
+        None => { let d = vm.inspect_str(a[0])?; Err(vm.raise(vm.core.index_error, &format!("index {d} out of string"))) }
+    }
+}
+
+pub(crate) fn str_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1, 2);
     // The receiver's bytes are borrowed for each step and never copied whole: `index_args`
     // needs `&mut Vm` between them (it can call `to_int` and it can raise), so the borrow is

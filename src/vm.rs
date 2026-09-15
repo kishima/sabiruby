@@ -249,6 +249,18 @@ impl Default for MethodCacheLine {
     fn default() -> Self { MethodCacheLine { serial: 0, class: ObjId(0), mid: Sym(0), found: None } }
 }
 
+/// Slots of the guard for the inline index opcodes (mruby `mrb_state::idx_class`), one per
+/// (core class, operator) pair that `OP_GETIDX`, `OP_GETIDX0` and `OP_SETIDX` answer in Rust
+/// instead of sending. The order is the reference's, and the `[]=` slot of a class is its
+/// `[]` slot plus [`IDX_ARY_ASET`].
+pub(crate) const IDX_ARY_AREF: usize = 0;
+pub(crate) const IDX_HASH_AREF: usize = 1;
+pub(crate) const IDX_STR_AREF: usize = 2;
+pub(crate) const IDX_ARY_ASET: usize = 3;
+pub(crate) const IDX_HASH_ASET: usize = 4;
+pub(crate) const IDX_STR_ASET: usize = 5;
+const IDX_SLOTS: usize = 6;
+
 /// Well-known classes and modules.
 #[derive(Clone, Copy)]
 pub struct Core {
@@ -396,6 +408,19 @@ pub struct Vm {
     count_ops: bool,
     /// `(class, mid) -> (method, owner)`, thrown away wholesale by `Heap::method_serial`.
     method_cache: alloc::boxed::Box<[MethodCacheLine; METHOD_CACHE_LEN]>,
+    /// What `[]` / `[]=` resolved to on the core class when the slot was armed (mruby
+    /// `mrb_state::idx_builtin`): the implementation the index opcodes stand in for. Only a
+    /// plain native qualifies, as only `MRB_METHOD_FUNC_P` does there.
+    idx_builtin: [Option<crate::object::NativeFn>; IDX_SLOTS],
+    /// The class each slot may answer for, or `None` while the operator is not the recorded
+    /// implementation any more (mruby `mrb_state::idx_class`). The opcode compares the
+    /// receiver's class — its singleton class where it has one — against this, so a subclass,
+    /// a singleton `[]` and a redefined `Array#[]` are all rejected by the same compare.
+    idx_class: [Option<ObjId>; IDX_SLOTS],
+    /// The `Heap::method_serial` the two arrays above were computed under. mruby rechecks the
+    /// slots from every method-table change; here the one counter that already invalidates the
+    /// method cache says when the check is stale, so it is done on the next index opcode.
+    idx_serial: u64,
     /// Nesting of native -> VM re-entries (`call_proc_with`); bounded to protect the host stack.
     native_depth: u32,
     /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
@@ -626,7 +651,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, method_cache: alloc::boxed::Box::new([MethodCacheLine::default(); METHOD_CACHE_LEN]), native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, method_cache: alloc::boxed::Box::new([MethodCacheLine::default(); METHOD_CACHE_LEN]), idx_builtin: [None; IDX_SLOTS], idx_class: [None; IDX_SLOTS], idx_serial: 0, native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
             host_state: None, on_free: None, host_stores: Vec::new(), next_tag: 1,
@@ -1632,6 +1657,91 @@ impl Vm {
             _ => None,
         }
     }
+    // ------------------------------------------------- the guard of the index opcodes
+
+    /// The core class a slot belongs to (mruby `idx_op_class`).
+    fn idx_slot_class(&self, slot: usize) -> ObjId {
+        match slot {
+            IDX_ARY_AREF | IDX_ARY_ASET => self.core.array,
+            IDX_HASH_AREF | IDX_HASH_ASET => self.core.hash,
+            _ => self.core.string,
+        }
+    }
+    /// The operator a slot is about (mruby `idx_op_mid`).
+    fn idx_slot_mid(&self, slot: usize) -> Sym {
+        if slot < IDX_ARY_ASET { self.s.aref } else { self.s.aset }
+    }
+    /// Records what the operator resolves to now as the implementation the opcode may answer
+    /// for (mruby `idx_op_arm`). Only a plain native qualifies: anything else means the
+    /// operator was replaced by something an opcode cannot stand in for.
+    ///
+    /// CALLER'S PROMISE, as in the reference: for every argument form the opcode answers
+    /// itself, the method now holding the name produces what the recorded one produced. A
+    /// method that only widens the operator to an argument type the opcode sends rather than
+    /// answers — `String#[]` taking a Regexp — can make it; one that changes the answer for an
+    /// Integer, String or Range index cannot.
+    pub(crate) fn idx_op_rearm(&mut self, slot: usize) {
+        let (base, mid) = (self.idx_slot_class(slot), self.idx_slot_mid(slot));
+        self.idx_builtin[slot] = match self.find_method_ref(base, mid) {
+            Some((MethodRef::Native(f), _)) => Some(f),
+            _ => None,
+        };
+        self.idx_sync();
+    }
+    /// Records the builtin `[]` / `[]=` of each core class and arms its slot. Called once,
+    /// after the natives are installed (mruby `mrb_idx_op_init`).
+    pub(crate) fn idx_op_init(&mut self) {
+        for slot in 0..IDX_SLOTS {
+            let (base, mid) = (self.idx_slot_class(slot), self.idx_slot_mid(slot));
+            self.idx_builtin[slot] = match self.find_method_ref(base, mid) {
+                Some((MethodRef::Native(f), _)) => Some(f),
+                _ => None,
+            };
+        }
+        self.idx_sync();
+    }
+    /// Rechecks every slot against the implementation it recorded (mruby `idx_op_refresh`).
+    /// Validity is the resolved method itself, not "was `[]` assigned to", which covers `def`,
+    /// `alias_method`, `undef_method`, `remove_method` and `prepend` without enumerating them,
+    /// and re-arms when an override is aliased back away.
+    #[cold]
+    #[inline(never)]
+    fn idx_sync(&mut self) {
+        self.idx_serial = self.heap.method_serial;
+        for slot in 0..IDX_SLOTS {
+            let builtin = match self.idx_builtin[slot] { Some(f) => f, None => { self.idx_class[slot] = None; continue } };
+            let (base, mid) = (self.idx_slot_class(slot), self.idx_slot_mid(slot));
+            self.idx_class[slot] = match self.find_method_ref(base, mid) {
+                Some((MethodRef::Native(f), _)) if core::ptr::fn_addr_eq(f, builtin) => Some(base),
+                _ => None,
+            };
+        }
+    }
+    /// Whether the opcode may answer `slot` for a receiver whose class is `cls`.
+    #[inline]
+    fn idx_armed(&mut self, slot: usize, cls: ObjId) -> bool {
+        if self.idx_serial != self.heap.method_serial { self.idx_sync(); }
+        self.idx_class[slot] == Some(cls)
+    }
+    /// The `[]` slot of an object's representation, for the three the opcodes answer.
+    fn idx_kind(&self, o: ObjId) -> Option<usize> {
+        match &self.heap.get(o).kind {
+            ObjKind::Array(_) => Some(IDX_ARY_AREF),
+            ObjKind::Hash(_) => Some(IDX_HASH_AREF),
+            ObjKind::String(_) => Some(IDX_STR_AREF),
+            _ => None,
+        }
+    }
+    /// The index types the String branch answers (mruby: Integer, String and Range). A Regexp
+    /// is none of the three, so it is sent and reaches the method mruby-regexp installed.
+    fn str_index_p(&self, v: Value) -> bool {
+        match v {
+            Value::Int(_) => true,
+            Value::Obj(o) => matches!(self.heap.get(o).kind, ObjKind::String(_) | ObjKind::Range { .. }),
+            _ => false,
+        }
+    }
+
     pub fn respond_to(&self, v: Value, mid: Sym) -> bool {
         match self.find_method(self.class_of(v), mid) {
             // only a bare `fn` can stand for `mrb_notimplement()`; a Closure never does
@@ -3204,20 +3314,28 @@ impl Vm {
                         if b < self.heap.env(e).len { let v = reg!(a); self.env_set(e, b, v); }
                     }
                 }
+                // The three index opcodes answer the common receivers themselves and *send*
+                // the rest, in this frame, as the reference does (`L_SEND_SYM`): a `[]`
+                // written in Ruby is then an ordinary frame, so it can `Fiber.yield` or park
+                // a task on a queue out of it. `prepare_call` writes the nil block itself, so
+                // the fallback only has to hand `op_send_vis` the registers it already reads.
                 Op::Getidx => {
-                    let recv = reg!(a); let idx = reg!(a + 1);
-                    let v = self.funcall(recv, self.s.aref, &[idx], Value::Nil)?;
-                    setreg!(a, v);
+                    if self.op_getidx(base, a)? {
+                        self.op_send_vis(base, a, self.s.aref, 1, false, false, false)?;
+                        if let Some(v) = self.loop_exit.take() { return Ok(v); }
+                    }
                 }
                 Op::Getidx0 => {
-                    let recv = reg!(b);
-                    let v = self.funcall(recv, self.s.aref, &[Value::Int(0)], Value::Nil)?;
-                    setreg!(a, v);
+                    if self.op_getidx0(base, a, b)? {
+                        self.op_send_vis(base, a, self.s.aref, 1, false, false, false)?;
+                        if let Some(v) = self.loop_exit.take() { return Ok(v); }
+                    }
                 }
                 Op::Setidx => {
-                    let recv = reg!(a); let idx = reg!(a + 1); let val = reg!(a + 2);
-                    self.funcall(recv, self.s.aset, &[idx, val], Value::Nil)?;
-                    setreg!(a, val); // the value of an index assignment is the assigned value
+                    if self.op_setidx(base, a)? {
+                        self.op_send_vis(base, a, self.s.aset, 2, false, false, false)?;
+                        if let Some(v) = self.loop_exit.take() { return Ok(v); }
+                    }
                 }
                 Op::Jmp => { self.ci[top].pc = jump(pc, a); }
                 Op::Jmpif => { if reg!(a).truthy() { self.ci[top].pc = jump(pc, b); } }
@@ -3828,6 +3946,101 @@ impl Vm {
             if !empty { args.push(h); kd = Some(h); }
         }
         (args, kd)
+    }
+
+    // ------------------------------------------------------ the inline index opcodes
+
+    /// `OP_GETIDX` (`R[a] = R[a][R[a+1]]`), mruby `vm_op_getidx`. Answers the call here for an
+    /// Array with an Integer index, a Hash, and a String with an Integer, String or Range
+    /// index, while that class still carries the `[]` the opcode stands in for. Answers `true`
+    /// when the caller has to send `[]` instead; the registers are already laid out for it
+    /// (the receiver is in `R[a]` and the index in `R[a+1]`, which is what a one-argument call
+    /// wants), so nothing has to be moved.
+    fn op_getidx(&mut self, base: usize, a: usize) -> VmResult<bool> {
+        let recv = self.stack[base + a].get();
+        let o = match recv { Value::Obj(o) => o, _ => return Ok(true) };
+        let slot = match self.idx_kind(o) { Some(s) => s, None => return Ok(true) };
+        let cls = self.heap.get(o).class;
+        if !self.idx_armed(slot, cls) { return Ok(true); }
+        let idx = self.stack[base + a + 1].get();
+        let v = match slot {
+            IDX_ARY_AREF => match idx {
+                Value::Int(i) => self.ary_entry(o, i),
+                _ => return Ok(true),
+            },
+            // `mrb_hash_get`: a Hash without the key answers through `default`/`default_proc`,
+            // which can run Ruby code — as it does under the send, and behind the same boundary
+            IDX_HASH_AREF => self.call_native(crate::builtins::hash::hash_aref, recv, &[idx], Value::Nil)?,
+            _ => {
+                if !self.str_index_p(idx) { return Ok(true); }
+                self.call_native(crate::builtins::string::str_aref, recv, &[idx], Value::Nil)?
+            }
+        };
+        self.stack[base + a] = Slot::from(v);
+        Ok(false)
+    }
+
+    /// `OP_GETIDX0` (`R[a] = R[b][0]`), mruby `vm_op_getidx0`. The same three receivers with a
+    /// literal 0. Before it asks for the send it writes the call's registers, which the
+    /// operands do not already hold: the receiver into `R[a]` and the index into `R[a+1]`.
+    fn op_getidx0(&mut self, base: usize, a: usize, b: usize) -> VmResult<bool> {
+        let recv = self.stack[base + b].get();
+        let fallback = |vm: &mut Vm| {
+            if vm.stack.len() <= base + a + 1 { vm.stack.resize(base + a + 2, Slot::NIL); }
+            vm.stack[base + a] = Slot::from(recv);
+            vm.stack[base + a + 1] = Slot::from(Value::Int(0));
+            Ok(true)
+        };
+        let o = match recv { Value::Obj(o) => o, _ => return fallback(self) };
+        let slot = match self.idx_kind(o) { Some(s) => s, None => return fallback(self) };
+        let cls = self.heap.get(o).class;
+        if !self.idx_armed(slot, cls) { return fallback(self); }
+        let v = match slot {
+            IDX_ARY_AREF => self.heap.array(o).and_then(|l| l.first().map(|e| e.get())).unwrap_or(Value::Nil),
+            IDX_HASH_AREF => self.call_native(crate::builtins::hash::hash_aref, recv, &[Value::Int(0)], Value::Nil)?,
+            _ => self.call_native(crate::builtins::string::str_aref, recv, &[Value::Int(0)], Value::Nil)?,
+        };
+        if self.stack.len() <= base + a { self.stack.resize(base + a + 1, Slot::NIL); }
+        self.stack[base + a] = Slot::from(v);
+        Ok(false)
+    }
+
+    /// `OP_SETIDX` (`R[a][R[a+1]] = R[a+2]`), mruby `vm_op_setidx`. What the fast path leaves
+    /// in `R[a]` is the assigned value and what the send leaves there is whatever `[]=`
+    /// answered; neither is read, because the compiler copies the right-hand side into the
+    /// result register before it emits the opcode (`codegen.c`, "preserve the RHS as the
+    /// result"), which is why `x[i] = v` is `v` whichever path ran.
+    fn op_setidx(&mut self, base: usize, a: usize) -> VmResult<bool> {
+        let recv = self.stack[base + a].get();
+        let o = match recv { Value::Obj(o) => o, _ => return Ok(true) };
+        let slot = match self.idx_kind(o) { Some(s) => s + IDX_ARY_ASET, None => return Ok(true) };
+        let cls = self.heap.get(o).class;
+        if !self.idx_armed(slot, cls) { return Ok(true); }
+        let (idx, val) = (self.stack[base + a + 1].get(), self.stack[base + a + 2].get());
+        match slot {
+            IDX_ARY_ASET => {
+                if !matches!(idx, Value::Int(_)) { return Ok(true); }
+                self.call_native(crate::builtins::array::ary_aset, recv, &[idx, val], Value::Nil)?;
+            }
+            IDX_HASH_ASET => { self.call_native(crate::builtins::hash::hash_aset, recv, &[idx, val], Value::Nil)?; }
+            _ => {
+                // A replacement that is not a String is a TypeError rather than a store, and the
+                // method is where it is raised: leaving it to the send keeps the `String#[]=`
+                // frame the backtrace has always shown for it (the reference says the same).
+                if !matches!(val, Value::Obj(v) if matches!(self.heap.get(v).kind, ObjKind::String(_))) { return Ok(true); }
+                if !self.str_index_p(idx) { return Ok(true); }
+                self.call_native(crate::builtins::string::str_aset, recv, &[idx, val], Value::Nil)?;
+            }
+        }
+        self.stack[base + a] = Slot::from(val);
+        Ok(false)
+    }
+
+    /// One element of an Array by index, counting a negative one from the end (`mrb_ary_entry`).
+    fn ary_entry(&self, o: ObjId, i: i64) -> Value {
+        let list = match self.heap.array(o) { Some(l) => l, None => return Value::Nil };
+        let i = if i < 0 { i + list.len() as i64 } else { i };
+        if i < 0 { Value::Nil } else { list.get(i as usize).map(|e| e.get()).unwrap_or(Value::Nil) }
     }
 
     fn op_send(&mut self, base: usize, a: usize, mid: Sym, c: usize, has_blk: bool, is_super: bool) -> VmResult<()> {

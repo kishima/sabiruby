@@ -98,6 +98,9 @@ pub fn init(vm: &mut Vm) {
     ext_time::init(vm);
     // mruby-strftime adds to the Time mruby-time made, so it comes after it
     ext_strftime::init(vm);
+    // last: records the `[]` / `[]=` the index opcodes may answer for (mruby `mrb_idx_op_init`,
+    // called from `mrb_open_core` once the core classes are built)
+    vm.idx_op_init();
 }
 
 // ---------------------------------------------------------------- shared helpers

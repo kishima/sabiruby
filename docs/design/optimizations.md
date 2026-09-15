@@ -44,6 +44,13 @@
 | 11 | Hash の引きで**全鍵を複製しない**（`hash_sync` の順番） | 「古いか」を聞く前に全要素の鍵を `Vec` に複製 | **−11.7%** | `ds_hash` −63%、`vmo_objects` −85%、`call_kwargs` −15% | `07659aa` |
 | 12 | `hash_set` で鍵のハッシュを 1 回、String 鍵の複製は挿入時だけ | 2 回計算と毎回の複製・凍結 | ±0（micro で効く） | `h[k] = v` | `2521b79` |
 | 13 | `Array#include?`/`member?`/`count` が 1 要素ずつ読む | ループ内で `items()` を呼ぶ O(n²) | ±0（ベンチは呼ばない） | `count` 100 要素 −86% | `f222934` |
+| 14 | `OP_GETIDX`/`GETIDX0`/`SETIDX` が Array・Hash・String に**本家と同じ早道**を持つ（残りは今のフレームで送る） | 添字 1 つの `[]` が毎回メソッド探索 + `funcall`、`Array#[]` は添字ごとに `Vec` を 1 つ確保、`String#[]` は mruby-regexp の包みを 2 段通る | ±0（全体）、`data structures` −3.7% | `vmo_index` −7.3%、`ds_hash` −8.0%、`ds_string` −3.5%、`ds_array` −4.1% | `getidx-dispatch` |
+
+14 は速さのための変更ではなく、Ruby で書いた `[]` の中でタスクを止められるようにするための変更
+（`docs/design/fibers.md` の Native boundaries、`docs/worklog/2026-09-15-getidx-dispatch.md`）で、
+早道はそのついでに本家から写したものである。合計が ±0 で分類だけ動くのはそのため。
+なお 14 の測定は、4 節の「コード配置の揺れ」が一番はっきり出た例でもある: 意味の同じ 3 つの書き方で
+`call_kwargs` と `loop_while_add` の当たり外れが入れ替わり、片方を直すともう片方が 12% 遅くなった。
 
 段階 0 で `unsafe` を消したときに 2.5% 遅くなり、段階 3 でクロージャを足したときに 1.8% 遅くなった。
 4 と 3 はその 2 つを取り戻したもの（取り戻したうえで、出発点より速い）。

@@ -558,3 +558,81 @@ fn a_task_sleeps_from_inside_method_missing() {
         "[[:before, :nap], :b, [:after, :nap], [:done, :nap]]\n"
     );
 }
+
+#[test]
+fn a_task_parks_on_a_queue_from_inside_a_ruby_aref() {
+    // The point of sending `[]` from the index opcodes instead of running it in a nested run
+    // loop (`docs/worklog/2026-09-15-getidx-dispatch.md`): rubevy writes `e[:Transform]`, the
+    // `[]` behind it asks the host and waits for the answer. While `OP_GETIDX` went through
+    // `Vm::funcall` there was a native boundary under the task and `Queue#pop` refused with
+    // "blocking pop cannot be called from within a C function boundary".
+    let mut vm = vm_with(r##"
+      $asked = []
+      class Entity
+        def initialize(id) = @id = id
+        def [](name)
+          $asked << [@id, name]
+          $queue.pop
+        end
+        def []=(name, value)
+          $asked << [@id, name, value]
+          $queue.pop
+        end
+      end
+      $got = []
+      Task.new(name: "reader") do
+        e = Entity.new(7)
+        $got << e[:Transform]
+        $got << (e[:Health] = 3)
+        :reader_done
+      end
+      Task.new(name: "other") { 4.times { |i| $asked << "tick#{i}"; Task.pass }; :other_done }
+    "##);
+    let q = vm.task_queue_new().expect("queue");
+    vm.gc_register(q);
+    vm.global_set("$queue", sabiruby::value::Value::Obj(q));
+
+    for i in 0..2 {
+        vm.task_run_budget(100_000).expect("run");
+        vm.task_queue_push(q, sabiruby::value::Value::Int(70 + i)).expect("push");
+    }
+    vm.task_run_budget(100_000).expect("run");
+
+    let bin = sabiruby_compiler::compile(b"p $asked; p $got\n", &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    vm.load_and_run(&bin).expect("run");
+    // the read parks, the other task ticks while it waits, the answer comes back as the value
+    // of `e[:Transform]`, and the assignment is still worth its right-hand side (3, not 71)
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[[7, :Transform], \"tick0\", \"tick1\", \"tick2\", \"tick3\", [7, :Health, 3]]\n[70, 3]\n"
+    );
+}
+
+#[test]
+fn a_task_sleeps_from_inside_a_ruby_aref() {
+    // `sleep 0` is the other suspension point a task has; it needs the same frame. `x[0]` is
+    // `OP_GETIDX0`, which has its own fallback (it writes the receiver and the literal 0 into
+    // the call's registers before it sends), so it is the one this asks for.
+    let mut vm = vm_with(r#"
+      $order = []
+      class Slow
+        def [](i)
+          $order << [:before, i]
+          sleep 0
+          $order << [:after, i]
+          i
+        end
+      end
+      Task.new(name: "a") { $order << [:done, Slow.new[0]] }
+      Task.new(name: "b") { $order << :b }
+      Task.run
+      p $order
+    "#);
+    // `sleep 0` gives the turn up, so b runs in between
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[[:before, 0], :b, [:after, 0], [:done, 0]]\n"
+    );
+}

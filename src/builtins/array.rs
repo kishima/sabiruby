@@ -267,7 +267,9 @@ fn ary_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     }
 }
 
-fn ary_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+/// `Array#[]=`. `pub(crate)` because `OP_SETIDX` records it as the implementation it stands
+/// in for and calls it directly for an Integer index (`Vm::op_setidx`).
+pub(crate) fn ary_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 2, 3);
     let val = a[a.len() - 1];
     let len = ary_len(vm, s);
