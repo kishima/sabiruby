@@ -10,7 +10,7 @@
 
 | # | 内容 | 状態 |
 |---|---|---|
-| 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | 未着手 |
+| 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | **済み**（2026-09-16、`bd71d31`）。記録は `docs/worklog/2026-09-16-serde.md`、設計は `docs/design/serde.md` |
 | 2 | RBS で境界を宣言する（検討→設計） | 未着手 |
 | 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | 未着手 |
 | 4 | Cargo feature で gem を落とせるようにする（まず regexp） | 未着手 |
@@ -94,3 +94,35 @@ Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどう�
 (b) なら `SABIRUBY_VERSION` 定数を足す案も。
 
 **大きさ**: 小。
+
+## 実装で分かったこと
+
+### 1. `sabiruby-serde`
+
+* **エラー型は分けるしかない。** serde の `ser::Error` / `de::Error` は `custom(msg)` を要求するが、
+  `VmError::Raise` は例外オブジェクトを持つので `&mut Vm` 無しには作れない。`sabiruby_serde::Error`
+  （`Message` / `Vm`）を置き、`to_value` / `from_value` の境界で `VmError` に変える形にした。
+  計画書の `VmResult` を返す形はそのまま保てる。`Message` は `TypeError`（`FromRuby` と同じクラス）。
+* **`Serde<T>` は `IntoRuby` と `IntoRubyRet` の**どちらか一方**しか実装できない。**
+  `impl<T: IntoRuby> IntoRubyRet<RetValue> for T` がすでにあるので、両方あると `define_fn` の
+  マーカ推論が曖昧になる。指示どおり `IntoRuby` を採り、`into_ruby` が raise できない以上、
+  シリアライズ失敗時は**例外オブジェクトそのもの**を返すことにした（`nil` だと `None` と区別がつかない）。
+  この経路に入るのは手書きの `Serialize` が `Error::custom` を呼んだときだけ。
+* **`serde_json` の `Map` は既定で `BTreeMap`** なので、`JSON.generate` の鍵が整列されてしまう。
+  CRuby の期待値と 1 行だけ食い違って気づいた。`preserve_order` で直るがその feature は `std` を含む
+  （`preserve_order = ["indexmap", "std"]`）。`json` feature（既定オン）に分け、変換層だけなら
+  `no_std` + alloc のままにした（`thumbv7em-none-eabi` でビルド確認）。
+* **`JSON.generate` は `from_value` を通していない。** 鍵は `to_s`（CRuby は `{1 => 2}` を `{"1":2}` にする）、
+  他クラスのオブジェクトは `to_s`（`(1..3).to_json` は `"1..3"`）という規則が serde のデータモデルに無いため。
+  `deserialize_string` を緩めて通すと、普通の struct の `String` フィールドに Integer が黙って入るようになる。
+  `parse` の向きは計画書どおり `serde_json::Value` → `to_value` の一本で済む。
+* **VM に足りなかった入口は 2 本。** `Vm::hash_entries`（`ary_vals` の相方。Hash を読む手段が `hash_get` しか無く、
+  鍵の一覧を得る術が無かった）と `Vm::define_class_under`（`define_class` は必ず `Object` の定数にするので、
+  `JSON::ParserError` が置けない）。段階 3b と同じ形の穴埋め。
+* **`BigInt` → `i128` は `to_i64` / `to_u64` では足りない**（`2**64` がどちらにも入らない）。
+  `to_string_radix(10)` を経由する。`to_f64` は丸めるので使えない。
+* **単体での公開はまだできない。** CI の `cargo publish --dry-run --workspace` は通る（未公開の依存は
+  ワークスペース自身のパッケージで検証されるため）が、`cargo publish --dry-run -p sabiruby-serde` は
+  verify のビルドで落ちる。crates.io の `sabiruby 0.4.0` には `src/convert.rs` が無い（段階 4 より前の公開）。
+  実際に上げるときは `sabiruby` を先に公開する。依存は `version = "0.4"` のままにしてある。
+

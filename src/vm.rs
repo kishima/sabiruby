@@ -1092,6 +1092,16 @@ impl Vm {
     pub fn ary_vals(&self, v: Value) -> Option<Vec<Value>> {
         self.ary(v).map(|a| values_of(a))
     }
+    /// The entries of a Hash in insertion order, as values (a copy); `None` when `v` is not a
+    /// Hash. The host's counterpart of [`Vm::ary_vals`]: reading a Hash out is otherwise only
+    /// possible key by key ([`Vm::hash_get`]), which needs the keys first.
+    pub fn hash_entries(&self, v: Value) -> Option<Vec<(Value, Value)>> {
+        let o = v.obj()?;
+        match &self.heap.get(o).kind {
+            ObjKind::Hash(hd) => Some(hd.entries().iter().map(|(k, val)| (k.get(), val.get())).collect()),
+            _ => None,
+        }
+    }
     pub fn expect_str(&mut self, v: Value, what: &str) -> VmResult<Vec<u8>> {
         match self.str_bytes(v) {
             Some(b) => Ok(b.to_vec()),
@@ -1175,6 +1185,23 @@ impl Vm {
         }
         let c = self.heap.alloc(self.core.class, ObjKind::Class(ClassData { name: Some(n), superclass: Some(superclass), ..Default::default() }));
         self.heap.class_mut(self.core.object).consts.insert(n, Slot::from(Value::Obj(c)));
+        self.singleton_class(Value::Obj(c)).expect("metaclass");
+        c
+    }
+    /// A class nested in a module or class (`Outer::Name`), as `mrb_define_class_under` is:
+    /// the constant goes in `outer` rather than in `Object`, and `Class#name` answers with the
+    /// qualified name. An existing constant of that name is answered with, as
+    /// [`Vm::define_class`] does.
+    pub fn define_class_under(&mut self, outer: ObjId, name: &str, superclass: ObjId) -> ObjId {
+        if outer == self.core.object { return self.define_class(name, superclass); }
+        let n = self.intern(name);
+        if let Some(Value::Obj(c)) = self.heap.class(outer).consts.get(&n).map(|s| s.get()) {
+            return c;
+        }
+        let c = self.heap.alloc(self.core.class, ObjKind::Class(ClassData {
+            name: Some(n), superclass: Some(superclass), outer: Some(outer), ..Default::default()
+        }));
+        self.heap.class_mut(outer).consts.insert(n, Slot::from(Value::Obj(c)));
         self.singleton_class(Value::Obj(c)).expect("metaclass");
         c
     }

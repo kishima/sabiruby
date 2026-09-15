@@ -19,7 +19,8 @@ include = ["/src/**/*", "/build.rs", "/docs/**/*.md", "/README.md", "/LICENSE", 
 # compiler/: sabiruby-compiler, the reference mruby compiler built as C
 # cli/: sabiruby-cli, the `sabiruby` command (depends on both)
 # macros/: sabiruby-macros, the derive and attribute macros (depends on neither)
-members = ["compiler", "cli", "macros"]
+# serde/: sabiruby-serde, serde and JSON on top of the VM (the VM itself never depends on serde)
+members = ["compiler", "cli", "macros", "serde"]
 
 [lib]
 name = "sabiruby"

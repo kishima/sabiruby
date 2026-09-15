@@ -21,6 +21,7 @@ in English; plans and the worklog are in Japanese.
 | [optimizations.md](design/optimizations.md) | (Japanese) the speed-ups of 2026-09-15 one by one — symptom, cause, change, effect, what was dropped — how to measure on this machine, what is still slow |
 | [utf8.md](design/utf8.md) | strings as characters (feature `utf8`) and as bytes |
 | [playground.md](design/playground.md) | the browser playground: the wasm module's C ABI, the debugger, real-time `sleep` |
+| [serde.md](design/serde.md) | `sabiruby-serde`: the data model between serde and `Value`, the error mapping, `Serde<T>` in a `define_fn` signature, and why `JSON` lives there |
 
 ## verification/ — how it is checked and measured
 
@@ -63,6 +64,9 @@ out of a signature.
 opcodes: the reference's fast paths for Array, Hash and String, the six slots that say when one
 of them may answer, why `p` in mruby-print made a test look wrong, and what the shape of an
 opcode's arm costs in the instruction loop.
+[serde](worklog/2026-09-16-serde.md) is `from-mrubyedge-plan.md`'s item 1: why serde needs an
+error type of its own, why `Serde<T>` can implement `IntoRuby` or `IntoRubyRet` but not both,
+and the one line of CRuby's JSON output that caught `serde_json::Map` sorting its keys.
 [stage6c-method-missing](worklog/2026-09-15-stage6c-method-missing.md) is the VM's half of stage
 6c: reading `prepare_missing` in the reference, why packing the arguments into one Array and
 shifting them along one register are the same thing to `OP_ENTER`, and what a `method_missing`

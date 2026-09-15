@@ -1,0 +1,34 @@
+[package]
+name = "sabiruby-serde"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "serde for SabiRuby: Rust values as Ruby values and back, and a JSON class built on serde_json"
+license = "MIT"
+keywords = ["mruby", "ruby", "serde", "json", "embedded"]
+categories = ["encoding", "game-development", "development-tools::ffi"]
+repository = "https://github.com/sabiruby/sabiruby"
+readme = "README.md"
+# What crates.io gets: the library. The tests (which need the reference compiler to run Ruby
+# against, and CRuby to say what the expected output is) stay in git.
+include = ["/src/**/*", "/README.md"]
+
+[features]
+# `json`: the Ruby `JSON` class (`install_json`). It brings in serde_json with
+# `preserve_order`, so that a Hash keeps the order it was written in, as CRuby's JSON does —
+# and `preserve_order` implies serde_json's `std`. Without this feature the crate is the
+# conversion layer alone, `no_std` + alloc like the VM.
+default = ["json"]
+json = ["dep:serde_json"]
+
+[dependencies]
+sabiruby = { path = "..", version = "0.4", default-features = false }
+serde = { version = "1", default-features = false, features = ["alloc"] }
+serde_json = { version = "1", optional = true, features = ["preserve_order"] }
+
+[dev-dependencies]
+serde = { version = "1", features = ["derive"] }
+# The Ruby case is compiled here rather than checked in as bytecode: the VM's own
+# `tests/custom` needs Docker for the reference `mrbc`, and this crate does not.
+sabiruby-compiler = { path = "../compiler", features = ["host"] }
+sabiruby = { path = "..", features = ["std"] }
