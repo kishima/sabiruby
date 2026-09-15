@@ -78,3 +78,77 @@ SabiRuby には IO が無いので、両方とも `print` と同じ出口（`Vm:
 なお `bench/src/bm_app_lc_fizzbuzz.rb` は `bench/*.mrb` に対応が無い。`tools/bench.sh` は
 `benchmark/bm_*.rb` を全部 `bench/src/` に写して本家の `mrbc` にかけるが、この 1 本だけは
 `mrbc` が受け付けない（λ 計算の入れ子が深い）ので `.mrb` ができず、ベンチの本数には入らない。
+
+### `printf`/`putc` がベンチを動かしていないことの確認
+
+メソッド表が 2 つ増えただけでも（キャッシュの行、クラスの `HashMap` の中身）命令ループの数値は動きうるので、
+`287826e`（main、`printf`/`putc` 無し）と `519eb17` のバイナリを作って交互 A/B を 4 本回した（7 ラウンド、P コア固定）:
+
+| ベンチ | A（287826e） | B（519eb17） | 変化 |
+|---|---:|---:|---:|
+| bm_fib | 5394.221 | 5361.431 | −0.6% |
+| call_args | 874.067 | 881.907 | +0.9% |
+| ds_hash | 230.328 | 228.920 | −0.6% |
+| loop_while_add | 838.556 | 840.219 | +0.2% |
+
+全部 ±1% 以内。`bench/results/ab-287826e-printf.tsv`。
+
+### 基準の取り直しで分かったこと
+
+**1 回目の計測は捨てた。** ベンチ自体は通ったが、best と median の差が平均 3.3%（`loop_while_add` で 7.7%）あり、
+過去の基準（`2aa4f13` 0.9%、`9da4724` 0.8%）と比べて明らかに荒れていた。`docs/design/optimizations.md` 4 節の
+「best と median の差が 1% を超えたら取り直す」に当たる。取り直した 2 回目は平均 0.8%、最大 2.7% で、
+こちらを `bench/results/519eb17.tsv` にした。絶対値は 1 回目より 3% ほど遅い窓に入っているが、
+本家も同じ分だけ遅く出ているので比は動かない（共通 25 本で本家 14529 → 15343 ms）。
+
+**取り直しのときに踏んだ落とし穴**: `tools/bench.sh` は `SABIRUBY_BIN` が無ければ `cargo build --release` を
+自分で走らせる。項目 6 の編集を作業ツリーに置いたまま走らせたので、2 回目は**コミットされていない木**を測り始めていた
+（ビルドが通ってしまったので気づきにくい）。止めて、`git stash` してから `519eb17` のバイナリを作り、
+`SABIRUBY_BIN` で名指しして測り直した。以後の A/B もすべて、スクラッチに置いた名前付きのバイナリ
+（`sabiruby-287826e`、`sabiruby-519eb17`、…）を指している。
+
+## 項目 6: `items()` の残り
+
+`grep -rn "items(vm" src/` は 101 か所。うち `src/builtins/ext_task.rs` の 13 か所は別物で
+（`q_items` は `Task::Queue` の中の Array オブジェクトを返すだけで複製しない）、本当の対象は
+`src/builtins/array.rs`（52 か所）と `src/builtins/ext_array.rs`（36 か所）の 2 ファイル。
+`items(vm, v)` は `vm.ary_vals(v).unwrap_or_default()`、つまり `Vec<Slot>` を `Vec<Value>` に
+**丸ごと複製**する。
+
+一覧を作って読んでみると、「複製している」だけでは直す理由にならないことが分かった。**答えが配列全体なら、
+複製は 1 回はどのみち要る**（`vm.ary_new` が `Vec<Value>` を取り、その中でもう 1 回 `Vec<Slot>` にする）。
+`reverse`・`rotate`・`compact`・`+`・`*` を借用に書き換えても、割り当ての回数は 2 のままで何も変わらない。
+効くのは次の 2 通りだけだった。
+
+### 第 1 群: 答えが 1 要素か数要素なのに、配列全体を複製していたもの（`e6d0d11`）
+
+`fetch`、`at`、`__fetch`、`first(n)`、`last(n)`、`take`、`drop`、`values_at`、`__svalue`、
+`count`（引数もブロックも無いとき、長さを聞くためだけに複製していた）、`slice!`（長さを聞くためだけ）、
+`Array#[]` の Range／2 引数の経路、`__combination_next`（k 要素）、`__product_next` の `product_fetch`（1 要素）、
+`state_ints`（状態の Array）。O(n) が O(1) か O(k) になる。
+
+両ファイルに `fn slots(vm: &Vm, v: Value) -> &[Slot]`（`vm.ary(v).unwrap_or(&[])`）を置き、
+引数の変換（`expect_int`）を**借用の前に**済ませてから読む形にした。`expect_int` は `to_int` を呼びうる、
+つまり Ruby を走らせて配列を動かしうるので、借用を跨がせない。`Array#[]` の遅い経路だけは
+`index_args` を挟むが、これは Integer と Integer の Range しか読まず（Bignum は即例外）Ruby を走らせないので、
+その後に借りても安全である、とコメントに書いた。
+
+micro（`bench/micro`、`tools/ab_micro.sh`、7 ラウンドの交互 A/B）:
+
+| micro | A（`519eb17`） | B（第 1 群） | 変化 |
+|---|---:|---:|---:|
+| m_ary_read（1000 要素から `fetch`/`at` で 1 個） | 181.128 | 86.131 | **−52.4%** |
+| m_ary_ends（1000 要素から `first(3)`/`last(3)`/`take`/`drop`） | 114.194 | 46.655 | **−59.1%** |
+| m_ary_copy（`dup`/`compact`/`reverse`/`rotate`/`+`） | 104.269 | 106.355 | +2.0% |
+| m_ary_set（`-`/`|`/`&`/`difference`） | 272.511 | 280.039 | +2.8% |
+| m_ary_walk（`index`/`count {}`/`assoc`） | 1807.566 | 1820.042 | +0.7% |
+| m_loop_only（空のループ） | 7.218 | 7.380 | +2.2% |
+
+**空のループが +2.2% 動いている**のが、この対の雑音の下限である。触っていない経路の
++0.7〜+2.8% はコード配置の揺れで、速くなったのは触った 2 本だけ、というのが正しい読み方。
+
+公開ベンチ 8 本の交互 A/B（`bench/results/ab-519eb17-items-g1.tsv`）は
+`ds_array` −1.2%、`ds_hash` −1.3%、`ds_string` +2.0%、`app_json_hash` +2.9%、`app_robot` −0.0%、
+`app_tak` +0.6%、`bm_so_lists` +0.3%、`vmo_index` +0.1% で、合計はほぼ ±0。
+`ds_string` と `app_json_hash` は変えたメソッドを 1 つも呼ばないので、これも配置の揺れである。
+ベンチは動かないが micro で 2 倍、というのが項目 6 に期待されていたとおりの形なので、これは採る。

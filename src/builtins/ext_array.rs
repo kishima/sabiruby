@@ -9,7 +9,7 @@ use alloc::{format, vec, vec::Vec};
 use crate::argc;
 use crate::error::VmResult;
 use crate::object::ObjKind;
-use crate::value::{slots_of, Value};
+use crate::value::{slots_of, Slot, Value};
 use crate::vm::Vm;
 
 /// `ARY_MAX_SIZE`: the reference's is `MRB_INT_MAX / sizeof(mrb_value)`; this one is what a
@@ -19,6 +19,9 @@ const ARY_MAX_SIZE: u64 = 1 << 28;
 pub(crate) fn items(vm: &Vm, v: Value) -> Vec<Value> { vm.ary_vals(v).unwrap_or_default() }
 /// How many elements, without copying them out (`items(vm, v).len()` allocates).
 pub(crate) fn ary_len(vm: &Vm, v: Value) -> usize { vm.ary(v).map(|l| l.len()).unwrap_or(0) }
+/// The elements as they lie in the heap, for the natives that only read a few of them
+/// (`items` copies the whole array to answer). Nothing calls Ruby while holding this.
+fn slots(vm: &Vm, v: Value) -> &[Slot] { vm.ary(v).unwrap_or(&[]) }
 
 pub(crate) fn check_frozen(vm: &mut Vm, v: Value) -> VmResult<()> {
     if v.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(false) { return Err(vm.frozen_error(v)); }
@@ -159,9 +162,8 @@ fn product_fetch(vm: &mut Vm, s: Value, arys: &[Value], mut n: i64) -> VmResult<
         group[j + 1] = a[(n % b) as usize];
         n /= b;
     }
-    let me = items(vm, s);
-    if n >= me.len() as i64 { return Err(vm.raise(vm.core.index_error, "index out of range")); }
-    group[0] = me[n as usize];
+    if n >= ary_len(vm, s) as i64 { return Err(vm.raise(vm.core.index_error, "index out of range")); }
+    group[0] = slots(vm, s)[n as usize].get();
     Ok(vm.ary_new(group))
 }
 
@@ -171,7 +173,7 @@ const COMB_REPEATED_COMBINATION: i64 = 2;
 const COMB_PERMUTATION: i64 = 3;
 const COMB_COMBINATION: i64 = 4;
 
-fn state_ints(vm: &Vm, st: Value) -> Vec<i64> { items(vm, st).iter().map(|v| match v { Value::Int(i) => *i, _ => 0 }).collect() }
+fn state_ints(vm: &Vm, st: Value) -> Vec<i64> { slots(vm, st).iter().map(|v| match v.get() { Value::Int(i) => i, _ => 0 }).collect() }
 fn state_store(vm: &mut Vm, st: Value, v: Vec<i64>) -> VmResult<()> { let list: Vec<Value> = v.into_iter().map(Value::Int).collect(); set_items(vm, st, list) }
 
 fn adjust_next_permutation_index(ind: &mut [i64], i: usize) {
@@ -187,22 +189,21 @@ pub fn init(vm: &mut Vm) {
     vm.define_methods(ary, &[
         ("assoc", |vm, s, a, _b| { argc!(vm, a, 1); for v in items(vm, s) { if let Some(x) = check_array(vm, v)? { if !x.is_empty() && vm.equal(x[0], a[0])? { return Ok(v); } } } Ok(Value::Nil) }),
         ("rassoc", |vm, s, a, _b| { argc!(vm, a, 1); for v in items(vm, s) { if let Some(x) = vm.ary_vals(v) { if x.len() > 1 && vm.equal(x[1], a[0])? { return Ok(v); } } } Ok(Value::Nil) }),
-        ("at", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let list = items(vm, s); let i = if i < 0 { i + list.len() as i64 } else { i }; Ok(if i < 0 { Value::Nil } else { list.get(i as usize).copied().unwrap_or(Value::Nil) }) }),
+        ("at", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let len = ary_len(vm, s) as i64; let i = if i < 0 { i + len } else { i }; Ok(if i < 0 { Value::Nil } else { slots(vm, s).get(i as usize).map(|x| x.get()).unwrap_or(Value::Nil) }) }),
         ("values_at", |vm, s, a, _b| {
             // mrb_get_values_at: Integers and Ranges (a Range past the end pads with nil)
-            let list = items(vm, s);
-            let olen = list.len() as i64;
+            let olen = ary_len(vm, s) as i64;
             let mut out = vec![];
             for v in a {
                 if is_range(vm, *v) {
                     if let Some((beg, len)) = range_beg_len(vm, *v, olen, false)? {
                         let mut j = beg;
-                        while j < beg + len { out.push(if j < olen { list[j as usize] } else { Value::Nil }); j += 1; }
+                        while j < beg + len { out.push(if j < olen { slots(vm, s)[j as usize].get() } else { Value::Nil }); j += 1; }
                     }
                 } else {
                     let i = vm.expect_int(*v, "index")?;
                     let i = if i < 0 { i + olen } else { i };
-                    out.push(if i < 0 { Value::Nil } else { list.get(i as usize).copied().unwrap_or(Value::Nil) });
+                    out.push(if i < 0 { Value::Nil } else { slots(vm, s).get(i as usize).map(|x| x.get()).unwrap_or(Value::Nil) });
                 }
             }
             Ok(vm.ary_new(out))
@@ -282,7 +283,7 @@ pub fn init(vm: &mut Vm) {
         ("flatten", |vm, s, a, _b| { argc!(vm, a, 0, 1); let level = if a.is_empty() { -1 } else { vm.expect_int(a[0], "level")? }; let (r, _) = flatten_internal(vm, s, level); Ok(vm.ary_new(r)) }),
         ("flatten!", |vm, s, a, _b| { argc!(vm, a, 0, 1); let level = if a.is_empty() { -1 } else { vm.expect_int(a[0], "level")? }; check_frozen(vm, s)?; let (r, modified) = flatten_internal(vm, s, level); if !modified { return Ok(Value::Nil); } set_items(vm, s, r)?; Ok(s) }),
         ("__normalize_index", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let len = ary_len(vm, s) as i64; let i = if i < 0 { i + len } else { i }; Ok(if i >= 0 && i < len { Value::Int(i) } else { Value::Nil }) }),
-        ("__fetch", |vm, s, a, _b| { argc!(vm, a, 3); let orig = vm.expect_int(a[0], "index")?; let list = items(vm, s); let len = list.len() as i64; let i = if orig < 0 { orig + len } else { orig }; if i < 0 || i >= len { if a[1] == a[2] { return Err(vm.raise(vm.core.index_error, &format!("index {orig} outside of array bounds: {}...{len}", -len))); } return Ok(a[1]); } Ok(list[i as usize]) }),
+        ("__fetch", |vm, s, a, _b| { argc!(vm, a, 3); let orig = vm.expect_int(a[0], "index")?; let len = ary_len(vm, s) as i64; let i = if orig < 0 { orig + len } else { orig }; if i < 0 || i >= len { if a[1] == a[2] { return Err(vm.raise(vm.core.index_error, &format!("index {orig} outside of array bounds: {}...{len}", -len))); } return Ok(a[1]); } Ok(slots(vm, s)[i as usize].get()) }),
         ("insert", |vm, s, a, _b| {
             if a.is_empty() { return Err(vm.argnum_error(0, "1+")); }
             let idx = vm.expect_int(a[0], "index")?;
@@ -336,11 +337,10 @@ pub fn init(vm: &mut Vm) {
             if st.len() < 3 { return Err(vm.raise_type("wrong argument type (expected CombinationState)")); }
             let (mode, n, k) = (st[0], st[1], st[2] as usize);
             if mode == COMB_FINISHED { return Ok(Value::Nil); }
-            let list = items(vm, s);
-            if list.len() as i64 != n { return Err(vm.raise(vm.core.runtime_error, "array modified during iteration")); }
+            if ary_len(vm, s) as i64 != n { return Err(vm.raise(vm.core.runtime_error, "array modified during iteration")); }
             let mut ind: Vec<i64> = st[3..].to_vec();
             for i in 0..k { if ind[i] >= n { state_store(vm, a[0], vec![COMB_FINISHED, n, k as i64])?; return Ok(Value::Nil); } }
-            let cur: Vec<Value> = ind.iter().map(|&i| list[i as usize]).collect();
+            let cur: Vec<Value> = { let l = slots(vm, s); ind.iter().map(|&i| l[i as usize].get()).collect() };
             let result = vm.ary_new(cur);
             let mut advanced = false;
             match mode {
