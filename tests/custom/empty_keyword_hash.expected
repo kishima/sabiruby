@@ -1,0 +1,25 @@
+{}
+[1, {}]
+[]
+[:none, {}]
+:none
+{}
+{}
+{}
+{}
+[1, {}]
+[]
+[:none, {}]
+:none
+{}
+"wrong number of arguments (given 0, expected 1+)"
+[:zap, [], {}]
+[:zap, [1, 2], {}]
+[:zap, [], {}]
+"wrong number of arguments (given 1, expected 2)"
+[:zap, 1]
+[{k: 1}]
+[{k: 1}]
+[:zap, [], {k: 1}]
+[]
+{a: 1, b: 2}

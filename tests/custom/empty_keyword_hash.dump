@@ -1,0 +1,284 @@
+irep 0x5eeb37d3e9a0 nregs=8 nlocals=3 pools=0 syms=20 reps=9 ilen=489
+local variable names:
+  R1:empty
+  R2:e
+catch type: rescue   begin: 0208 end: 0220 target: 0223
+catch type: rescue   begin: 0337 end: 0355 target: 0358
+file: /w/empty_keyword_hash.rb
+    9 000 TDEF		R3	:one	I[0]
+   10 004 TDEF		R3	:two	I[1]
+   11 008 TDEF		R3	:rest	I[2]
+   12 012 TDEF		R3	:opt	I[3]
+   13 016 TDEF		R3	:kwonly	I[4]
+   16 020 HASH		R4	0
+   16 023 HASH		R5	0
+   16 026 HASHCAT	R4	(R5)
+   16 028 SSEND		R3	:one	n=0|nk=*
+   17 032 LOADI_1	R4	(1)
+   17 034 HASH		R5	0
+   17 037 HASH		R6	0
+   17 040 HASHCAT	R5	(R6)
+   17 042 SSEND		R3	:two	n=1|nk=*
+   18 046 HASH		R4	0
+   18 049 HASH		R5	0
+   18 052 HASHCAT	R4	(R5)
+   18 054 SSEND		R3	:rest	n=0|nk=*
+   19 058 HASH		R4	0
+   19 061 HASH		R5	0
+   19 064 HASHCAT	R4	(R5)
+   19 066 SSEND		R3	:opt	n=0|nk=*
+   20 070 HASH		R4	0
+   20 073 HASH		R5	0
+   20 076 HASHCAT	R4	(R5)
+   20 078 SSEND		R3	:kwonly	n=0|nk=*
+   22 082 HASH		R1	0	; R1:empty
+   23 085 HASH		R4	0
+   23 088 MOVE		R5	R1	; R1:empty
+   23 091 HASHCAT	R4	(R5)
+   23 093 SSEND		R3	:one	n=0|nk=*
+   24 097 HASH		R4	0
+   24 100 HASH		R5	0
+   24 103 HASHCAT	R4	(R5)
+   24 105 BLOCK		R5	I[5]
+   24 108 SSENDB	R3	:one	n=0|nk=*
+   27 112 LOADSYM	R5	:one
+   27 115 HASH		R6	0
+   27 118 HASH		R7	0
+   27 121 HASHCAT	R6	(R7)
+   27 123 SSEND		R4	:send	n=1|nk=*
+   27 127 SSEND		R3	:p	n=1
+   28 131 LOADSYM	R4	:two
+   28 134 LOADI_1	R5	(1)
+   28 136 HASH		R6	0
+   28 139 HASH		R7	0
+   28 142 HASHCAT	R6	(R7)
+   28 144 SSEND		R3	:send	n=2|nk=*
+   29 148 LOADSYM	R4	:rest
+   29 151 HASH		R5	0
+   29 154 HASH		R6	0
+   29 157 HASHCAT	R5	(R6)
+   29 159 SSEND		R3	:send	n=1|nk=*
+   30 163 LOADSYM	R4	:opt
+   30 166 HASH		R5	0
+   30 169 HASH		R6	0
+   30 172 HASHCAT	R5	(R6)
+   30 174 SSEND		R3	:send	n=1|nk=*
+   31 178 LOADSYM	R4	:kwonly
+   31 181 HASH		R5	0
+   31 184 HASH		R6	0
+   31 187 HASHCAT	R5	(R6)
+   31 189 SSEND		R3	:send	n=1|nk=*
+   32 193 LOADSYM	R4	:one
+   32 196 HASH		R5	0
+   32 199 MOVE		R6	R1	; R1:empty
+   32 202 HASHCAT	R5	(R6)
+   32 204 SSEND		R3	:__send__	n=1|nk=*
+   36 208 HASH		R4	0
+   36 211 HASH		R5	0
+   36 214 HASHCAT	R4	(R5)
+   36 216 SSEND		R3	:send	n=0|nk=*
+   36 220 JMP		256
+   36 223 EXCEPT	R3	
+   37 225 GETCONST	R4	ArgumentError
+   37 228 RESCUE	R3	R4
+   37 231 JMPIF		R4	238
+   37 235 JMP		254
+   37 238 MOVE		R2	R3	; R2:e
+   38 241 MOVE		R4	R2	; R2:e
+   38 244 SEND0		R4	:message
+   38 247 SSEND		R3	:p	n=1
+   38 251 JMP		256
+   38 254 RAISEIF	R3	
+   42 256 LOADNIL	R3	(nil)
+   42 258 LOADNIL	R4	(nil)
+   42 260 CLASS		R3	:Missing
+   42 263 EXEC		R3	I[6]
+   45 266 GETCONST	R3	Missing
+   45 269 SEND0		R3	:new
+   45 272 HASH		R4	0
+   45 275 HASH		R5	0
+   45 278 HASHCAT	R4	(R5)
+   45 280 SEND		R3	:zap	n=0|nk=*
+   46 284 GETCONST	R3	Missing
+   46 287 SEND0		R3	:new
+   46 290 LOADI_1	R4	(1)
+   46 292 LOADI_2	R5	(2)
+   46 294 HASH		R6	0
+   46 297 HASH		R7	0
+   46 300 HASHCAT	R6	(R7)
+   46 302 SEND		R3	:zap	n=2|nk=*
+   47 306 GETCONST	R3	Missing
+   47 309 SEND0		R3	:new
+   47 312 LOADSYM	R4	:zap
+   47 315 HASH		R5	0
+   47 318 HASH		R6	0
+   47 321 HASHCAT	R5	(R6)
+   47 323 SEND		R3	:send	n=1|nk=*
+   52 327 LOADNIL	R3	(nil)
+   52 329 LOADNIL	R4	(nil)
+   52 331 CLASS		R3	:Positional
+   52 334 EXEC		R3	I[7]
+   56 337 GETCONST	R3	Positional
+   56 340 SEND0		R3	:new
+   56 343 HASH		R4	0
+   56 346 HASH		R5	0
+   56 349 HASHCAT	R4	(R5)
+   56 351 SEND		R3	:zap	n=0|nk=*
+   56 355 JMP		391
+   56 358 EXCEPT	R3	
+   57 360 GETCONST	R4	ArgumentError
+   57 363 RESCUE	R3	R4
+   57 366 JMPIF		R4	373
+   57 370 JMP		389
+   57 373 MOVE		R2	R3	; R2:e
+   58 376 MOVE		R4	R2	; R2:e
+   58 379 SEND0		R4	:message
+   58 382 SSEND		R3	:p	n=1
+   58 386 JMP		391
+   58 389 RAISEIF	R3	
+   60 391 GETCONST	R3	Positional
+   60 394 SEND0		R3	:new
+   60 397 LOADI_1	R4	(1)
+   60 399 SEND		R3	:zap	n=1
+   64 403 TDEF		R3	:pos	I[8]
+   65 407 LOADSYM	R4	:k
+   65 410 LOADI_1	R5	(1)
+   65 412 SSEND		R3	:pos	n=0|nk=1
+   66 416 LOADSYM	R4	:pos
+   66 419 LOADSYM	R5	:k
+   66 422 LOADI_1	R6	(1)
+   66 424 SSEND		R3	:send	n=1|nk=1
+   67 428 GETCONST	R3	Missing
+   67 431 SEND0		R3	:new
+   67 434 LOADSYM	R4	:k
+   67 437 LOADI_1	R5	(1)
+   67 439 SEND		R3	:zap	n=0|nk=1
+   70 443 ARRAY		R4	0
+   70 446 HASH		R5	0
+   70 449 HASH		R6	0
+   70 452 HASHCAT	R5	(R6)
+   70 454 SEND		R4	:push	n=0|nk=*
+   70 458 SSEND		R3	:p	n=1
+   71 462 LOADSYM	R4	:a
+   71 465 LOADI_1	R5	(1)
+   71 467 HASH		R4	1
+   71 470 LOADSYM	R5	:b
+   71 473 LOADI_2	R6	(2)
+   71 475 HASH		R5	1
+   71 478 SEND		R4	:merge	n=1
+   71 482 SSEND		R3	:p	n=1
+   71 486 RETURN	R3	
+   71 488 STOP
+
+irep 0x5eeb37d46fa0 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=13
+local variable names:
+  R1:x
+file: /w/empty_keyword_hash.rb
+    9 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+    9 004 MOVE		R4	R1	; R1:x
+    9 007 SSEND		R3	:p	n=1
+    9 011 RETURN	R3	
+
+irep 0x5eeb37d47a90 nregs=7 nlocals=4 pools=0 syms=1 reps=0 ilen=19
+local variable names:
+  R1:a
+  R2:b
+file: /w/empty_keyword_hash.rb
+   10 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   10 004 MOVE		R5	R1	; R1:a
+   10 007 MOVE		R6	R2	; R2:b
+   10 010 ARRAY		R5	2
+   10 013 SSEND		R4	:p	n=1
+   10 017 RETURN	R4	
+
+irep 0x5eeb37d481d0 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=13
+local variable names:
+  R1:a
+file: /w/empty_keyword_hash.rb
+   11 000 ENTER		0:0:1:0:0:0:0:0 (0x1000)
+   11 004 MOVE		R4	R1	; R1:a
+   11 007 SSEND		R3	:p	n=1
+   11 011 RETURN	R3	
+
+irep 0x5eeb37d49160 nregs=7 nlocals=4 pools=0 syms=2 reps=0 ilen=28
+local variable names:
+  R1:x
+  R2:k
+file: /w/empty_keyword_hash.rb
+   12 000 ENTER		0:1:0:0:0:1:0:0 (0x2002)
+   12 004 JMP		010
+   12 007 JMP		013
+   12 010 LOADSYM	R1	:none	; R1:x
+   12 013 MOVE		R5	R1	; R1:x
+   12 016 MOVE		R6	R2	; R2:k
+   12 019 ARRAY		R5	2
+   12 022 SSEND		R4	:p	n=1
+   12 026 RETURN	R4	
+
+irep 0x5eeb37d498a0 nregs=7 nlocals=4 pools=0 syms=3 reps=0 ilen=30
+local variable names:
+  R1:**
+  R3:k
+file: /w/empty_keyword_hash.rb
+   13 000 ENTER		0:0:0:0:1:0:0:0 (0x4)
+   13 004 KEY_P		R3	:k	; R3:k
+   13 007 JMPIF		R3	017	; R3:k
+   13 011 LOADSYM	R3	:none	; R3:k
+   13 014 JMP		020
+   13 017 KARG		R3	:k	; R3:k
+   13 020 KEYEND
+   13 021 MOVE		R5	R3	; R3:k
+   13 024 SSEND		R4	:p	n=1
+   13 028 RETURN	R4	
+
+irep 0x5eeb37d4a480 nregs=3 nlocals=2 pools=0 syms=1 reps=0 ilen=9
+file: /w/empty_keyword_hash.rb
+   24 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   24 004 LOADSYM	R2	:block_too
+   24 007 RETURN	R2	
+
+irep 0x5eeb37d4a5c0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/empty_keyword_hash.rb
+   43 000 TDEF		R1	:method_missing	I[0]
+   43 004 RETURN	R1	
+
+irep 0x5eeb37d4a890 nregs=9 nlocals=5 pools=0 syms=1 reps=0 ilen=22
+local variable names:
+  R1:name
+  R2:a
+  R3:k
+file: /w/empty_keyword_hash.rb
+   43 000 ENTER		1:0:1:0:0:1:0:0 (0x41002)
+   43 004 MOVE		R6	R1	; R1:name
+   43 007 MOVE		R7	R2	; R2:a
+   43 010 MOVE		R8	R3	; R3:k
+   43 013 ARRAY		R6	3
+   43 016 SSEND		R5	:p	n=1
+   43 020 RETURN	R5	
+
+irep 0x5eeb37d4ae50 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/empty_keyword_hash.rb
+   53 000 TDEF		R1	:method_missing	I[0]
+   53 004 RETURN	R1	
+
+irep 0x5eeb37d4b5b0 nregs=7 nlocals=4 pools=0 syms=1 reps=0 ilen=19
+local variable names:
+  R1:name
+  R2:x
+file: /w/empty_keyword_hash.rb
+   53 000 ENTER		2:0:0:0:0:0:0:0 (0x80000)
+   53 004 MOVE		R5	R1	; R1:name
+   53 007 MOVE		R6	R2	; R2:x
+   53 010 ARRAY		R5	2
+   53 013 SSEND		R4	:p	n=1
+   53 017 RETURN	R4	
+
+irep 0x5eeb37d4b720 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=13
+local variable names:
+  R1:a
+file: /w/empty_keyword_hash.rb
+   64 000 ENTER		0:0:1:0:0:0:0:0 (0x1000)
+   64 004 MOVE		R4	R1	; R1:a
+   64 007 SSEND		R3	:p	n=1
+   64 011 RETURN	R3	
+
