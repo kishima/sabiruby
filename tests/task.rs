@@ -485,3 +485,76 @@ fn time_limits_need_a_clock() {
     assert!((29_000..40_000).contains(&vm.task_instructions(spin)));
     assert!(!vm.task_finished(spin));
 }
+
+#[test]
+fn a_task_parks_on_a_queue_from_inside_method_missing() {
+    // The point of dispatching `method_missing` in the calling frame (stage 6c of
+    // `docs/plans/host-bridge-plan.md`): a proxy written with `method_missing` can block on
+    // the host's answer. While `method_missing` ran in a nested run loop there was a native
+    // boundary under the task, and `Queue#pop` refused with "blocking pop cannot be called
+    // from within a C function boundary".
+    let mut vm = vm_with(r##"
+      $asked = []
+      class Proxy
+        def initialize(kind) = @kind = kind
+        def method_missing(name, *args)
+          $asked << ["#{@kind}.#{name}", args]
+          $queue.pop
+        end
+        def respond_to_missing?(name, include_private = false) = true
+      end
+      $got = []
+      Task.new(name: "robot") do
+        robot = Proxy.new("robot")
+        $got << robot.move_to(1, 2)
+        $got << robot.hp
+        :robot_done
+      end
+      Task.new(name: "other") { 4.times { |i| $asked << "tick#{i}"; Task.pass }; :other_done }
+    "##);
+    let q = vm.task_queue_new().expect("queue");
+    vm.gc_register(q);
+    vm.global_set("$queue", sabiruby::value::Value::Obj(q));
+
+    for i in 0..2 {
+        vm.task_run_budget(100_000).expect("run");
+        vm.task_queue_push(q, sabiruby::value::Value::Int(70 + i)).expect("push");
+    }
+    vm.task_run_budget(100_000).expect("run");
+
+    let bin = sabiruby_compiler::compile(b"p $asked; p $got\n", &sabiruby_compiler::Options {
+        filename: "(test)".into(), debug_info: true, ..Default::default()
+    }).expect("compile");
+    vm.load_and_run(&bin).expect("run");
+    // the two calls reach the host under `kind.name`, the task is parked between them (the
+    // other task keeps ticking), and each answer comes back as the value of the call
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[[\"robot.move_to\", [1, 2]], \"tick0\", \"tick1\", \"tick2\", \"tick3\", [\"robot.hp\", []]]\n[70, 71]\n"
+    );
+}
+
+#[test]
+fn a_task_sleeps_from_inside_method_missing() {
+    // `sleep 0` is the other suspension point a task has; it needs the same frame.
+    let mut vm = vm_with(r#"
+      $order = []
+      class Slow
+        def method_missing(name, *args)
+          $order << [:before, name]
+          sleep 0
+          $order << [:after, name]
+          name
+        end
+      end
+      Task.new(name: "a") { $order << [:done, Slow.new.nap] }
+      Task.new(name: "b") { $order << :b }
+      Task.run
+      p $order
+    "#);
+    // `sleep 0` gives the turn up, so b runs in between
+    assert_eq!(
+        String::from_utf8_lossy(&vm.take_output()),
+        "[[:before, :nap], :b, [:after, :nap], [:done, :nap]]\n"
+    );
+}

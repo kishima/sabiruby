@@ -1982,20 +1982,31 @@ impl Vm {
             v => match self.str_bytes(v) { Some(b) => { let n = String::from_utf8_lossy(b).into_owned(); self.intern(&n) } None => { let d = self.inspect_str(v)?; return Err(self.raise_type(&format!("{d} is not a symbol nor a string"))) } },
         };
         let rest: Vec<Value> = args[1..].to_vec();
-        let (n, mut next) = if rest.len() >= 15 {
-            let packed = self.ary_new(rest);
-            if self.stack.len() < base + a + 2 { self.stack.resize(base + a + 2, Slot::NIL); }
-            self.stack[base + a + 1] = Slot::from(packed);
-            (15usize, base + a + 2)
+        let c = self.relay_args(base + a, rest, kd, blk);
+        self.op_send_vis(base, a, mid, c, has_blk, false, false)
+    }
+
+    /// Writes `args` (then the keyword Hash, then the block) back into the argument
+    /// registers of the call at `nbase`, and answers the `c` operand that describes the
+    /// new layout. Used by the two re-dispatches that change a call's arguments without
+    /// leaving the frame: `send` drops its first argument ([`Vm::op_send_redirect`]) and
+    /// `method_missing` gains one ([`Vm::op_send_vis`]). 15 or more positional arguments
+    /// go into one Array, which is what `n == 15` means to `OP_ENTER`.
+    fn relay_args(&mut self, nbase: usize, args: Vec<Value>, kd: Option<Value>, blk: Value) -> usize {
+        let (n, mut next) = if args.len() >= 15 {
+            let packed = self.ary_new(args);
+            if self.stack.len() < nbase + 2 { self.stack.resize(nbase + 2, Slot::NIL); }
+            self.stack[nbase + 1] = Slot::from(packed);
+            (15usize, nbase + 2)
         } else {
-            if self.stack.len() < base + a + 1 + rest.len() { self.stack.resize(base + a + 1 + rest.len(), Slot::NIL); }
-            for (i, v) in rest.iter().enumerate() { self.stack[base + a + 1 + i] = Slot::from(*v); }
-            (rest.len(), base + a + 1 + rest.len())
+            if self.stack.len() < nbase + 1 + args.len() { self.stack.resize(nbase + 1 + args.len(), Slot::NIL); }
+            for (i, v) in args.iter().enumerate() { self.stack[nbase + 1 + i] = Slot::from(*v); }
+            (args.len(), nbase + 1 + args.len())
         };
         let c = if let Some(k) = kd { if self.stack.len() <= next { self.stack.resize(next + 1, Slot::NIL); } self.stack[next] = Slot::from(k); next += 1; n | (15 << 4) } else { n };
         if self.stack.len() <= next { self.stack.resize(next + 1, Slot::NIL); }
         self.stack[next] = Slot::from(blk);
-        self.op_send_vis(base, a, mid, c, has_blk, false, false)
+        c
     }
 
     /// Writes `v` into the register the current context is suspended in.
@@ -3850,17 +3861,29 @@ impl Vm {
                 // method_missing (user-defined) takes the call; the basic one reports the error
                 let mm = self.s.method_missing;
                 let mm_class = if is_super { self.class_of(recv) } else { start_class };
-                if let Some((m, owner)) = self.find_method(mm_class, mm) {
+                if let Some((m, _owner)) = self.find_method(mm_class, mm) {
                     if !matches!(m, Method::Native(_)) {
                         // insert the method name as the first argument
                         let (args, kd) = self.native_args(base + a, argc, kw);
                         let mut nargs = vec![Value::Sym(mid)];
                         let pos = if kd.is_some() { &args[..args.len() - 1] } else { &args[..] };
                         nargs.extend_from_slice(pos);
+                        if matches!(m, Method::Ruby(_)) {
+                            // A `method_missing` written in Ruby takes the call *in this
+                            // frame*, the way `send` does (mruby's `prepare_missing` rewrites
+                            // the frame it is already in and lets OP_SEND dispatch it). A
+                            // nested run loop would put a native boundary around the body,
+                            // and `Fiber.yield`, `break` and a blocking `Task::Queue#pop`
+                            // inside it would all be refused. Sending `method_missing` as the
+                            // name (not `mid`) is what makes a `super` in the body find the
+                            // next `method_missing` up the chain, and going through
+                            // `op_send_vis` with `explicit` false is what lets a private one
+                            // answer, as it does in the reference and in CRuby.
+                            let c = self.relay_args(base + a, nargs, kd, blk);
+                            return self.op_send_vis(base, a, mm, c, has_blk, false, false);
+                        }
                         let r = match m {
-                            Method::Native(f) => { if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_native_direct(f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
                             Method::Closure(f) => { if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_closure_direct(&f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
-                            Method::Ruby(p) => { let tc = if self.heap.proc_data(p).env.is_some() { None } else { Some(owner) }; self.call_proc_with(p, recv, &nargs, kd, blk, Some(mm), tc)? }
                             _ => Value::Nil,
                         };
                         self.stack[base + a] = Slot::from(r);
