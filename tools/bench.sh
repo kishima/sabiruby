@@ -14,7 +14,7 @@
 #   --no-ref       BENCH_NO_REF  skip the reference `mruby` even if Docker answers
 #   --out DIR      BENCH_OUT     where the results go        (default: bench/results)
 #                  SABIRUBY_BIN  the binary to measure       (default: build it here)
-#                  BENCH_DOC     extra path for the Markdown (docs/bench.md is not written
+#                  BENCH_DOC     extra path for the Markdown (docs/verification/bench.md is not written
 #                                by this script; the maintainer points BENCH_DOC at it)
 #                  MRUBY_SRC     the reference tree, for refreshing bench/src/bm_*.rb
 #

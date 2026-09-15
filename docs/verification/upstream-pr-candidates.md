@@ -5,7 +5,7 @@ driving its scheduler from hosts it was not exercised on: a browser event loop a
 loop. Each item says what the reference does, where, how to see it, and what a patch would be.
 None of them is reported yet; this file is the queue.
 
-The port's own behaviour and the differences it keeps are in [`gems.md`](gems.md); how far the
+The port's own behaviour and the differences it keeps are in [`../design/gems.md`](../design/gems.md); how far the
 port may drift from the reference is the section "How far mruby-task may drift" there.
 
 ## 1. The scheduler re-enters the running task when a host drives it a step at a time

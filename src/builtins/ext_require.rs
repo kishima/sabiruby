@@ -1,6 +1,6 @@
 //! `require`/`load`: the three natives the Ruby part (`src/mrblib/require.rb`) is built on.
 //! The reference has none of this — mruby has no `require` — so the shape follows
-//! picoruby-require (`docs/eval-require-plan.md` 5): the search is Ruby, and what it cannot do
+//! picoruby-require (`docs/plans/eval-require-plan.md` 5): the search is Ruby, and what it cannot do
 //! without POSIX gems is here.
 //!
 //! Reading a file is the host's (`src/host.rs`, the same trait `eval` compiles through), so a

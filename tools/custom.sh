@@ -10,7 +10,7 @@ set -eu
 cd "$(dirname "$0")/.."
 IMG=kishima/mruby:4.1.0-rc
 # a case marked `# utf8-only:` is about strings as characters, so its reference output comes
-# from the image built with MRB_UTF8_STRING (`docs/utf8.md`)
+# from the image built with MRB_UTF8_STRING (`docs/design/utf8.md`)
 IMG_UTF8=kishima/mruby:4.1.0-rc-utf8
 for rb in tests/custom/${1:-*}.rb; do
   base=${rb%.rb}; name=$(basename "$base")

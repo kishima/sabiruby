@@ -205,7 +205,7 @@ pub fn init(vm: &mut Vm) {
         let n = vm.intern(name);
         vm.heap.class_mut(c.object).consts.insert(n, Slot::from(s));
     }
-    // GC module (docs/gc.md): `start`, `enable`/`disable`, `interval_ratio` and `malloc_threshold` drive the
+    // GC module (docs/design/gc.md): `start`, `enable`/`disable`, `interval_ratio` and `malloc_threshold` drive the
     // collector; the incremental/generational knobs are kept as values only.
     let gc = vm.define_module("GC");
     let gsc = vm.singleton_class(Value::Obj(gc)).unwrap();

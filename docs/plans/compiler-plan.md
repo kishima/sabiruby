@@ -84,7 +84,7 @@
   `MRC_TARGET_MRUBY`／`MRC_TARGET_MRUBYC`／`PICORB_VM_*`／`MRC_NO_STDIO`／`MRC_INT32` は**定義しない**。
 * `cargo:rerun-if-changed=vendor`、`csrc`。
 * 対応する target: `x86_64/aarch64` の linux、macOS、windows-msvc（`cc` が MSVC を使う。Prism は MSVC でもビルドできる。確認が取れなければ CI で `windows-latest` を落として README に書く）。
-  wasm32 は**対象外**（clang と wasi-sdk が要る。`docs/compiler.md` に「将来」と書く）。
+  wasm32 は**対象外**（clang と wasi-sdk が要る。`docs/design/compiler.md` に「将来」と書く）。
 
 ### 1.4 CLI（`src/bin/sabiruby.rs`）
 
@@ -129,7 +129,7 @@
 
 * `compiler/README.md`（英語）: 何を vendoring しているか、由来、ライセンス、API、対応環境、wasm が対象外の理由。
 * `README.md`: Usage に `sabiruby run foo.rb` と `-e` を追加。Status に「compiler: the reference mruby-compiler (Prism) linked as C, in the `sabiruby-compiler` crate; the VM crate stays free of it」。
-* `docs/compiler.md`（英語）: 設計と、本家 `mrbc` サブビルドと同じ standalone 経路を使っていること、バイト一致テストのこと。
+* `docs/design/compiler.md`（英語）: 設計と、本家 `mrbc` サブビルドと同じ standalone 経路を使っていること、バイト一致テストのこと。
 * 本のリポジトリ `../../book_mruby3/docs/notes/sabiruby-findings.md` に §14 を足す（日本語）。特に本の第 5 章（`codegen.re`）に足せる事実:
   「`mruby-compiler` は `MRC_TARGET_*` を定義しなければ mruby 本体無しでビルドできる（本家 `mrbc` がその形で作られている。`mrc_common.h` の standalone 経路、`disable_libmruby`）」
   「Prism の一部は ERB 生成で、本家ビルドは `build/prism/` に置く」「`mrc_dump_irep` はメモリに書ける」。本文（`.re`）は触らない。

@@ -41,7 +41,7 @@
 //! Native methods are `fn(&mut Vm, self, args, block) -> VmResult<Value>` registered with
 //! [`Vm::define_method`]. A native may keep values in Rust locals while it runs; objects kept
 //! across calls into the VM must be registered with [`Vm::gc_register`] (see the repository's
-//! `docs/gc.md`).
+//! `docs/design/gc.md`).
 //!
 //! # Features
 //!
@@ -53,7 +53,7 @@
 //! when it is built with `MRB_UTF8_STRING`: `length`, `[]`, `index`, `chars`, `reverse` and
 //! the case methods count and cut characters, while `bytesize`, `byteslice`, `byteindex` and
 //! friends stay bytes. Dropping it gives the byte-string build the reference ships. Both are
-//! checked against a reference image of their own (the repository's `docs/utf8.md`).
+//! checked against a reference image of their own (the repository's `docs/design/utf8.md`).
 //!
 //! # Stability
 //!

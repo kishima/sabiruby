@@ -4,7 +4,7 @@
 //! The reference compiles the string with the compiler linked into the VM, handing it the
 //! caller's `RProc` chain so that the code generator can read the enclosing local variable
 //! tables. The VM crate here is pure Rust and has no compiler, so the chain is turned into a
-//! table of names and handed to the host (`src/host.rs`, `docs/eval-require-plan.md`); the
+//! table of names and handed to the host (`src/host.rs`, `docs/plans/eval-require-plan.md`); the
 //! compiler crate's own `Host` passes it to the same two places of the code generator
 //! (`SABIRUBY_EVAL_SCOPES`, `compiler/vendor/VENDOR.md`).
 //!

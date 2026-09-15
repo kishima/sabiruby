@@ -16,7 +16,7 @@ The VM runs bytecode only and is pure Rust (`no_std`). Three crates live in this
 
 The Bevy integration lives in a separate crate, [`rubevy`](https://github.com/sabiruby/rubevy).
 Try it in the browser: **[SabiRuby Playground](https://sabiruby.github.io/sabiruby-playground/)**
-(the VM and the reference compiler as WebAssembly; [`docs/playground.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/playground.md)).
+(the VM and the reference compiler as WebAssembly; [`docs/design/playground.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/playground.md)).
 
 The design follows the book *Deep dive into mruby* (in Japanese): the register
 layout (`R0` of the callee is `R[a]` of the caller), `OP_ENTER`, environments,
@@ -32,7 +32,7 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 * Native core classes: Object, Module, Class, Kernel, NilClass/TrueClass/FalseClass,
   Integer (immediate while it fits in 64 bits, a heap value of arbitrary width beyond that,
   see mruby-bigint below), Float, Symbol, String (characters, as the reference built with
-  `MRB_UTF8_STRING`; bytes without the feature `utf8` — [`docs/utf8.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/utf8.md)),
+  `MRB_UTF8_STRING`; bytes without the feature `utf8` — [`docs/design/utf8.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/utf8.md)),
   Array, Hash, Range, Proc, Exception hierarchy.
 * mruby's own `mrblib/*.rb` (Enumerable, Comparable, `Array#each`, `Integer#times`, …) is
   compiled by the reference `mrbc` and embedded (`src/mrblib/core.mrb`), so those run as bytecode.
@@ -41,14 +41,14 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
 * Keyword parameters, visibility (`private`/`protected`/`module_function`), `prepend`,
   hooks (`inherited`, `included`, `method_added`, …), `defined?`, frozen objects.
 * Gems: mruby-fiber (`Fiber`, contexts switched like mruby's `mrb->c`, see
-  [`docs/fibers.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
+  [`docs/design/fibers.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/fibers.md)), mruby-enumerator, and mruby-array-ext, -enum-ext,
   -hash-ext, -range-ext, -string-ext, mruby-sprintf, -metaprog, -proc-ext, -method, and the
   rest of the reference's `default.gembox` except the POSIX ones — 36 gems, plus
   mruby-cmath from outside it. **mruby-regexp** is there with `Regexp`, `MatchData`, the String
   and Symbol methods and `$~`; its pattern engine is Rust's `regex-automata` rather than a port
   of the reference's NFA, so backreference, lookaround, atomic group and subexpression call are
   refused with `RegexpError` (the list is in
-  [`docs/gems.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/gems.md), "Deviations kept").
+  [`docs/design/gems.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/gems.md), "Deviations kept").
   **`require`/`load`** are there too (mruby has none; the shape is PicoRuby's, the file reading is
   the host's, and `$LOAD_PATH` is the program's directory and the working directory for the
   `sabiruby` command). **mruby-task** brings `Task`, `Task::Queue` and a task-aware `sleep`: a
@@ -60,14 +60,14 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   (an Integer that leaves the 64-bit range grows instead of raising), **mruby-rational** and
   **mruby-complex** (natives
   in `src/builtins/ext_*.rs`, the gems' Ruby parts embedded as `src/mrblib/<gem>.mrb` and
-  loaded in the reference gembox order; see [`docs/gems.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/gems.md)). `send`/`__send__`
+  loaded in the reference gembox order; see [`docs/design/gems.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/gems.md)). `send`/`__send__`
   from bytecode dispatch in place, as in mruby, so a `Fiber.yield` behind them is not a native
   boundary.
 * Garbage collection: stop-the-world mark & sweep with a free list, run at instruction
   boundaries and never while a native is on the host stack (natives need no arena; a host
   keeping objects across calls uses `Vm::gc_register`). `GC.start`/`enable`/`disable`,
   `interval_ratio`, `malloc_threshold`, `GC.stat[:live]` are real. `SABIRUBY_GC_STRESS=1`
-  collects after every allocation. See [`docs/gc.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/gc.md).
+  collects after every allocation. See [`docs/design/gc.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/gc.md).
 * `eval`, `instance_eval`/`class_eval` with a string, `Kernel#binding`, `Binding` and
   `Proc#binding`: the VM asks a host to compile (`Vm::set_host`, `src/host.rs`), which the
   `sabiruby-compiler` crate provides, so a string sees and writes the caller's local
@@ -76,7 +76,7 @@ the `RBreak`-based unwinding through `ensure`, `OP_CALL` as the body of
   linked as C, in the `sabiruby-compiler`
   crate; the VM crate does not depend on it, the `sabiruby` command (`sabiruby-cli`) does.
   Output is byte-identical to `mrbc` for every `.rb` in the repository. See
-  [`docs/compiler.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/compiler.md).
+  [`docs/design/compiler.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/compiler.md).
 
 Not yet: `$!` (nil even inside `rescue`; use
 `rescue => e`), the remaining mrbgems (`io`, …),
@@ -87,7 +87,7 @@ encodings other than UTF-8 (`Encoding` and `force_encoding` come with mruby-enco
 Known deviations from the reference: a NaN has no identity (Floats are immediates, so two
 NaNs made apart are `equal?`), a hash pattern whose keys mutate the subject during
 matching is not detected, and five string methods cut where their offset was measured rather
-than where the reference's own byte-for-character slip cuts ([`docs/utf8.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/utf8.md)).
+than where the reference's own byte-for-character slip cuts ([`docs/design/utf8.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/utf8.md)).
 
 ## Rules
 
@@ -109,9 +109,9 @@ the image of the build's own reading (`kishima/mruby:4.1.0-rc-utf8` by default).
 
 mruby's own test suite (`test/t`) plus the tests of the ported gems (`gem_*`) passes 2344 of
 2507 in the default build and 2267 of 2452 in a byte-string one — each build runs the
-assertions written for it and has its own floor (see [`docs/mrbtest.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/mrbtest.md)
-and [`docs/mrbtest-bytes.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/mrbtest-bytes.md), reasons for the rest in
-[`docs/mrbtest-notes.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/mrbtest-notes.md)).
+assertions written for it and has its own floor (see [`docs/verification/mrbtest.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/verification/mrbtest.md)
+and [`docs/verification/mrbtest-bytes.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/verification/mrbtest-bytes.md), reasons for the rest in
+[`docs/verification/mrbtest-notes.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/verification/mrbtest-notes.md)).
 Most of what does not pass is mruby-regexp's engine: 82 crashes are patterns using a construct a
 finite automaton has none of, and 39 KO are what the two engines answer differently. The rest:
 11 need the C test fixtures of mruby-test (`env.c`, `vformat.c`, `sysfail.c`,
@@ -142,7 +142,7 @@ mruby's suite above are the baseline and are not changed by this.
 
 `tools/mrbtest.sh` copies `test/assert.rb` and `test/t/*.rb` from the reference tree,
 compiles them with the reference `mrbc` (Docker) and runs each file on a fresh VM
-(`sabiruby mrbtest`). The result is written to [`docs/mrbtest.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/mrbtest.md):
+(`sabiruby mrbtest`). The result is written to [`docs/verification/mrbtest.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/verification/mrbtest.md):
 a per-file table of `report` counts (ok / ko / crash / warn / skip) and the list of
 opcodes the suite never executed. `tests/mrbtest/baseline.txt` records the `ok` count
 per file and `cargo test` fails if any file drops below it; refresh it with
@@ -161,23 +161,23 @@ TSV and a Markdown report per category into `bench/results/`. `SABIRUBY_BIN` poi
 binary already built, so any two commits can be measured the same way and put side by side
 with `tools/bench_compare.sh`; without Docker the reference columns stay empty and SabiRuby's
 own numbers still come out. The kept results are in
-[`docs/bench.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/bench.md) (best and median of the runs, plus instruction counts and
+[`docs/verification/bench.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/verification/bench.md) (best and median of the runs, plus instruction counts and
 ns/instruction from `sabiruby run --stats`). The ratio column is the number to watch; the
 first baseline (2026-09-11) is 1.8x–3.5x slower on arithmetic and 16x on array-heavy code.
 The value representation (16-byte enum) and the heap (index into a `Vec`) are the
 known structural costs; measure before changing them. Storage (registers, array elements,
 hash entries, ivars, envs, constants, globals) holds `Slot`; computation works on `Value`;
 `slot.get()` / `Slot::from(v)` are the only crossings, so an 8-byte representation can be
-tried by changing `value.rs` alone. Predictions and measurements: [`docs/performance.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/performance.md).
-Exception/break unwinding without longjmp: [`docs/exceptions.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/exceptions.md).
-Compiler: [`docs/compiler.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/compiler.md) (the plan: [`docs/compiler-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/compiler-plan.md)).
-GC: [`docs/gc.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/gc.md) (the plan it was built from: [`docs/gc-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/gc-plan.md)).
-`eval`, `Binding` and `require` (the plan they were built from; `require` follows PicoRuby's approach): [`docs/eval-require-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/eval-require-plan.md).
+tried by changing `value.rs` alone. Predictions and measurements: [`docs/design/performance.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/performance.md).
+Exception/break unwinding without longjmp: [`docs/design/exceptions.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/exceptions.md).
+Compiler: [`docs/design/compiler.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/compiler.md) (the plan: [`docs/plans/compiler-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/plans/compiler-plan.md)).
+GC: [`docs/design/gc.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/gc.md) (the plan it was built from: [`docs/plans/gc-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/plans/gc-plan.md)).
+`eval`, `Binding` and `require` (the plan they were built from; `require` follows PicoRuby's approach): [`docs/plans/eval-require-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/plans/eval-require-plan.md).
 Looking inside the VM (snapshots, the trace of events, the DBG line numbers; what the playground's
-debugger reads): [`docs/inspect.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/inspect.md).
-Strings as characters, and what each build answers: [`docs/utf8.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/utf8.md)
-(the plan it was built from: [`docs/utf8-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/utf8-plan.md)).
-Remaining gems and their order: [`docs/gems.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/gems.md).
+debugger reads): [`docs/design/inspect.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/inspect.md).
+Strings as characters, and what each build answers: [`docs/design/utf8.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/utf8.md)
+(the plan it was built from: [`docs/plans/utf8-plan.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/plans/utf8-plan.md)).
+Remaining gems and their order: [`docs/design/gems.md`](https://github.com/sabiruby/sabiruby/blob/main/docs/design/gems.md).
 
 ## Usage
 

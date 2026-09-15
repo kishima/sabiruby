@@ -3,7 +3,7 @@
 //! Two things: [`Vm::snapshot`] describes the VM as it stands (contexts, frames, registers,
 //! environments, heap), and [`TraceEvent`] records what the interpreter did between two
 //! snapshots (an environment created or detached, an exception looking for a handler, a fiber
-//! switch, a collection) — the things `docs/fibers.md`, `docs/exceptions.md` and `docs/gc.md`
+//! switch, a collection) — the things `docs/design/fibers.md`, `docs/design/exceptions.md` and `docs/design/gc.md`
 //! describe, which are otherwise invisible from Ruby.
 //!
 //! **Values are rendered here, in Rust.** Calling Ruby's `inspect` would run the program being
@@ -11,7 +11,7 @@
 //! and never calls a method.
 //!
 //! Recording is off by default (`Vm::set_trace`); the interpreter loop itself is untouched, so
-//! nothing is added per instruction (see `docs/inspect.md`).
+//! nothing is added per instruction (see `docs/design/inspect.md`).
 
 use alloc::{format, string::{String, ToString}, vec::Vec};
 
@@ -84,7 +84,7 @@ pub struct ContextView {
     pub status: FiberState,
     pub fiber: Option<ObjId>,
     pub is_current: bool,
-    /// `prev` of `docs/fibers.md`: the context a `Fiber.yield` returns to.
+    /// `prev` of `docs/design/fibers.md`: the context a `Fiber.yield` returns to.
     pub prev: Option<usize>,
     pub frames: Vec<FrameView>,
 }

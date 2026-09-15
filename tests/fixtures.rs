@@ -41,6 +41,6 @@ fn kwargs() { run_fixture("kwargs"); }
 fn enumerator() { run_fixture("enumerator"); }
 
 /// Japanese text through the string methods, against the reference image of this build's
-/// reading (`docs/utf8.md`).
+/// reading (`docs/design/utf8.md`).
 #[test]
 fn utf8() { run_fixture_both("utf8"); }

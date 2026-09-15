@@ -4,7 +4,7 @@ A static page where Ruby is written, compiled by the reference mruby compiler an
 SabiRuby VM, both as WebAssembly: **https://sabiruby.github.io/sabiruby-playground/**, source in
 [sabiruby/sabiruby-playground](https://github.com/sabiruby/sabiruby-playground) (kept out of this
 repository so that it stays small; Pages serves from there). The plan it follows is
-[`playground-plan.md`](playground-plan.md); the departures are listed at the end.
+[`../plans/playground-plan.md`](../plans/playground-plan.md); the departures are listed at the end.
 
 ## Shape
 

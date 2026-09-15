@@ -3,7 +3,7 @@
 作成 2026-09-15。著者がまとめた設計議論「SabiRuby と Rust の接続に関する設計議論まとめ」（rubevy 側で議論。要点は 0 節）を受けて、
 何をどの順に変えるかを決めたもの。各段階は独立に着手でき、終わるごとにこの文書の「状況」を更新する。
 
-関連: `docs/performance.md`（値の表現と性能の見積もり）、`docs/gems.md`（mruby-task、Time limits）、`docs/host.rs` のコメント、
+関連: `docs/design/performance.md`（値の表現と性能の見積もり）、`docs/design/gems.md`（mruby-task、Time limits）、`docs/host.rs` のコメント、
 rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比較）、`docs/outlook.ja.md`（何ができそうか）。
 
 ## 0. 方針（議論の要点と、コードと照らして直したところ）
@@ -30,15 +30,15 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 * VM は `no_std + alloc`（`tools/check_no_std.sh`）。`Arc` は `alloc::sync`、`Any` は `core::any` から。
 * `Vm: Send + Sync` を保つ（`tests/send_sync.rs`）。ネイティブのクロージャもホスト状態も `Send + Sync` を要求する。
 * 本家テストの基準（`tests/mrbtest/baseline*.txt`）を下回らない。
-* ベンチは変更前後で取り、`docs/bench.md` に残す。速くならない段階（3〜5）は「ぶれの範囲」を確かめる。
-* gem が Ruby で定義するメソッドをネイティブに置き換えない（`docs/gems.md` の規則）。
+* ベンチは変更前後で取り、`docs/verification/bench.md` に残す。速くならない段階（3〜5）は「ぶれの範囲」を確かめる。
+* gem が Ruby で定義するメソッドをネイティブに置き換えない（`docs/design/gems.md` の規則）。
 
 ## 状況
 
 | 段階 | 内容 | 状態 |
 |---|---|---|
 | 0 | `unsafe` を 0 に | **済み**（2026-09-15、`354b6bb`）。ただし 2.5% 遅くなった。段階 2 で取り戻す（下の知見） |
-| 1 | ベンチの分類 | **済み**（2026-09-15、`9837294`）。基準の計測は `bench/results/e9da768.tsv`、表は `docs/bench.md` |
+| 1 | ベンチの分類 | **済み**（2026-09-15、`9837294`）。基準の計測は `bench/results/e9da768.tsv`、表は `docs/verification/bench.md` |
 | 2 | 実行ループの無駄取り | **済み**（2026-09-15、`5119773`〜`4a6826e`）。候補 5 つとも採用、合計で −13% |
 | 2b | Hash と String | **一部済み**（2026-09-15、`05f6f28`）。`String#[]` と Hash の走査 |
 | 2c | `Array#shift` の O(1) 化（開始オフセット）、Hash のハッシュ表化（入口の 1 本化 → 索引） | **済み**（2026-09-15、`35d58a5` `8ba2336` `e2b026b`）。3 つで −12.8%、`bm_so_lists` −73% |
@@ -67,22 +67,22 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 
 * 基準の計測（`e9da768`、本家 4.1.0-rc との倍率、P コア固定、best of 5）: データ構造 **10.9x**（`so_lists` 16.4x、`ds_hash` 12.9x、`ds_string` 11.4x、
   `ds_array` 4.6x）、命令ループ 5.7x（中央値 4.1x。`vm_optimization_bench` だけ 7.1x）、呼び出し 3.4x、実アプリ寄り 3.4x、メモリ 1.1x。
-  **遅さの中心は Hash と String** で、Array が 4.6x なので Slot の出し入れではなく、Hash（挿入順の線形探索、`performance.md`）と String に固有の重さがある。
+  **遅さの中心は Hash と String** で、Array が 4.6x なので Slot の出し入れではなく、Hash（挿入順の線形探索、`../design/performance.md`）と String に固有の重さがある。
   段階 2 は「Hash / String の調査 → メソッドキャッシュ → 命令ループ」の順に組み替える価値がある。
 * `mem_retained`（2 万個の長命オブジェクトを抱えたまま割り当て続ける）は SabiRuby の方が速い（0.5x）。本家の世代別 GC が live set を繰り返し mark するため。
   10 万個では本家 31 秒、SabiRuby 1.2 秒。ベンチは本家側が長くなりすぎるので 2 万に下げてある。
 * この機械（i7-13700）は P コアと E コアが混在し、`taskset` 無しだと E コアに落ちて 20% 遅くなる。`tools/bench.sh --core 2` を必ず使う。
 * 2 つの担当が同時にベンチを回すと ±20〜35% ぶれる。best と median の差が 0.5% 程度に収まっているかで、静かだったかを判断できる。
-* `docs/bench.md` は `tools/bench.sh` が上書きしない（`BENCH_DOC` で明示したときだけ）。基準と段階ごとの結果は `bench/results/<sha>.tsv` に残す。
+* `docs/verification/bench.md` は `tools/bench.sh` が上書きしない（`BENCH_DOC` で明示したときだけ）。基準と段階ごとの結果は `bench/results/<sha>.tsv` に残す。
 
 ### 段階 2・2b（過程は `docs/worklog/2026-09-15-stage2-perf.md`）
 
-* 基準 `440d4ba` → 段階 2・2b で **全体 −22%、22 本すべてが速くなった**（本家比 4.40x → 3.50x）。段階 2c を足して、計画の出発点 `e9da768` からは **−31%、本家比 4.32x → 3.01x**（`docs/bench.md`）。段階ごと: `from_u8` を `match` に −1.7%、
+* 基準 `440d4ba` → 段階 2・2b で **全体 −22%、22 本すべてが速くなった**（本家比 4.40x → 3.50x）。段階 2c を足して、計画の出発点 `e9da768` からは **−31%、本家比 4.32x → 3.01x**（`docs/verification/bench.md`）。段階ごと: `from_u8` を `match` に −1.7%、
   `find_method` の返り値を Copy に −2.1%、毎命令の `CallInfo` clone をやめて −2.8%、`op_counts` を既定でオフ + 固定長配列で −5.6%、
   メソッドキャッシュ −1.3%、`String#[]` と Hash の走査で −8.7%。
 * **`op_counts` の常時カウントが最大の無駄だった**（計画書の見込み 1% に対し、密なループで 20〜25%）。`Vec` のポインタ再読み込みと、
   同じアドレスへの store→load 依存が毎命令に乗っていた。「`Vec` のままフラグで止める」は「固定長配列で数え続ける」より遅い。
-  Playground は起動時に `Vm::set_op_counting(true)` を呼ぶ（`docs/playground.md`）。
+  Playground は起動時に `Vm::set_op_counting(true)` を呼ぶ（`docs/design/playground.md`）。
 * 候補 0 は `objdump` で確かめた: 119 本の `match` は範囲チェックだけに畳まれ、表引きのロードが消えた。
 * 切り分けの結果: `ds_string` の 7 割は `String#[]`（全体複製 + UTF-8 の 1 バイト走査）で、直して 7.9 倍。`ds_hash` は線形探索が支配
   （固定費 90 ns + 1 要素 1.2 ns）で、走査の借用を 1 回にして −25〜32%。`bm_so_lists` の 78% は `Array#shift` 単独（`Vec::remove(0)`）。
@@ -124,7 +124,7 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 
 * `Method` に `Arc` を持つ variant を足すと、`#[derive(Clone)]` が 16 バイトの memcpy から「判別子の分岐 + 片方の腕で atomic 増加」になる。
   `find_method` が呼び出しごとに `Method` を clone する今の作りでは、fib のような呼び出しだけのベンチがそれを拾う。静かな機械で測り直した結果
-  （`docs/bench.md`）: fib +4.2%、`call_args` +4.0%、`app_tak` +3.8%、全体 +1.8%。データ構造は変わらず。`loop_while_add` の +6.6% は呼び出しが無いので
+  （`docs/verification/bench.md`）: fib +4.2%、`call_args` +4.0%、`app_tak` +3.8%、全体 +1.8%。データ構造は変わらず。`loop_while_add` の +6.6% は呼び出しが無いので
   この説明では足りず、`loop_times` が同時に −5.8% 動いていることから、コードの配置（アラインメント）の影響と見ている。段階 2 の候補 3（`find_method` の値返しをやめる）が本来の対処。代案は `Closure(u32)` で VM 側の表を引く形
   （`Method` が Copy に戻る。再定義したクロージャが VM の生存中残る）。
 * `Method::Native` の分岐 16 か所のうち 7 か所を変更。変更不要としたもの: `respond_to?` の `notimpl_fns` 判定（関数アドレス比較。クロージャは該当しない）、
@@ -153,7 +153,7 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 
 ## 段階 1: ベンチの分類
 
-**到達点**: 「どの処理が何倍遅いか」が分かる表。`docs/bench.md` に載る。
+**到達点**: 「どの処理が何倍遅いか」が分かる表。`docs/verification/bench.md` に載る。
 
 **今**: `tools/bench.sh` は本家の `benchmark/*.rb` 5 本を回すだけ。`sabiruby run --stats` で命令数と ns/命令は取れる。
 
@@ -194,11 +194,11 @@ Hash と String を調べる（段階 2b）。命令ループとメソッドキ�
    「選べる実装」（本の第 8 章）なので、形は自由。最初は `(class, mid) -> (Method, owner)` のグローバルな小さな表
    （メソッド定義・`include`・`prepend` で世代番号を上げて無効化）で十分。
 5. `Slot::get` / `Slot::from` の往復、`self.stack[base + i]` の境界チェック。ここは `Slot` を 8 バイトにする実験
-   （`docs/performance.md`）と合わせて後回し。
+   （`docs/design/performance.md`）と合わせて後回し。
 
 **やらないこと**: `unsafe` による境界チェックの省略、goto threading の模倣。
 
-**確認**: 候補ごとに `bench/results/` に前後の TSV を残し、本体が `docs/bench.md` に表を足す。本家テストの基準を下回らない。
+**確認**: 候補ごとに `bench/results/` に前後の TSV を残し、本体が `docs/verification/bench.md` に表を足す。本家テストの基準を下回らない。
 
 **大きさ**: 0〜3 は小、4 は中。
 
@@ -207,7 +207,7 @@ Hash と String を調べる（段階 2b）。命令ループとメソッドキ�
 **到達点**: `ds_hash`（12.9x）と `ds_string`（11.4x）、`bm_so_lists`（16.4x）の倍率が下がる。数値目標は調べてから決める。
 
 **調べ方**: まず 1 本ずつ、何に時間が行っているかを切り分ける（`perf` が使えれば `perf record` の release ビルド、無ければ
-ベンチを操作ごとに分けた小さなスクリプトで）。仮説は `docs/performance.md` の「Known structural costs」にある:
+ベンチを操作ごとに分けた小さなスクリプトで）。仮説は `docs/design/performance.md` の「Known structural costs」にある:
 Hash は挿入順の線形探索（本家の AR モードのみで、HT モードが無い）、ネイティブが配列を `items()` で複製している、
 `Array#shift`/`unshift` が O(n)。String は `Vec<u8>` の複製と UTF-8 の文字数え直しが疑わしい。
 
@@ -314,6 +314,6 @@ vm.define_fn(class, "greet", |vm: &mut Vm, name: String| format!("hi {name}")); 
 
 ## 記録
 
-* 各段階が終わったら、この文書の「状況」と、性能に触れた段階は `docs/bench.md` を更新する。
+* 各段階が終わったら、この文書の「状況」と、性能に触れた段階は `docs/verification/bench.md` を更新する。
 * 設計の理由で本文（書籍）に関わるものは、書籍側の `docs/notes/sabiruby-findings.md` に書く（Rust の名前は本文には出さない規則）。
 * rubevy 側の変更は rubevy の `docs/host-api.md` と `docs/rust-bridge.ja.md` の該当節を直す。

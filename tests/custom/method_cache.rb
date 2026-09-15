@@ -1,6 +1,6 @@
 # Every way a method lookup's answer can change, each one exercised after the old answer has
 # been made cacheable by calling it a few hundred times first (`Vm::find_method_cached`,
-# stage 2 candidate 4 of docs/host-bridge-plan.md). Expectation: the reference mruby's own
+# stage 2 candidate 4 of docs/plans/host-bridge-plan.md). Expectation: the reference mruby's own
 # output — nothing here is a SabiRuby decision, it is what Ruby says a redefinition does.
 def warm(o, m, n = 200)
   n.times { o.send(m) rescue nil }

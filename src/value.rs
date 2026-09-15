@@ -53,7 +53,7 @@ impl Value {
 ///
 /// Today a `Slot` is a `Value` (16 bytes, `repr(transparent)`, zero cost). The point of
 /// the type is that a compact 8-byte representation can be tried later by changing this
-/// file alone (see `docs/performance.md`).
+/// file alone (see `docs/design/performance.md`).
 #[repr(transparent)]
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Slot(Value);

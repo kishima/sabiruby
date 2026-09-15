@@ -6,7 +6,7 @@ collector. What it reproduces from mruby is the observable part: unreachable obj
 clear contract. mruby's tricolor incremental marking, generational mode, debt-driven pacing
 and heap pages are implementation choices of `src/gc.c` and are not copied (book, GC chapter,
 "仕様と実装都合"; porting chapter, stage 8). The plan this follows is
-[`gc-plan.md`](gc-plan.md); where the implementation departs from it, the reason is under
+[`../plans/gc-plan.md`](../plans/gc-plan.md); where the implementation departs from it, the reason is under
 [Departures from the plan](#departures-from-the-plan).
 
 ## Method
@@ -69,7 +69,7 @@ Edges from an object: `class`, `ivars`, and per kind:
 | `Hash` | keys, values, `default` |
 | `Range` | `begin`, `end` |
 | `Proc` | `upper`, `env`, `target_class` |
-| `Env` | `values` (detached), `target_class`, the special variables the scope owns (`svar`, `$~` and `$_`, and `svar_fwd`, the env a returned nested-load frame sent them to — `docs/gems.md`, mruby-regexp); for an **attached** env, its window `stack[base..base+len]` of its context (mruby marks `e->stack[0..len]`); not the whole context or the Fiber |
+| `Env` | `values` (detached), `target_class`, the special variables the scope owns (`svar`, `$~` and `$_`, and `svar_fwd`, the env a returned nested-load frame sent them to — `docs/design/gems.md`, mruby-regexp); for an **attached** env, its window `stack[base..base+len]` of its context (mruby marks `e->stack[0..len]`); not the whole context or the Fiber |
 | `Regexp` | none (the compiled pattern holds no Ruby value) |
 | `MatchData` | `source` (the subject as it was), `regexp` |
 | `Task` | its name, its result, the task it joins, the queue it waits on, and its context (mruby-task) |

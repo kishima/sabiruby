@@ -82,7 +82,7 @@ never executed are left out).
 
 ## Cost
 
-`tools/bench.sh`, trace off, against the 2026-09-11 baseline in [`bench.md`](bench.md):
+`tools/bench.sh`, trace off, against the 2026-09-11 baseline in [`../verification/bench.md`](../verification/bench.md):
 `bm_fib` 6093.6 → 6165.9 ms (+1.2%), `bm_so_lists` 3767.1 → 3781.1 ms (+0.4%),
 `bm_so_mandelbrot` 1697.8 → 1611.6 ms (−5.1%). Within the noise of the machine and inside the
 ±3% the plan asked for; the loop itself is unchanged.

@@ -9,7 +9,7 @@ set -eu
 cd "$(dirname "$0")/.."
 IMG=kishima/mruby:4.1.0-rc
 # the same mruby built with MRB_UTF8_STRING, for the fixtures whose answer depends on how a
-# string is read (`docs/utf8.md`)
+# string is read (`docs/design/utf8.md`)
 IMG_UTF8=kishima/mruby:4.1.0-rc-utf8
 MRUBY=${MRUBY_SRC:-../../ref/mruby}
 if [ -d "$MRUBY/mrblib" ]; then
@@ -18,7 +18,7 @@ if [ -d "$MRUBY/mrblib" ]; then
   docker run --rm -v "$PWD/target/mrblib:/w" $IMG mrbc -o /w/core.mrb /w/mrblib_all.rb
   cp target/mrblib/core.mrb src/mrblib/core.mrb
 fi
-# SabiRuby's own Ruby part: require/load (`docs/eval-require-plan.md` 5). The reference has none
+# SabiRuby's own Ruby part: require/load (`docs/plans/eval-require-plan.md` 5). The reference has none
 # of it, so this one is compiled from the source that lives beside it.
 docker run --rm -v "$PWD/src/mrblib:/w" $IMG mrbc -o /w/require.mrb /w/require.rb
 for rb in tests/fixtures/${1:-*}.rb; do

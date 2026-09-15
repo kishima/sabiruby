@@ -1,7 +1,7 @@
 //! mruby-cmath (`mrbgems/mruby-cmath/src/cmath.c`): the `CMath` module, Math over the
 //! complex plane. No Ruby part; the gem is not in the reference's `default.gembox`, so the
 //! reference image cannot answer for it — the checks are its own test file and the identities
-//! between the functions (`docs/gems.md`).
+//! between the functions (`docs/design/gems.md`).
 //!
 //! The reference leans on C99's `<complex.h>` (`csin`, `clog`, …). There is none in a
 //! `no_std` Rust library, so the functions are written out here from their definitions, with

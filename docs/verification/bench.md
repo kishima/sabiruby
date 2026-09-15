@@ -6,7 +6,7 @@ run is pinned to a P core (`--core 2`; this machine mixes P and E cores and an E
 The raw results of every measurement are in `bench/results/<label>.tsv` with a Markdown view beside
 them; `tools/bench_compare.sh a.tsv b.tsv` puts two side by side.
 
-## The baseline and the stages of `docs/host-bridge-plan.md` (2026-09-15)
+## The baseline and the stages of `docs/plans/host-bridge-plan.md` (2026-09-15)
 
 Best of 5 (the baseline, `e9da768`) and best of 7 (`5c3eb6e`), by category: milliseconds for
 SabiRuby, and the ratio to the reference. `ratio (sum)` weighs every benchmark by how long it runs;
@@ -114,7 +114,7 @@ Same machine, same procedure, recording off:
 | bm_so_mandelbrot | 1697.848 | 1611.633 | −5.1% |
 
 All within the ±3% the plan asked for, apart from mandelbrot getting *faster*, which is the
-run-to-run noise of this machine. See [`inspect.md`](inspect.md).
+run-to-run noise of this machine. See [`../design/inspect.md`](../design/inspect.md).
 
 ## Re-measured after the numeric tower, pack and eval (2026-09-12)
 
@@ -136,7 +136,7 @@ objects rebuilt 16 times) shows no change.
 
 ## Re-measured after UTF-8 strings (2026-09-12)
 
-Strings became sequences of characters (the feature `utf8`, on by default; `docs/utf8.md`).
+Strings became sequences of characters (the feature `utf8`, on by default; `docs/design/utf8.md`).
 The character helpers take how the string is read as an argument, so every string method now
 starts with one test of that flag, and the instruction loop is untouched. These three
 benchmarks are numeric and list work with no string method in their inner loops, which is what

@@ -55,7 +55,7 @@
 //!
 //! Optional and rest arguments, keyword arguments and typed blocks are not covered: a method
 //! that wants them takes the raw call with `define_closure`. A captured [`Value`] is not a GC
-//! root here any more than it is there (`docs/gc.md`).
+//! root here any more than it is there (`docs/design/gc.md`).
 
 use alloc::{boxed::Box, string::String, vec::Vec};
 

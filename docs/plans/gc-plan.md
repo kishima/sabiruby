@@ -1,10 +1,10 @@
 # GC 実装指示書（SabiRuby）
 
-> 2026-09-11 実装済み。実装の説明と、この指示書から変えた点（理由付き）は [`gc.md`](gc.md)。
+> 2026-09-11 実装済み。実装の説明と、この指示書から変えた点（理由付き）は [`../design/gc.md`](../design/gc.md)。
 
 対象: この文書だけを読んで、別セッションの実装者（AI）が SabiRuby に到達可能性 GC を入れられること。
-作業前に `README.md`（Rules、Verification）、`docs/performance.md`、`docs/fibers.md` を読むこと。
-設計判断はここに書いたとおりにし、変えたい場合は理由を `docs/gc.md` に残す。
+作業前に `README.md`（Rules、Verification）、`docs/design/performance.md`、`docs/design/fibers.md` を読むこと。
+設計判断はここに書いたとおりにし、変えたい場合は理由を `docs/design/gc.md` に残す。
 
 ## 0. 前提と現状
 
@@ -29,7 +29,7 @@
 * 印は `HeapObject` に `marked: bool` を足すか、`Heap` 側に `mark: Vec<bool>`（`objs` と同じ長さ）を持つ。どちらでもよいが、後者の方が `HeapObject` を触らずに済む。
 * 解放したスロットは `kind = ObjKind::Object`、`ivars.clear()`、`class = ObjId(0)`、`frozen = false` にして中身を落とす（`ObjKind` に `Free` を足さない。
   足すと `match` を持つ全ファイルが変わる）。解放済みスロットへのアクセスはバグなので `debug_assert!` で検出できるよう `Heap` に `is_free(id)` を用意する。
-* 増分（インクリメンタル）にはしない。したがって**ライトバリアは不要**。将来増分にするなら `docs/performance.md` の「格納場所の窓口」を使う（`Slot::set` に入れる）。
+* 増分（インクリメンタル）にはしない。したがって**ライトバリアは不要**。将来増分にするなら `docs/design/performance.md` の「格納場所の窓口」を使う（`Slot::set` に入れる）。
 * 世代別にしない。`GC.generational_mode=` は値を覚えて返すだけでよい（現状のまま）。
 
 ### 1.2 いつ走るか
@@ -41,7 +41,7 @@
   理由: ネイティブは Rust のローカル変数に `Value`/`ObjId` を持つ（例: `let h = vm.hash_new(); ... vm.hash_set(h, k, v)?` の途中で `key_hash` が Ruby を呼び、
   そこで割り当てが起きる）。本家はアリーナで守るが、SabiRuby はネイティブにフレームを積まないので「ネイティブが生きている間は回収しない」が最も単純で安全。
   ネイティブから Ruby へ再入している間（`Array#sort { }` のブロック中など）は回収が延びるが、mrblib の `each`/`map`/`times`/`loop` は Ruby なので普段の反復は影響しない。
-  この制約を `docs/gc.md` に「拡張から見た約束」として書くこと。
+  この制約を `docs/design/gc.md` に「拡張から見た約束」として書くこと。
 * `GC.start` は `native_active` に関係なく**即時**に回収してよい？ → **いいえ**。`GC.start` 自体がネイティブなので、`GC.start` の中で回収すると呼び出し元ネイティブ（無い）…
   正確には `GC.start` を呼んだ SEND 命令のレジスタ状態は `stack` にあるので、`GC.start` の中で回収しても VM 側の根は揃っている。
   **ただし `GC.start` が `funcall` 経由（ネイティブ → ネイティブ）で呼ばれた場合は危険**なので、`GC.start` は `native_active == 1`（自分だけ）のときに限り即時回収し、
@@ -90,9 +90,9 @@
 ### 1.4 スイープ後
 
 * `heap.len()` を `live` として使っている箇所（`GC.stat`、`object_id` の表示など）を `live = objs.len() - free.len()` に直す。
-* `ObjId` は再利用されるので `object_id` と `inspect` の `0x...` は再利用される。本家もアドレスを再利用するので差異ではない。`docs/gc.md` に書く。
+* `ObjId` は再利用されるので `object_id` と `inspect` の `0x...` は再利用される。本家もアドレスを再利用するので差異ではない。`docs/design/gc.md` に書く。
 * Fiber の文脈: `Fiber` オブジェクトが回収されたら `contexts[ctx]` の `stack`/`ci`/`proc_` を空にして（`Context::new(Terminated)` に置き換え）、
-  番号は再利用しない（`contexts` は伸びるが、中身は空）。これで十分。番号の再利用は将来の課題として `docs/gc.md` に書く。
+  番号は再利用しない（`contexts` は伸びるが、中身は空）。これで十分。番号の再利用は将来の課題として `docs/design/gc.md` に書く。
 
 ### 1.5 触るファイルと関数
 
@@ -141,13 +141,13 @@
   `cargo test --release`（照合スクリプト 16 本）、`tools/check_no_std.sh`。
 * メモリ: `bench/gc_churn.rb`（新設。`i = 0; while i < 1_000_000; a = [i, "x" * 10, {k: i}]; i += 1; end; p GC.stat[:live]`）を `sabiruby run --stats` で走らせ、
   `live` が数千以下で安定すること。`/usr/bin/time -v` の Maximum resident set size が回収なし版（git の直前コミット）より桁で小さいこと。
-* 速度: `tools/bench.sh` の `bm_fib`、`bm_so_lists`、`bm_so_mandelbrot` が導入前（`docs/bench.md`: 3.5x、15.9x、1.9x 前後）から誤差の範囲であること。
+* 速度: `tools/bench.sh` の `bm_fib`、`bm_so_lists`、`bm_so_mandelbrot` が導入前（`docs/verification/bench.md`: 3.5x、15.9x、1.9x 前後）から誤差の範囲であること。
   1 命令あたりの追加コストは `bool` 判定 1 回なので、悪化が 5% を超えたら原因を調べる（`alloc` に重い処理を入れていないか）。
-* テスト結果の理由の表 `docs/mrbtest-notes.md` と `tests/mrbtest/notes.tsv` の `gc` 行を更新する（5 KO が消える）。`tools/mrbtest.sh --update` で baseline を更新。
+* テスト結果の理由の表 `docs/verification/mrbtest-notes.md` と `tests/mrbtest/notes.tsv` の `gc` 行を更新する（5 KO が消える）。`tools/mrbtest.sh --update` で baseline を更新。
 
 ## 5. 計測して記録するもの
 
-`docs/performance.md` の Measured に追記:
+`docs/design/performance.md` の Measured に追記:
 
 * ベンチ 3 本の導入前後。
 * `gc_churn.rb` の実行時間と回収回数、`live` の推移。
@@ -155,10 +155,10 @@
 
 ## 6. 文書（必須）
 
-* `docs/gc.md`（新設、英語で可）: 方式、根の表（§1.3 をそのまま）、ネイティブから見た約束（「ネイティブ実行中は回収しない」「複数フレームにまたがって持つなら `gc_register`」）、
+* `docs/design/gc.md`（新設、英語で可）: 方式、根の表（§1.3 をそのまま）、ネイティブから見た約束（「ネイティブ実行中は回収しない」「複数フレームにまたがって持つなら `gc_register`」）、
   `GC.*` の意味、意図した差異（`GC.stat` の項目のうち実値でないもの、`object_id` の再利用、世代別なし）、将来の課題（増分化にはライトバリアが要る、`contexts` の番号再利用）。
-* `README.md`: Status の「garbage collection (the heap only grows)」を消し、`docs/gc.md` へのリンク。
-* `docs/mrbtest-notes.md` / `tests/mrbtest/notes.tsv`: `gc` の行。
+* `README.md`: Status の「garbage collection (the heap only grows)」を消し、`docs/design/gc.md` へのリンク。
+* `docs/verification/mrbtest-notes.md` / `tests/mrbtest/notes.tsv`: `gc` の行。
 * 本『Deep dive into mruby』のリポジトリ（`../../book_mruby3`）の `docs/notes/sabiruby-findings.md` に節を足す（日本語。「§13 GC」。決めたこと、踏んだ罠、本家との対応、本の第 4 章・段階 8 との対応と、本文に足すべき点）。
   本文（`.re`）は触らない。著者が後で反映する。
 

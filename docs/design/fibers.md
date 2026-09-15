@@ -67,5 +67,5 @@ Detaching on frame pop is per context and unchanged.
 
 `mrbgems/mruby-fiber/test/fiber.rb` (21) and `fiber2.rb` (4, with the six
 helpers of `fibertest.c` provided by `mrbtest.rs`), and
-`mruby-enumerator/test/enumerator.rb` (52) all pass; see `docs/mrbtest.md`.
+`mruby-enumerator/test/enumerator.rb` (52) all pass; see `docs/verification/mrbtest.md`.
 `Fiber#to_s` omits the `file:line` part (no debug info is read).

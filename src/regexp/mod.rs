@@ -1,8 +1,8 @@
 //! The pattern engine behind mruby-regexp: Rust's `regex-automata` rather than a port of the
-//! reference's NFA (`docs/gems-plan.md` 3.6, author's decision of 2026-09-13). What a pattern
+//! reference's NFA (`docs/plans/gems-plan.md` 3.6, author's decision of 2026-09-13). What a pattern
 //! *means* is therefore Rust's finite automaton: no backreference, no lookaround, no atomic
 //! group, no subexpression call, and those are refused at compile time with the construct named
-//! in the message. `docs/gems.md` lists what that costs against the reference.
+//! in the message. `docs/design/gems.md` lists what that costs against the reference.
 //!
 //! This module is the pattern side alone. The Ruby classes built on it — `Regexp`, `MatchData`
 //! and the String methods — are ported from the reference in `crate::builtins::ext_regexp`.
@@ -717,7 +717,7 @@ fn translate_escape(
         // `\b` is a word boundary outside a class and a backspace inside one
         b'b' => { out.push_str(if in_class { "\\x{08}" } else { "\\b" }); Ok(i + 2) }
         // `\Z` is the end of the string or just before a final newline, which takes a lookahead
-        // to write here; `docs/gems.md` records the difference
+        // to write here; `docs/design/gems.md` records the difference
         b'Z' => { out.push_str("\\z"); Ok(i + 2) }
         b'G' | b'K' | b'R' | b'X' if !in_class => unsupported(&format!("\\{}", c as char)),
         b'M' if !in_class => unsupported("meta escape"),

@@ -1,7 +1,7 @@
 # gem 移植後の作業 実装指示書（2026-09-13）
 
 > 2026-09-13 実装済み（A〜D）。実装の説明とこの指示書から変えた点は各 docs:
-> gem は [`gems.md`](gems.md)、rubevy は `../rubevy/README.md` と `../rubevy/docs/outlook*.md`、
+> gem は [`../design/gems.md`](../design/gems.md)、rubevy は `../rubevy/README.md` と `../rubevy/docs/outlook*.md`、
 > 設計の記録は本の repo の `docs/notes/rubevy-design.md` 9 節。
 > この指示書から変えたのは 3 点:
 > (1) rubevy は `.cargo/config.toml` の `paths` ではなく `Cargo.toml` の `path` で隣の VM を見る
@@ -11,15 +11,15 @@
 >     エンジンに載せるときはフレーム時間で時計、命令数で横取り、が自然。
 
 対象: この文書だけを読んで、別セッションの実装者（AI）が次の 4 つの作業を順に進められること。
-作業前に `README.md`、`docs/gems.md`（移植済み gem の全体像と差異）、`docs/gc.md`、`docs/gems-plan.md`（着手時の状況）を読むこと。
+作業前に `README.md`、`docs/design/gems.md`（移植済み gem の全体像と差異）、`docs/design/gc.md`、`docs/plans/gems-plan.md`（着手時の状況）を読むこと。
 設計判断はここに書いたとおりにし、変えたい場合は理由を該当の docs に残す。
 
 ## 0. 前提と現状
 
 * `default.gembox` の gem は POSIX 依存（io、socket、errno、dir、env、signal、process）を除いて全部移植済み。
   gembox 外の cmath、pack、eval、binding、proc-binding、require／load、task、UTF-8 文字列も済み。
-  本家テストは 2484 件中 2313 件。落ちる件はすべて理由が付いている（`docs/mrbtest.md` の note 列、`tests/mrbtest/notes.tsv`、
-  `docs/mrbtest-notes.md`）。エンジンの差異（regexp）、C 補助コード、NaN の同一性、`GC.generational_mode` が中身。
+  本家テストは 2484 件中 2313 件。落ちる件はすべて理由が付いている（`docs/verification/mrbtest.md` の note 列、`tests/mrbtest/notes.tsv`、
+  `docs/verification/mrbtest-notes.md`）。エンジンの差異（regexp）、C 補助コード、NaN の同一性、`GC.generational_mode` が中身。
 * リポジトリ: VM `sabiruby/sabiruby`（この repo）、Bevy 統合 `sabiruby/rubevy`（`../rubevy`）、Playground
   `../sabiruby-playground`、移植キット `../mruby-porting-kit`（本の repo `/home/kishima/book/book_mruby3` の
   `tools/build_kit.rb` が生成する。手で編集しない）。
@@ -44,20 +44,20 @@ A は半日、B が本体。C と D は B の合間に入れてよい小さな�
 
 ## 2. A. 片付け
 
-1. `docs/gems-plan.md` の冒頭「実装状況」と 0 節が古い（「残るは require、regexp → task」のまま）。`gc-plan.md` と同じく
-   冒頭を「実装済み（2026-09-13）。説明と、この指示書から変えた点は `gems.md`」の 1 段落にし、0 節の数字を今の値に直す。
-   `docs/gems.md` の「Remaining gems」表は POSIX の行だけになっているので、表の前の文を「残りは無い」に直す。
-2. `README.md` の gem の一覧と数字（2313/2484 など）が最新か確かめる。`docs/gems.md` の Deviations kept に regexp の構文の表が
+1. `docs/plans/gems-plan.md` の冒頭「実装状況」と 0 節が古い（「残るは require、regexp → task」のまま）。`gc-plan.md` と同じく
+   冒頭を「実装済み（2026-09-13）。説明と、この指示書から変えた点は `../design/gems.md`」の 1 段落にし、0 節の数字を今の値に直す。
+   `docs/design/gems.md` の「Remaining gems」表は POSIX の行だけになっているので、表の前の文を「残りは無い」に直す。
+2. `README.md` の gem の一覧と数字（2313/2484 など）が最新か確かめる。`docs/design/gems.md` の Deviations kept に regexp の構文の表が
    あることを確かめる（無ければ `gems-plan.md` 3.6 の表を移す）。
 3. 本の repo `book_mruby3`: `data/code/vm_enum_fiber.rb` が untracked。`vm.re` の `//list[vm_enum_fiber_rb]` が参照しているので
    add してコミットする（別セッションが作業中なら、そのセッションに任せる。`git log -1` の時刻で判断）。
    `porting.re` の各段階の「到達」に書いた数字（gem のテスト件数、通った件数）が古ければ、最終値
-   （`docs/mrbtest.md` の表）に更新する。
+   （`docs/verification/mrbtest.md` の表）に更新する。
 4. 移植キット: `mrbtest/ref/codegen.txt`、`syntax.txt` が変更、`samples/cg_eval.rb` が untracked のまま。本の repo で
    `ruby tools/build_kit.rb` を走らせて再生成し（Docker が要る）、キット側で差分を確かめてコミットする。
    段階表（`stages.md`）に段階 7・8 の新しい罠が入っていることを確かめる。push は著者。
 5. Playground: `.github/workflows` が SabiRuby のチェックアウトを SHA で固定している。regexp・task を含む最新の SHA に上げ、
-   wasm のサイズを `docs/playground.md` の表に追記する（regexp の Unicode 表の差は記録済み: gzip で約 98 KB）。
+   wasm のサイズを `docs/design/playground.md` の表に追記する（regexp の Unicode 表の差は記録済み: gzip で約 98 KB）。
 6. `git log origin/main..HEAD` で未 push を数え、著者に伝える（sabiruby 3 件以上、本の repo、キット）。
 
 ## 3. B. rubevy を Task 駆動にする
@@ -91,13 +91,13 @@ NPC ごとに Task を 1 つ持たせ、ほとんどのフレームは眠らせ�
   （`.mrb` はそのまま、`.rb` はコンパイラがあるビルドだけ。`sabiruby-compiler` の `host` feature を任意依存にする）。
 * **終了と例外**: Task の終了は `Task#value` で取れる。例外は Task の結果になる（`exception_as_result`）ので、
   system が終了した Task を見つけて `ScriptEnded` を出す。`Task#value` の読み方は `ext_task.rs`。
-* **GC**: `GC.scheduler_driven` を on にし、idle のときに回収させる（`docs/gc.md` の「スケジューラ駆動」）。
+* **GC**: `GC.scheduler_driven` を on にし、idle のときに回収させる（`docs/design/gc.md` の「スケジューラ駆動」）。
   `gc_register` した Task の ObjId は entity の despawn で `gc_unregister`。
 
 ### 3.3 手順
 
 1. VM 側: `Vm::task_spawn`、`Vm::task_advance_ticks`、`task_run_once` の予算引数。`tests/` に host 駆動のテストを 1 つ
-   （2 つの Task が交互に進み、`sleep` が tick で起きること）。`docs/gems.md` の task の項に追記。
+   （2 つの Task が交互に進み、`sleep` が tick で起きること）。`docs/design/gems.md` の task の項に追記。
 2. rubevy: `ScriptWorld` resource、`Script` → `ScriptTask`、system を `start_scripts`／`tick_scripts`／`drain_commands` の 3 つに。
    `examples/headless.rs` を Task 2 つ（片方は `sleep` で眠る）に書き換え、出力で確かめる。
 3. `Rubevy` モジュールの最小 API（`log`、`spawn`、`entity` の位置の読み書き）と、その `docs/outlook.ja.md` の該当節を「済み」に。
@@ -140,7 +140,7 @@ NPC ごとに Task を 1 つ持たせ、ほとんどのフレームは眠らせ�
 
 * `Kernel#sleep(sec)`、`Kernel#usleep(usec)`。負は `ArgumentError: time interval must not be negative`。`sleep` の戻り値は
   経過した秒（整数）。
-* Task の中の `sleep` は ext_task の task-aware な `sleep` が既にある（`docs/gems.md`）。この gem が足すのは **Task の外**の
+* Task の中の `sleep` は ext_task の task-aware な `sleep` が既にある（`docs/design/gems.md`）。この gem が足すのは **Task の外**の
   `sleep`。no_std の VM は待てないので、ホストの差し込み口 `Vm::sleep_hook: Option<fn(micros: u64)>` を足し（`wall_clock` と同じ流儀）、
   CLI は `std::thread::sleep` を渡す。差し込み口が無ければ待たずに戻る（戻り値は `wall_clock` の差、無ければ 0）。
   ext_task の `sleep` と同じ名前になるので、登録順（task の後に sleep）と「Task の中では task 版、外ではこの版」の分岐を
@@ -155,10 +155,10 @@ NPC ごとに Task を 1 つ持たせ、ほとんどのフレームは眠らせ�
   glibc の `%-d`（先頭ゼロなし）、`%_d`（空白詰め）、`%0d` の旗も受ける。知らない変換は glibc と同じくそのまま出す。
 * 引数の NUL: 本家は NUL で区切って `strftime` に渡し、NUL をそのまま出力に足す（`"%Y\0"` → `"2026\0"`）。同じにする。
   文字列以外は TypeError（`mrb_get_args "s"`）。
-* 本家イメージと `Time.gm(2026,9,13,8,11,32).strftime(...)` を各変換で照合し、スクリプトを `docs/gems.md` に残す。
+* 本家イメージと `Time.gm(2026,9,13,8,11,32).strftime(...)` を各変換で照合し、スクリプトを `docs/design/gems.md` に残す。
 
 ## 6. 記録
 
-* 各作業の終わりに `docs/gems.md`（gem）、`docs/gc.md`（scheduler_driven を使うなら）、rubevy の docs、
+* 各作業の終わりに `docs/design/gems.md`（gem）、`docs/design/gc.md`（scheduler_driven を使うなら）、rubevy の docs、
   本の repo の findings（節 19 以降）と `porting_stages.yml`／`porting.re` の段階 8（task）へ。
 * この文書は着手時に「実装済み」の注記を頭に足す（`gc-plan.md` と同じ運用）。

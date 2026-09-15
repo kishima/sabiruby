@@ -1,6 +1,6 @@
 # require / load. SabiRuby's own Ruby part (there is none in the reference: mruby has no
 # `require`). The shape is picoruby-require's `mrblib/require.rb` (MIT), with the differences
-# `docs/eval-require-plan.md` 5 lists: no `extern` (the gems are all there from the start, so
+# `docs/plans/eval-require-plan.md` 5 lists: no `extern` (the gems are all there from the start, so
 # their names are in `$LOADED_FEATURES` already), no `File` (the VM has no POSIX gems, so a path
 # is built as a string and handed to the two natives `__file_exist?` and `__load_file`), and no
 # Sandbox (`__exec_file` runs the file in a top-level frame of its own).
@@ -98,7 +98,7 @@ end
 
 $LOAD_PATH = []
 # The gems are built in rather than loaded, so `require 'fiber'` answers false the way it does
-# on a build that has the gem linked (`docs/gems.md` lists them in this order).
+# on a build that has the gem linked (`docs/design/gems.md` lists them in this order).
 $LOADED_FEATURES = [
   "fiber", "enumerator", "array-ext", "enum-ext", "hash-ext", "range-ext", "string-ext",
   "sprintf", "metaprog", "proc-ext", "method", "compar-ext", "toplevel-ext", "enum-chain",

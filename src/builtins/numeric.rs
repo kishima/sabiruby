@@ -199,7 +199,7 @@ fn int_idiv(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
             Ok(Value::Int(div_floor(p, q)))
         }
         // the reference's `mrb_bint_div` multiplies by a Float instead of dividing; the
-        // floor division is taken here (`docs/gems.md`, `tests/custom/bigint_div_float`)
+        // floor division is taken here (`docs/design/gems.md`, `tests/custom/bigint_div_float`)
         _ if float_arm(vm, y) => {
             let (p, q) = (num_f64(vm, x).unwrap_or(0.0), num_f64(vm, y).unwrap_or(0.0));
             if q == 0.0 { return Err(zero_div(vm)); }
@@ -457,7 +457,7 @@ fn shift(vm: &mut Vm, s: Value, a: &[Value], left: bool) -> VmResult<Value> {
     Ok(vm.bint_value(if left { p.shl(n) } else { p.shr(n) }))
 }
 
-/// Widest left shift accepted, in bits (`docs/gems.md`: the reference has no limit and
+/// Widest left shift accepted, in bits (`docs/design/gems.md`: the reference has no limit and
 /// fails in `mrb_realloc` instead).
 const MAX_SHIFT: u64 = 1 << 26;
 

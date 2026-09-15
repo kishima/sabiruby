@@ -3,7 +3,7 @@
 # something it does not answer for an ASCII string. Each one hands a BYTE offset to
 # `mrb_str_substr`, which counts CHARACTERS in that build, so the answer is cut at the
 # wrong place — a slip, not a decision, so SabiRuby cuts where the offset was measured
-# (docs/utf8.md, "Deviations kept"):
+# (docs/design/utf8.md, "Deviations kept"):
 #   delete_prefix   `str_del_prefix` calls mrb_str_substr(self, plen, slen-plen) with the
 #                   prefix's byte length; for "あい".delete_prefix("あ") that is substr(3, 3)
 #                   over a two-character string, which is out of range: nil.

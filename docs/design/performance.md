@@ -1,6 +1,6 @@
 # Performance notes
 
-Measured numbers live in [`bench.md`](bench.md) (`tools/bench.sh`). This file records the
+Measured numbers live in [`../verification/bench.md`](../verification/bench.md) (`tools/bench.sh`). This file records the
 reasoning and predictions behind performance decisions, so they can be checked against
 measurements later. Dates are when the prediction was written; each prediction should get a
 "measured" line when the experiment is done.
@@ -20,18 +20,18 @@ memory. Two ways to prepare for an 8-byte representation were considered:
 ### Predictions
 
 1. **Introducing the window with the representation unchanged costs nothing.** `Slot` is `#[repr(transparent)]` over `Value`
-   and `get`/`from` are trivially inlined, so the generated code should be identical. Check: `bench.md` before/after the
+   and `get`/`from` are trivially inlined, so the generated code should be identical. Check: `../verification/bench.md` before/after the
    refactor should agree within noise.
 2. **After switching `Slot` to 8 bytes, the gain comes from memory bandwidth** (registers, arrays and hashes halve in size),
    and A and B would gain the same amount from that. The A-vs-B difference is an unpack at every use (A) versus one unpack at
    the storage boundary (B); the unpacked `Value` lives in machine registers or the native stack, so this should be within noise.
    B's only extra cost is converting arguments passed to native methods; A's only extra cost is re-tagging when values are
-   passed around. Neither should be visible in `bench.md`.
+   passed around. Neither should be visible in `../verification/bench.md`.
 3. **Boxing is second-order compared with the obvious waste.** `bm_so_lists` (15.8x slower than the reference) is dominated by
    natives that copy whole arrays (`items()`) and by `Array#shift` being O(n) (mruby shares the buffer and shifts a pointer).
    Expectation: fixing those brings `so_lists` to a few times the reference; boxing on top of that is worth 1.1x–1.3x on
    array-heavy code and little on `bm_fib`-style integer code.
-4. **What would change the decision**: if `bench.md` after (3) still shows memory-bound behaviour (large arrays, WASM/MCU
+4. **What would change the decision**: if `../verification/bench.md` after (3) still shows memory-bound behaviour (large arrays, WASM/MCU
    memory limits), try an 8-byte `Slot` (tagged `u64`: 3 tag bits, 61-bit integers, ObjId index, floats either NaN-boxed or
    heap-allocated) and measure. The refactor B makes that experiment a one-day change confined to `value.rs` and the
    `Slot` conversions.
@@ -39,12 +39,12 @@ memory. Two ways to prepare for an 8-byte representation were considered:
 ### Measured
 
 * 2026-09-11, prediction 1 — `Slot` introduced at every storage site (registers, arrays, hashes, ivars, envs, constants,
-  globals, ranges), representation unchanged. `bench.md` before → after: `bm_fib` 3.45x → 3.40x, `bm_so_lists` 15.75x → 15.61x,
+  globals, ranges), representation unchanged. `../verification/bench.md` before → after: `bm_fib` 3.45x → 3.40x, `bm_so_lists` 15.75x → 15.61x,
   `bm_so_mandelbrot` 1.80x → 1.82x (best of 3 each). Within noise, as predicted. Test suite unchanged (805/833, 15 fixtures).
 
 ## Garbage collector (2026-09-11)
 
-Design in [`gc.md`](gc.md). Prediction (from `gc-plan.md`): the per-instruction cost is one `bool` test at the loop head,
+Design in [`gc.md`](gc.md). Prediction (from `../plans/gc-plan.md`): the per-instruction cost is one `bool` test at the loop head,
 so the three benchmarks stay within noise (a slowdown over 5% means something heavy went into `alloc`); memory of an
 allocating loop becomes bounded.
 

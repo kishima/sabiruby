@@ -1,6 +1,6 @@
 # Wide integers where mruby 4.1.0-rc answers something it does not answer for a
 # plain Integer. Each one is a slip in mruby-bigint, not a decision, so SabiRuby
-# keeps the meaning the same at both widths (docs/gems.md, "Deviations kept"):
+# keeps the meaning the same at both widths (docs/design/gems.md, "Deviations kept"):
 #   ~x      `mrb_bint_rev` negates and then takes one off the MAGNITUDE
 #           (`mpz_sub_int` ignores the sign), so it answers -(x-1) for x > 0.
 #   x >> n  `mpz_div_2exp` shifts the magnitude, so a negative value rounds

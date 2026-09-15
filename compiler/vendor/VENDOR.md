@@ -21,7 +21,7 @@ the reference build's rewrite; they only affect diagnostics of the C compiler.
 
 `sabiruby-compiler` builds the compiler standalone, without `MRC_TARGET_MRUBY`, so it has no
 mruby `RProc` chain to read the enclosing local variable names from — which is what compiling
-an `eval` string needs (`docs/eval-require-plan.md`). The patch adds the same two places the
+an `eval` string needs (`docs/plans/eval-require-plan.md`). The patch adds the same two places the
 reference fills from that chain, filled from a table of names instead, plus the field that
 carries it. It is guarded by `SABIRUBY_EVAL_SCOPES` (defined by `build.rs`) and sits beside
 the `MRC_TARGET_MRUBY` branches, so the reference's own paths are untouched and

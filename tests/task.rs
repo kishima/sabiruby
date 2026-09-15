@@ -36,7 +36,7 @@ fn run_once_advances_one_task_at_a_time() {
 #[test]
 fn a_timeslice_is_a_fixed_amount_of_work() {
     // there is no timer here, so the tick is the instruction count: a task that never yields is
-    // preempted all the same (`docs/gems.md`)
+    // preempted all the same (`docs/design/gems.md`)
     let mut vm = vm_with(r#"
       $order = []
       Task.new { 200000.times { |i| $order << :a if i == 0 }; $order << :a_end }
@@ -122,7 +122,7 @@ fn a_task_that_raises_keeps_the_scheduler_going() {
 #[test]
 fn a_call_that_parks_answers_its_own_value() {
     // the switch is deferred to the next instruction boundary, as the reference defers it, so the
-    // value the native returned is stored first (`docs/gems.md`, mruby-task)
+    // value the native returned is stored first (`docs/design/gems.md`, mruby-task)
     let mut vm = vm_with(r#"
       done = Task.new(name: "done") { :done_now }
       Task.run
@@ -145,7 +145,7 @@ fn a_call_that_parks_answers_its_own_value() {
 #[test]
 fn a_host_waits_on_its_own_clock() {
     // what a browser or a frame loop needs to sleep for real: the scheduler says how long it may
-    // wait and whether anything is left, and the host moves the clock (`docs/playground.md`)
+    // wait and whether anything is left, and the host moves the clock (`docs/design/playground.md`)
     let mut vm = vm_with(r#"
       $log = []
       Task.new(name: "slow") { 2.times { |i| $log << "slow#{i}"; sleep 0.1 } }
@@ -188,7 +188,7 @@ fn the_scheduler_is_not_re_entered_from_inside_a_task() {
     // `Task.run` from a task would take the head of the ready queue — the running task itself —
     // and resume the context it is standing in. The reference's own loop says "already running"
     // with a flag; a host that drives the scheduler a step at a time leaves that flag clear, so
-    // the caller is asked instead (`docs/gems.md`).
+    // the caller is asked instead (`docs/design/gems.md`).
     let src = r#"
       Task.new(name: "a") { 2.times { |i| puts "a#{i}"; Task.pass }; :a }
       p Task.run
@@ -215,7 +215,7 @@ fn the_scheduler_is_not_re_entered_from_inside_a_task() {
 fn a_fiber_runs_inside_a_task() {
     // The reference says not to mix the two (its `MRB2TASK` is pointer arithmetic on the running
     // context, and a timeslice that expires inside a fiber leaves it orphaned). Neither applies
-    // here, and the gems are useful together, so this pins that it works (`docs/gems.md`).
+    // here, and the gems are useful together, so this pins that it works (`docs/design/gems.md`).
     let mut vm = vm_with(r#"
       $log = []
       Task.new(name: "a") do

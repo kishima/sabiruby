@@ -24,7 +24,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
 
 ## What each gem needed
 
-* **mruby-fiber** — see `docs/fibers.md`.
+* **mruby-fiber** — see `docs/design/fibers.md`.
 * **mruby-enumerator** — pure Ruby; needed the `send`/`__send__` in-place dispatch,
   `initialize_copy` on `dup`/`clone`, and the removal of the `to_enum` stub.
 * **mruby-array-ext** — 34 natives (`ext_array.rs`). The set operations (`-`, `|`, `&`,
@@ -45,7 +45,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   core natives. Note: with this gem loaded, `(1..).last` raises RangeError, and the core
   test `Range#last` (`assert_nil (1..).last`) fails on the reference `mruby` as well.
 * **mruby-string-ext** — 56 natives (`ext_string.rs`). What a position means depends on how
-  the string is read (`docs/utf8.md`); what follows holds in both builds. The
+  the string is read (`docs/design/utf8.md`); what follows holds in both builds. The
   `tr`/`delete`/`squeeze`/`count` pattern parser is ported byte for byte, including two
   quirks of the reference: the bitmap used by `delete`/`squeeze`/`count` treats a range
   `a-c` as *exclusive* of `c` (`tr_compile_pattern` loops `i < ch[1]`), while `tr` itself
@@ -413,7 +413,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     now dispatches (skipping the dispatch when `allocate` is still the built-in one, so the
     benchmarks do not move). mruby-binding's test found this.
   * **`require`/`load`** (`src/mrblib/require.rb`, `src/builtins/ext_require.rs`,
-    `docs/eval-require-plan.md` §5) — mruby has none of it, so the shape is picoruby-require's
+    `docs/plans/eval-require-plan.md` §5) — mruby has none of it, so the shape is picoruby-require's
     (MIT), with three differences. There is no `extern`: the gems are all linked from the start,
     so their names are in `$LOADED_FEATURES` from the first line and `require 'fiber'` answers
     false. There is no `File`: a path is built as a string in Ruby (`"#{dir}/#{name}.rb"`, no
@@ -432,7 +432,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   and the String and Symbol methods whose regexp form the gem answers. The reference carries its
   own NFA (`re_compile.c`, `re_exec.c`, `re_utf8.c`, 7,263 lines, plus 3,611 lines of tables);
   that part is **not** ported. The engine here is Rust's `regex-automata` (author's decision of
-  2026-09-13, `docs/gems-plan.md` 3.6), so what a pattern *means* is a finite automaton's: linear
+  2026-09-13, `docs/plans/gems-plan.md` 3.6), so what a pattern *means* is a finite automaton's: linear
   in the subject, and without backreference, lookaround, atomic group or subexpression call. The
   Ruby surface above it is ported from `regexp.c` as usual, and the two halves meet at a
   translation layer.
@@ -565,7 +565,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     sentinel, which the Ruby loop retries once a push or a close made it ready again.
   * **`GC.scheduler_driven`** turns the collector over to the scheduler's idle points, and
     `GC.debt_limit` is kept as a value. Two of `gc_task.rb`'s six assertions ask for
-    `GC.generational_mode` to be on, which this collector never is (`docs/gc.md`).
+    `GC.generational_mode` to be on, which this collector never is (`docs/design/gc.md`).
   * The C test helpers (`test/tasktest.c`) are in `src/mrbtest.rs`: the scheduler hook probes,
     `run_once`, `reinit_context`, `run_sync`, and `block_then_raise`, whose busy-wait is replaced
     by saying outright that the timeslice expired — the state the test is about.
@@ -626,7 +626,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
     host waits on: how long until the earliest sleeper is due, and whether anything is left that
     could run. A host that has a clock and something to wait on (an event loop, a frame) can then
     make `sleep` cost real time — which is what the browser playground's 実時間 does
-    (`docs/playground.md`). A `Vm` is `Send + Sync` so that an engine can keep one in
+    (`docs/design/playground.md`). A `Vm` is `Send + Sync` so that an engine can keep one in
     its own world, which is what the `Host` trait's bound is for (`tests/send_sync.rs`).
   * **Time limits** (2026-09-14, `Vm::task_set_clock`, `Timeslice`, `RunLimits`,
     `Task::Overrun`; `tests/task.rs`) — best effort, on a clock the host gives. Two holes of the
@@ -656,7 +656,7 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
       piggybacking on the countdown the instruction loop already does, so an instruction costs
       nothing more; and after every 32 natives (`task_set_native_sample`), only while a limit is
       kept on the clock, because a native can take longer than ten thousand instructions. With no
-      clock the benchmarks of `docs/bench.md` stayed within noise of the build before (fib −1.3%,
+      clock the benchmarks of `docs/verification/bench.md` stayed within noise of the build before (fib −1.3%,
       so_lists +1.7%, mandelbrot +1.1%, gc_churn −2.8%, vm_optimization_bench +0.02%, best of
       five). With a clock and limits, a loop of eight million `push`/`pop` natives cost +1.2% at
       32, +5.8% at 8 and +34% at 1; fib, which calls no natives, did not move.
@@ -682,7 +682,7 @@ costs**:
    reference does. Record them in this file and move on.
 2. **What the reference's tests cover stays as it is.** Status names, wait reasons, priorities,
    the exception-as-result rule, `Queue`'s answers, the error messages. If one of them looks
-   wrong, the move is an issue or a patch upstream (`docs/upstream-pr-candidates.md`), not a
+   wrong, the move is an issue or a patch upstream (`docs/verification/upstream-pr-candidates.md`), not a
    silent divergence — which is also what the book claims the criterion is.
 3. **Where the reference decided nothing, decide here.** No test covers it and no program can
    depend on it, so pick what a Ruby programmer would expect, and write down why. `Task#join`'s
@@ -709,10 +709,10 @@ count of the section is 32-bit (`write_lv_sym_table`), not 16-bit.
 
 ## Remaining gems (none, as of 2026-09-13)
 
-The plan is finished: `docs/gems-plan.md` (orders 4 to 7, UTF-8 strings and `require`/`load`) is
+The plan is finished: `docs/plans/gems-plan.md` (orders 4 to 7, UTF-8 strings and `require`/`load`) is
 marked done, and nothing of it is left. The seven POSIX gems below were never part of it — the VM
 is `no_std`, so a host offers what it can through the `Host` trait instead. What comes after the
-gems is `docs/after-gems-plan.md`.
+gems is `docs/plans/after-gems-plan.md`.
 
 The reference `mruby` command is built from `default.gembox` = stdlib, stdlib-ext,
 stdlib-io, math, metaprog (33 gems). Ported: fiber, enumerator, array-ext,
@@ -729,12 +729,12 @@ Sizes are lines of the reference C / mrblib Ruby / test.
 
 Order: 1 (pure Ruby, done 2026-09-12) → 2 (small natives, done 2026-09-12) → 3 (data structures and host
 clocks, done 2026-09-12) → 4 (eval, with the compiler hook) → 5 (numeric tower, pack) → UTF-8 strings
-(`docs/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
+(`docs/plans/utf8-plan.md`, a build-configuration milestone required for Japanese text) →
 6 (regexp, on top of UTF-8, done 2026-09-13 — the engine is Rust's, only the surface is ported)
 → 7 (task).
 Each gem: natives in `src/builtins/ext_<gem>.rs`, mrblib into `src/mrblib/<gem>.mrb`,
 tests into `tools/mrbtest.sh` `GEMS`, reasons for what does not pass into
-`docs/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.
+`docs/verification/mrbtest-notes.md`, and the `Vm::with_mrblib` load order stays the gembox order.
 
 ### Core gems outside default.gembox
 
@@ -746,7 +746,7 @@ Candidates, with the reference sizes (C / Ruby / test):
 | mruby-strftime | 118 / 0 / 152 | **done** (2026-09-13): `Time#strftime`, written out rather than handed to `strftime(3)` |
 | mruby-string-bitops | 581 / 0 / 210 | maybe: `String#&`, `|`, `^`, `~` on bytes; small, self-contained |
 | mruby-os-memsize | 283 / 0 / 63 | maybe: `ObjectSpace.memsize_of`; needs per-object sizes from our heap, answers will differ from the reference (deviation) |
-| mruby-encoding | 109 / 0 / 921 | maybe: the default build now reads strings as characters (`docs/utf8.md`), so `Encoding`, `String#encoding` and `force_encoding` would have something to say; `String#b` is already here |
+| mruby-encoding | 109 / 0 / 921 | maybe: the default build now reads strings as characters (`docs/design/utf8.md`), so `Encoding`, `String#encoding` and `force_encoding` would have something to say; `String#b` is already here |
 | mruby-benchmark | 0 / 130 / 283 | no: pure Ruby but depends on io and process |
 | mruby-error, mruby-exit | 143, 82 | no: C API helpers (`mrb_protect`), `exit` is a host decision |
 | mruby-test-inline-struct, mruby-test, mruby-bin-* | – | build/test infrastructure, not runtime |

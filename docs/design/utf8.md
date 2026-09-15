@@ -3,7 +3,7 @@
 SabiRuby reads a String as a sequence of **characters** by default, as the reference does when
 it is built with `MRB_UTF8_STRING`, and as a sequence of **bytes** without the Cargo feature
 `utf8`, which is the build the reference ships. One crate serves both: the feature is chosen by
-whoever builds (`docs/utf8-plan.md`, option B, decided by the author on 2026-09-12).
+whoever builds (`docs/plans/utf8-plan.md`, option B, decided by the author on 2026-09-12).
 
 ```toml
 sabiruby = "0.2"                                              # characters (default)
@@ -94,8 +94,8 @@ mruby-encoding, which is not ported (and is absent from the reference build too)
   `kishima/mruby:4.1.0-rc-utf8` (the same tree with `MRB_UTF8_STRING`), both built by
   `../ref/mruby_containers/build_image.sh`.
 * mruby's own test suite runs in both builds and each has its own floor:
-  `tools/mrbtest.sh [--update]` writes `docs/mrbtest.md` and `tests/mrbtest/baseline.txt`,
-  `tools/mrbtest.sh --bytes [--update]` writes `docs/mrbtest-bytes.md` and
+  `tools/mrbtest.sh [--update]` writes `docs/verification/mrbtest.md` and `tests/mrbtest/baseline.txt`,
+  `tools/mrbtest.sh --bytes [--update]` writes `docs/verification/mrbtest-bytes.md` and
   `tests/mrbtest/baseline-bytes.txt`. The same test bytecode serves both: which assertions run
   is decided at run time by `__ENCODING__` and by `"Ä".downcase == "ä"`.
 * `tests/fixtures/utf8.rb` runs Japanese text through the string methods and is compared with

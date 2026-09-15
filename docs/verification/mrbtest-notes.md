@@ -15,7 +15,7 @@ Categories:
   The reference `mruby` command fails these too.
 * **gem** — needs a gem that is not ported (the POSIX ones).
 * **engine** — mruby-regexp's pattern engine is `regex-automata`, not the reference's NFA
-  (`docs/gems.md`, "Deviations kept"): a pattern using a construct a finite automaton has none of
+  (`docs/design/gems.md`, "Deviations kept"): a pattern using a construct a finite automaton has none of
   is refused with `RegexpError`, and the reference's assertions on it are counted as intended
   differences.
 * **deviation** — a difference SabiRuby keeps on purpose (see README).
@@ -55,7 +55,7 @@ Categories:
 | gem_unicode_ctype | 4 KO, 1 crash | engine | A nested negated class and a `&&` of two unions compile here where the reference refuses them, `/i` over a negated POSIX bracket folds the other way round, and a byte-read subject is read as characters; the crash is a lookbehind. |
 | gem_ascii_case | 1 KO, 1 skip | engine | Byte-string build only (the gem's `spec.build_settings`): `/i` carries Rust's Unicode table in either build, where the reference has none without `MRB_UTF8_STRING`. |
 | gem_backtracking_stack | 0 assertions | — | The file carries the helper the other gem test files call; `tools/mrbtest.sh` extracts it into `prelude.rb` and loads it after `assert.rb` for every file, the reference's driver getting it by linking all the files into one program. |
-| gem_gc_task | 2 KO | deviation | `GC.scheduler_driven` is there and the scheduler collects from its idle points, but `GC.generational_mode` is always false (the collector marks and sweeps in one go, `docs/gc.md`) and both assertions turn on it being on. |
+| gem_gc_task | 2 KO | deviation | `GC.scheduler_driven` is there and the scheduler collects from its idle points, but `GC.generational_mode` is always false (the collector marks and sweeps in one go, `docs/design/gc.md`) and both assertions turn on it being on. |
 | gem_proc_set_stack | 0 assertions | — | Both tests ask `TaskTest.respond_to?` first and skip themselves: they probe how mruby sizes a task's stack allocation, which a growable vector has no equivalent of. |
 
 Summary (2026-09-13, after mruby-regexp, mruby-task, the source-location/backtrace work and
@@ -79,7 +79,7 @@ The four assertions that skipped for want of mruby-bigint (`array`, `gc`, `integ
 complex 8 + 81, cmath 21), all passing, and mruby-pack 50 (one KO, the NaN above).
 
 The five `... does not retain ... in the GC arena` assertions of `gc` (`OP_GETIDX`, `OP_GETIDX0` twice each,
-`OP_SETIDX`) failed until the collector (`docs/gc.md`): they compare `GC.stat[:live]` around 20000 operations after a
+`OP_SETIDX`) failed until the collector (`docs/design/gc.md`): they compare `GC.stat[:live]` around 20000 operations after a
 `GC.start` and expect a rise under 100. SabiRuby has no arena; the objects are simply collected, so they pass.
 
 ## Warnings

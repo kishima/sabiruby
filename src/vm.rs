@@ -106,7 +106,7 @@ pub struct TaskState {
     pub running: Option<ObjId>,
     /// Instructions between two ticks. The reference's tick comes from a timer interrupt, which
     /// a `no_std` VM has none of; here it is the instruction count, so a timeslice is a fixed
-    /// amount of work rather than of time (`docs/gems.md`). 0 turns the counting off entirely.
+    /// amount of work rather than of time (`docs/design/gems.md`). 0 turns the counting off entirely.
     pub tick_every: u64,
     /// instructions left until the next tick
     pub tick_left: u64,
@@ -126,7 +126,7 @@ pub struct TaskState {
     /// what `GC.debt_limit` holds, the safety valve of a scheduler that never idles
     pub gc_debt_limit: i64,
 
-    // ---- time: best-effort limits on the host's clock (`docs/gems.md`, "Time limits")
+    // ---- time: best-effort limits on the host's clock (`docs/design/gems.md`, "Time limits")
 
     /// How a timeslice ends ([`Vm::task_set_timeslice`]).
     pub timeslice: Timeslice,
@@ -422,7 +422,7 @@ pub struct Vm {
     pub gc_stress: bool,
     /// Natives running on the host stack (SEND -> native, `funcall` -> native).
     /// Their Rust locals may hold values the collector cannot see, so it does not
-    /// run while this is non-zero (see `docs/gc.md`, "Contract for native code").
+    /// run while this is non-zero (see `docs/design/gc.md`, "Contract for native code").
     #[doc(hidden)]
     pub native_active: u32,
     /// Objects the host keeps across calls (`mrb_gc_register`).
@@ -671,7 +671,7 @@ impl Vm {
         // and byte units there) as well as the ones the natives hold
         crate::builtins::ext_regexp::init(vm);
         // `require`/`load` last: it is SabiRuby's own Ruby part and reads the gems' names into
-        // `$LOADED_FEATURES` (`docs/eval-require-plan.md` 5)
+        // `$LOADED_FEATURES` (`docs/plans/eval-require-plan.md` 5)
         vm.load_and_run(crate::MRBLIB_REQUIRE_MRB)?;
         Ok(())
     }
@@ -1090,7 +1090,7 @@ impl Vm {
     /// spec), and an `Err` it returns raises in the Ruby frame that called it.
     ///
     /// The collector does not look inside the closure: a [`Value`] captured in it is not a root,
-    /// so keep one across calls only through [`Vm::gc_register`] (`docs/gc.md`). Handles to the
+    /// so keep one across calls only through [`Vm::gc_register`] (`docs/design/gc.md`). Handles to the
     /// host's own data have no such problem.
     ///
     /// ```
@@ -1515,7 +1515,7 @@ impl Vm {
         }
     }
     /// Method lookup for dispatch: a `Copy` answer, so nothing is cloned and nothing the
-    /// caller holds needs dropping (`docs/host-bridge-plan.md`, stage 2 candidate 3).
+    /// caller holds needs dropping (`docs/plans/host-bridge-plan.md`, stage 2 candidate 3).
     pub fn find_method_ref(&self, class: ObjId, mid: Sym) -> Option<(MethodRef, ObjId)> {
         let (m, x) = self.find_method_entry(class, mid)?;
         Some((MethodRef::of(m)?, x))
@@ -2311,7 +2311,7 @@ impl Vm {
         }
     }
 
-    /// The root set (see `docs/gc.md`). Contexts to scan go to `ctxs`.
+    /// The root set (see `docs/design/gc.md`). Contexts to scan go to `ctxs`.
     fn gc_mark_roots(&mut self, work: &mut Vec<ObjId>, ctxs: &mut Vec<usize>) {
         let h = &mut self.heap;
         // the running context: its stack and frames are the Vm's

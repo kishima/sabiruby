@@ -109,7 +109,7 @@ PicoRuby は VM を 2 つ（mruby、mruby/c）持ち、`#if defined(PICORB_VM_MR
   SabiRuby も同じ分け方にし、前 2 つをホストに、最後を VM に置く。
 * PicoRuby は require したファイルを別タスクで走らせる。SabiRuby にはタスクが無いが、必要なのは「新しい最上位スコープ」であって「別の実行単位」ではない。
   `run_irep` と同じ形の入れ子の `run_loop` で足りる（eval と同じ）。Fiber の中から require しても、入れ子ループは現在の Context 上で回るので問題ない
-  （ホスト境界の制約 `docs/fibers.md` は「ネイティブ関数を挟む切り替え」の話で、require の途中で `Fiber.yield` する使い方は本家でも例外になる）。
+  （ホスト境界の制約 `docs/design/fibers.md` は「ネイティブ関数を挟む切り替え」の話で、require の途中で `Fiber.yield` する使い方は本家でも例外になる）。
 
 ## 3. SabiRuby の制約
 
@@ -151,7 +151,7 @@ impl Vm { pub fn set_host(&mut self, host: Box<dyn Host>) }
 * `sabiruby-compiler` 側に `impl sabiruby::Host for Compiler` を feature `host`（`dep:sabiruby`）で用意する。
   依存の向きは compiler → sabiruby で、sabiruby は compiler を知らない。CLI、Playground、rubevy は feature を有効にして `vm.set_host(Box::new(Compiler::new()))` するだけ。
   `read_file` は CLI では `std::fs`、Playground では見本ファイルの仮想 FS（`.rb` を名前で引く表）、rubevy では Bevy のアセットから。
-* Playground の C ABI（`docs/playground.md`）には `sabi_compile` が既にある。eval 用は Worker 内で同じ wasm モジュールの中から呼ぶので、
+* Playground の C ABI（`docs/design/playground.md`）には `sabi_compile` が既にある。eval 用は Worker 内で同じ wasm モジュールの中から呼ぶので、
   JS を経由しない。追加は C ABI ではなく Rust の `Host` 実装 1 つ。
 
 ### 4.2 コンパイラ側の差し込み口（vendoring した C への唯一の改変）
@@ -201,11 +201,11 @@ vendoring した `mruby-compiler` に `SABIRUBY_EVAL_SCOPES` の分岐を足す�
 6. `eval` の中で定義した **新しいローカル変数**は eval の Proc の自分のレジスタに置かれ、呼び出し元には見えない（本家も同じ。binding 経由だけ広がる）。
 
 Fiber との関係: eval の Proc の env は `ctx: self.cur` を持つ。eval の中で `Fiber.new { a }` のように外側の変数を閉じ込めたブロックを作ると、
-env は呼び出し元フレームのもので、フレームが返れば `attached: false` に外れる。既存の仕組みで足りる（`docs/fibers.md` の env の扱い）。
+env は呼び出し元フレームのもので、フレームが返れば `attached: false` に外れる。既存の仕組みで足りる（`docs/design/fibers.md` の env の扱い）。
 
-GC: `native_active > 0` の間は回収しない約束（`docs/gc.md`）があるので、`eval` ネイティブの中で作った Proc と env はホストのコンパイル中も安全。
+GC: `native_active > 0` の間は回収しない約束（`docs/design/gc.md`）があるので、`eval` ネイティブの中で作った Proc と env はホストのコンパイル中も安全。
 `load` が `ireps` に足した irep は GC 対象外（irep は `Vec<VmIrep>` で回収しない。eval を大量に繰り返すと irep が溜まる。本家は Proc の GC と共に irep を解放する。
-「irep の回収」は将来課題として `docs/gc.md` に書く）。
+「irep の回収」は将来課題として `docs/design/gc.md` に書く）。
 
 ### 4.4 段階
 
@@ -229,7 +229,7 @@ GC: `native_active > 0` の間は回収しない約束（`docs/gc.md`）があ�
 Ruby 側は PicoRuby の `require.rb` を土台にする（MIT。`$LOADED_FEATURES`、`$LOAD_PATH`、`require_file` の探索順 `.mrb` → `.rb`、`LoadError` の文言）。
 SabiRuby 向けの違い:
 
-* `extern` は要らない。組み込み gem は起動時に全部読み込み済みなので、`$LOADED_FEATURES` の初期値に gem 名（`fiber`、`enumerator`、`array-ext`、… `docs/gems.md` の順）を入れ、
+* `extern` は要らない。組み込み gem は起動時に全部読み込み済みなので、`$LOADED_FEATURES` の初期値に gem 名（`fiber`、`enumerator`、`array-ext`、… `docs/design/gems.md` の順）を入れ、
   `require 'fiber'` が `false` を返すようにする（PicoRuby の mruby 側と同じ振る舞い）。
 * `File.file?`／`File.expand_path` は SabiRuby に無い（POSIX 系 gem は対象外）。代わりにネイティブ `__load_file(path) -> String | nil`（ホストの `read_file`）と
   `__file_exist?(path)`（ホストの `file_exists`）を Kernel の private に置き、パスの連結は Ruby 側で文字列として行う（`"#{dir}/#{name}.rb"`。`expand_path` の正規化は省く）。

@@ -5,7 +5,7 @@
 //! the CPU by resuming that context the way `Fiber#resume` does. What the reference gets from a
 //! timer interrupt — the tick that ends a timeslice and wakes a sleeper — a `no_std` VM has no
 //! source for, so the tick is counted in instructions instead and the scheduler's idle jumps the
-//! counter to the next wakeup. `docs/gems.md` lists what that costs.
+//! counter to the next wakeup. `docs/design/gems.md` lists what that costs.
 
 use alloc::{format, string::String, vec::Vec};
 
@@ -516,7 +516,7 @@ fn task_run(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
             if vm.task.queues[Q_WAITING].is_empty() && vm.task.queues[Q_SUSPENDED].is_empty() { break; }
             // The reference idles here until a tick makes a task ready, forever where none can.
             // Nothing else runs in this VM, so a wait nothing can end is the end of the loop
-            // instead of a hang (`docs/gems.md`).
+            // instead of a hang (`docs/design/gems.md`).
             // the CPU would idle here, which is what a scheduler-driven collector spends
             // (`mrb_gc_scheduler_pending` / `mrb_gc_step`)
             if vm.task.gc_driven { vm.gc_start(); }
@@ -1045,7 +1045,7 @@ pub fn init(vm: &mut Vm) {
             set_status(vm, me, WAITING);
             park(vm);
             // the result as it stands, which is nil where the wait is real: the value is stored
-            // before the context goes, as it is in the reference (`docs/gems.md`)
+            // before the context goes, as it is in the reference (`docs/design/gems.md`)
             Ok(td(vm, o).result.get())
         }),
         ("value", |vm, s, a, _b| { argc!(vm, a, 0); let o = task_id(vm, s)?; Ok(td(vm, o).result.get()) }),

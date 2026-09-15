@@ -1,4 +1,4 @@
-//! `require`/`load` (`docs/eval-require-plan.md` 5). mruby has none of it, so there is no
+//! `require`/`load` (`docs/plans/eval-require-plan.md` 5). mruby has none of it, so there is no
 //! reference output to compare with: every expectation below was measured with CRuby 3.2
 //! (`ruby`) on the same files, and the comment says where the two differ on purpose.
 //!

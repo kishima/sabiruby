@@ -1,6 +1,6 @@
 //! Heap objects. Every non-immediate value is an entry in [`Heap`], addressed
 //! by [`ObjId`]. Unreachable objects are reclaimed by a stop-the-world,
-//! non-moving mark & sweep collector (`Vm::gc_collect`, see `docs/gc.md`):
+//! non-moving mark & sweep collector (`Vm::gc_collect`, see `docs/design/gc.md`):
 //! the heap marks from the roots the VM hands it, sweeps what stayed white
 //! and reuses the freed slots through a free list.
 
@@ -161,7 +161,7 @@ pub struct EnvData {
     /// The special variables of the scope this env belongs to (`struct RSvar`): `$~`
     /// (`MRB_SVAR_BACKREF`) and `$_` (`MRB_SVAR_LASTLINE`), which a block shares with the method
     /// it was written in. `None` is a scope that was never asked for one, which is what the
-    /// reference's lazily allocated container is. `docs/gems.md` says why it sits here rather
+    /// reference's lazily allocated container is. `docs/design/gems.md` says why it sits here rather
     /// than on the frame.
     pub svar: Option<[Slot; SVAR_KEYS]>,
     /// Where a frame with no scope of its own sends its special variables once it has returned:
@@ -579,10 +579,10 @@ pub enum ObjKind {
     /// `RFiber`: index of the fiber's context in `Vm::contexts` (`usize::MAX` = not initialized).
     Fiber(usize),
     /// mruby-task's `mrb_task`: one runnable unit, its context among the fibers' and the rest
-    /// the scheduler's bookkeeping (`docs/gems.md`).
+    /// the scheduler's bookkeeping (`docs/design/gems.md`).
     Task(alloc::boxed::Box<TaskData>),
     /// mruby `RBigint`: an Integer too wide for `Value::Int`. Its class is `Integer`, and a
-    /// value that fits in an `i64` is never stored as one (`bint_norm`, see `docs/gems.md`).
+    /// value that fits in an `i64` is never stored as one (`bint_norm`, see `docs/design/gems.md`).
     BigInt(BigInt),
     /// mruby-regexp's compiled pattern, which a Regexp owns (`mrb_regexp_pattern` behind its
     /// `DATA_PTR`); `@source`, `@flags` and `@named_captures` are ivars as they are there.

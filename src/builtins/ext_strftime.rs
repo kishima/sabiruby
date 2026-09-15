@@ -3,7 +3,7 @@
 //! The reference hands the format to the platform's `strftime(3)`; a `no_std` VM has no C
 //! library, so the conversions are written out here against the broken-down time
 //! `ext_time.rs` already computes. What they mean is the C locale's, as glibc reads it, and the
-//! answers were checked one by one against it (`docs/gems.md`).
+//! answers were checked one by one against it (`docs/design/gems.md`).
 
 use alloc::{format, string::String, vec::Vec};
 
@@ -66,7 +66,7 @@ fn convert(out: &mut Vec<u8>, c: u8, d: &DateTime, secs: i64, flag: Option<Pad>,
         b'w' => put(out, d.wday as i64, w(1), flag.unwrap_or(Pad::None)),
         // `%u` counts from Monday, and Sunday is 7 rather than 0
         b'u' => put(out, if d.wday == 0 { 7 } else { d.wday as i64 }, w(1), flag.unwrap_or(Pad::None)),
-        // the zone is what `Time` decided: this VM has no time zone database (`docs/gems.md`)
+        // the zone is what `Time` decided: this VM has no time zone database (`docs/design/gems.md`)
         b'Z' => out.extend_from_slice(b"UTC"),
         b'z' => out.extend_from_slice(b"+0000"),
         b's' => put(out, secs, w(1), flag.unwrap_or(Pad::None)),

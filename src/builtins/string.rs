@@ -283,7 +283,7 @@ enum Case { Up, Down, Capitalize, Swap, Fold }
 /// The title case of a character, where Unicode gives one that is not its upper case: the
 /// Latin digraphs (`ǅ`, `ǈ`, `ǋ`, `ǲ`) and the scripts whose title case is the character
 /// itself (Georgian Mkhedruli, which upper cases to Mtavruli). Everything else takes its
-/// upper case (`docs/utf8.md` records the Greek ypogegrammeni forms as a difference).
+/// upper case (`docs/design/utf8.md` records the Greek ypogegrammeni forms as a difference).
 #[cfg(feature = "utf8")]
 fn titlecase(c: char, out: &mut String) {
     let cp = c as u32;
@@ -311,7 +311,7 @@ fn titlecase(c: char, out: &mut String) {
 /// The swapped case of a character: one with a lower case swaps down and one without swaps up,
 /// so a mapping that spells more than one character comes back here too ("ß" to "SS"). The Latin
 /// digraphs in title case swap to what neither of their cases spells, which is the swap table's
-/// to say ("ǅ" to "dŽ"); `docs/utf8.md` records its Greek entries as a difference.
+/// to say ("ǅ" to "dŽ"); `docs/design/utf8.md` records its Greek entries as a difference.
 #[cfg(feature = "utf8")]
 fn swapcase(c: char, out: &mut String) {
     if let Some(d) = match c as u32 {

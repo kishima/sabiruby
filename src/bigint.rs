@@ -7,7 +7,7 @@
 //!
 //! Only the algorithms the reference needs for correctness are here — schoolbook
 //! multiplication and Knuth's algorithm D for division, not Karatsuba, Barrett or
-//! Montgomery (`docs/gems.md`). Every function is pure arithmetic: normalizing a result back
+//! Montgomery (`docs/design/gems.md`). Every function is pure arithmetic: normalizing a result back
 //! to a `Value::Int` when it fits (the reference's `bint_norm`) is the VM's job, in
 //! `builtins::numeric`.
 
@@ -647,7 +647,7 @@ impl BigInt {
     /// limb by limb, and the result read back as a sign and a magnitude. The reference
     /// works over the longer of the two magnitudes and derives the sign from a rule; one
     /// limb more is taken here, holding the sign extension, so a result that needs the
-    /// extra limb (`-1 ^ 0xffffffff`) comes out whole (`docs/gems.md`).
+    /// extra limb (`-1 ^ 0xffffffff`) comes out whole (`docs/design/gems.md`).
     fn bitop(&self, other: &BigInt, op: fn(u32, u32) -> u32) -> BigInt {
         let n = self.mag.len().max(other.mag.len()) + 1;
         let (x, y) = (self.twos(n), other.twos(n));

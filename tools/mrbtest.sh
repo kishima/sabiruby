@@ -1,10 +1,10 @@
 #!/bin/bash
 # Runs mruby's own test suite (test/assert.rb + test/t/*.rb of the reference tree)
-# on SabiRuby and writes docs/mrbtest.md (per-file table + opcode coverage).
-#   tools/mrbtest.sh            # compile (Docker, reference mrbc) + run + write docs/mrbtest.md
+# on SabiRuby and writes docs/verification/mrbtest.md (per-file table + opcode coverage).
+#   tools/mrbtest.sh            # compile (Docker, reference mrbc) + run + write docs/verification/mrbtest.md
 #   tools/mrbtest.sh --update   # also refresh tests/mrbtest/baseline.txt (the regression floor)
 #   tools/mrbtest.sh -v hash    # print the full output of one file
-#   tools/mrbtest.sh --bytes …  # the byte-string build (no feature `utf8`): docs/mrbtest-bytes.md
+#   tools/mrbtest.sh --bytes …  # the byte-string build (no feature `utf8`): docs/verification/mrbtest-bytes.md
 #                               # and tests/mrbtest/baseline-bytes.txt
 # The test bytecode is the same for both builds (what a string is, is the VM's to say), so
 # either mode may compile it; which assertions run is decided at run time by `__ENCODING__`.
@@ -14,7 +14,7 @@ IMG=kishima/mruby:4.1.0-rc
 MRUBY=${MRUBY_SRC:-../../ref/mruby}
 DIR=tests/mrbtest
 FEATURES=""
-OUT=docs/mrbtest.md
+OUT=docs/verification/mrbtest.md
 BASE=$DIR/baseline.txt
 MODE="characters (feature \`utf8\`, the default)"
 # mruby-regexp's `spec.build_settings`: the unicode_* and ascii_* test files assert opposite
@@ -24,7 +24,7 @@ OTHER_BUILD='gem_ascii_case|gem_ascii_ctype'
 if [ "${1:-}" = "--bytes" ]; then
   shift
   FEATURES="--no-default-features"
-  OUT=docs/mrbtest-bytes.md
+  OUT=docs/verification/mrbtest-bytes.md
   BASE=$DIR/baseline-bytes.txt
   MODE="bytes (no feature \`utf8\`)"
   OTHER_BUILD='gem_unicode_case|gem_unicode_ctype'
