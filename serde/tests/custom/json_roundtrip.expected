@@ -1,0 +1,36 @@
+{"a":[1,2,3],"b":null,"c":true}
+[1,-2,3.5,"x",null,false]
+{}
+[]
+{"unicode":"あい"}
+{"sym":1,"2":"two"}
+{"n":1}
+[1,{"k":"v"}]
+"a\"b\\c\nd"
+42
+null
+"sym"
+[1, 2]
+d
+nil
+1.5
+true
+["g", "a", "f", "b", "e"]
+[1, 2, 3]
+"str"
+17
+-125.0
+{"list":[1,2,{"deep":[true,null]}],"name":"x"}
+{
+  "a": [
+    1,
+    2
+  ],
+  "b": {
+    "c": 1
+  }
+}
+[]
+{}
+ParserError
+true
