@@ -1,0 +1,9 @@
+category	benchmark	a_ms_best	a_ms_median	b_ms_best	b_ms_median	change_pct
+data structures	ds_array	864.881	868.884	854.541	865.897	-1.2
+data structures	ds_hash	230.177	232.018	227.197	230.803	-1.3
+data structures	ds_string	441.439	449.024	450.438	454.220	+2.0
+whole program	app_json_hash	1252.971	1266.690	1288.766	1294.365	+2.9
+whole program	app_robot	1177.755	1191.101	1177.558	1190.007	-0.0
+whole program	app_tak	1149.209	1156.162	1155.976	1171.933	+0.6
+data structures	bm_so_lists	967.697	977.260	970.236	977.012	+0.3
+data structures	vmo_index	519.408	526.156	519.690	522.645	+0.1

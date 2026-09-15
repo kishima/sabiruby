@@ -1,0 +1,5 @@
+category	benchmark	a_ms_best	a_ms_median	b_ms_best	b_ms_median	change_pct
+whole program	bm_fib	5394.221	5401.994	5361.431	5379.210	-0.6
+calls	call_args	874.067	886.084	881.907	884.137	+0.9
+data structures	ds_hash	230.328	231.265	228.920	232.167	-0.6
+instruction loop	loop_while_add	838.556	844.104	840.219	848.813	+0.2

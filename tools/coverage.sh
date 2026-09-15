@@ -255,7 +255,7 @@ arrows()  { if [ -s "$1" ]; then sort "$1" | awk -F'\t' "$CODE"'{ printf "* %s â
   echo "where a method was defined (there is no \`Method#source_location\`, and \`Method#owner\`"
   echo "answers the class), so the gem column below is per class and hand-kept in"
   echo "\`tools/coverage.sh\`. A gem that adds methods to a core class is invisible in it:"
-  echo "\`Kernel.gets\` (mruby-io) and \`Kernel.printf\` (mruby-print) count as core."
+  echo "\`Kernel.gets\` (mruby-io) and \`Kernel.printf\` (mruby-io) count as core."
   echo
   echo "What the constant walk could not reach (unnamed classes are singleton classes, which"
   echo "carry the class methods already listed as \`Class.method\`):"

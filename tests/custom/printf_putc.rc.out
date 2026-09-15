@@ -1,0 +1,33 @@
+a=1 b=x c=03.14
+nil
+nil
+sym and [1, 2]
+nil
+Anil
+
+Anil
+
+ÿnil
+
+hnil
+
+nil
+
+nil
+
+1nil
+
+znil
+
+K7
+nil
+Bnil
+
+true
+true
+true
+true
+#<ArgumentError: too few arguments>
+#<TypeError: Integer cannot be converted to String>
+#<ArgumentError: wrong number of arguments (given 0, expected 1)>
+#<ArgumentError: wrong number of arguments (given 2, expected 1)>

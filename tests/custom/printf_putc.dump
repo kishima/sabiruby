@@ -1,0 +1,170 @@
+irep 0x5eb1a2ea8120 nregs=9 nlocals=2 pools=8 syms=12 reps=1 ilen=472
+local variable names:
+  R1:e
+catch type: rescue   begin: 0317 end: 0320 target: 0323
+catch type: rescue   begin: 0353 end: 0359 target: 0362
+catch type: rescue   begin: 0392 end: 0395 target: 0398
+catch type: rescue   begin: 0428 end: 0436 target: 0439
+file: /w/printf_putc.rb
+   14 000 STRING	R4	L[0]	; a=%d b=%s c=%05.2f
+
+   14 003 LOADI_1	R5	(1)
+   14 005 STRING	R6	L[1]	; x
+   14 008 LOADL		R7	L[2]	; 3.141590
+   14 011 SSEND		R3	:printf	n=4
+   14 015 SSEND		R2	:p	n=1
+   15 019 STRING	R4	L[3]
+   15 022 SSEND		R3	:printf	n=1
+   15 026 SSEND		R2	:p	n=1
+   16 030 STRING	R4	L[4]	; %s and %s
+
+   16 033 LOADSYM	R5	:sym
+   16 036 LOADI_1	R6	(1)
+   16 038 LOADI_2	R7	(2)
+   16 040 ARRAY		R6	2
+   16 043 SSEND		R3	:printf	n=3
+   16 047 SSEND		R2	:p	n=1
+   17 051 LOADI8	R4	65
+   17 054 SSEND		R3	:putc	n=1
+   17 058 SSEND		R2	:p	n=1
+   18 062 LOADI8	R3	10
+   18 065 SSEND		R2	:putc	n=1
+   19 069 LOADI16	R4	321
+   19 073 SSEND		R3	:putc	n=1
+   19 077 SSEND		R2	:p	n=1
+   20 081 LOADI8	R3	10
+   20 084 SSEND		R2	:putc	n=1
+   21 088 LOADI8	R4	255
+   21 091 SSEND		R3	:putc	n=1
+   21 095 SSEND		R2	:p	n=1
+   22 099 LOADI8	R3	10
+   22 102 SSEND		R2	:putc	n=1
+   23 106 STRING	R4	L[5]	; hello
+   23 109 SSEND		R3	:putc	n=1
+   23 113 SSEND		R2	:p	n=1
+   24 117 LOADI8	R3	10
+   24 120 SSEND		R2	:putc	n=1
+   25 124 STRING	R4	L[3]
+   25 127 SSEND		R3	:putc	n=1
+   25 131 SSEND		R2	:p	n=1
+   26 135 LOADI8	R3	10
+   26 138 SSEND		R2	:putc	n=1
+   27 142 LOADNIL	R4	(nil)
+   27 144 SSEND		R3	:putc	n=1
+   27 148 SSEND		R2	:p	n=1
+   28 152 LOADI8	R3	10
+   28 155 SSEND		R2	:putc	n=1
+   29 159 LOADL		R4	L[6]	; 1.500000
+   29 162 SSEND		R3	:putc	n=1
+   29 166 SSEND		R2	:p	n=1
+   30 170 LOADI8	R3	10
+   30 173 SSEND		R2	:putc	n=1
+   32 177 LOADNIL	R2	(nil)
+   32 179 LOADNIL	R3	(nil)
+   32 181 CLASS		R2	:Z
+   32 184 EXEC		R2	I[0]
+   37 187 GETCONST	R4	Z
+   37 190 SEND0		R4	:new
+   37 193 SSEND		R3	:putc	n=1
+   37 197 SSEND		R2	:p	n=1
+   38 201 LOADI8	R3	10
+   38 204 SSEND		R2	:putc	n=1
+   40 208 GETCONST	R3	Kernel
+   40 211 STRING	R4	L[7]	; K%d
+
+   40 214 LOADI_7	R5	(7)
+   40 216 SEND		R3	:printf	n=2
+   40 220 SSEND		R2	:p	n=1
+   41 224 GETCONST	R3	Kernel
+   41 227 LOADI8	R4	66
+   41 230 SEND		R3	:putc	n=1
+   41 234 SSEND		R2	:p	n=1
+   42 238 LOADI8	R3	10
+   42 241 SSEND		R2	:putc	n=1
+   44 245 GETCONST	R3	Kernel
+   44 248 LOADFALSE	R4	(false)
+   44 250 SEND		R3	:private_instance_methods	n=1
+   44 254 LOADSYM	R4	:printf
+   44 257 SEND		R3	:include?	n=1
+   44 261 SSEND		R2	:p	n=1
+   45 265 GETCONST	R3	Kernel
+   45 268 LOADFALSE	R4	(false)
+   45 270 SEND		R3	:private_instance_methods	n=1
+   45 274 LOADSYM	R4	:putc
+   45 277 SEND		R3	:include?	n=1
+   45 281 SSEND		R2	:p	n=1
+   49 285 LOADSYM	R4	:printf
+   49 288 LOADTRUE	R5	(true)
+   49 290 SSEND		R3	:respond_to?	n=2
+   49 294 SSEND		R2	:p	n=1
+   50 298 GETCONST	R3	Object
+   50 301 SEND0		R3	:new
+   50 304 LOADSYM	R4	:putc
+   50 307 LOADTRUE	R5	(true)
+   50 309 SEND		R3	:respond_to?	n=2
+   50 313 SSEND		R2	:p	n=1
+   52 317 SSEND0	R2	:printf
+   52 320 JMP		353
+   52 323 EXCEPT	R2	
+   52 325 GETCONST	R3	StandardError
+   52 328 RESCUE	R2	R3
+   52 331 JMPIF		R3	338
+   52 335 JMP		351
+   52 338 MOVE		R1	R2	; R1:e
+   52 341 MOVE		R3	R1	; R1:e
+   52 344 SSEND		R2	:p	n=1
+   52 348 JMP		353
+   52 351 RAISEIF	R2	
+   53 353 LOADI_1	R3	(1)
+   53 355 SSEND		R2	:printf	n=1
+   53 359 JMP		392
+   53 362 EXCEPT	R2	
+   53 364 GETCONST	R3	StandardError
+   53 367 RESCUE	R2	R3
+   53 370 JMPIF		R3	377
+   53 374 JMP		390
+   53 377 MOVE		R1	R2	; R1:e
+   53 380 MOVE		R3	R1	; R1:e
+   53 383 SSEND		R2	:p	n=1
+   53 387 JMP		392
+   53 390 RAISEIF	R2	
+   54 392 SSEND0	R2	:putc
+   54 395 JMP		428
+   54 398 EXCEPT	R2	
+   54 400 GETCONST	R3	StandardError
+   54 403 RESCUE	R2	R3
+   54 406 JMPIF		R3	413
+   54 410 JMP		426
+   54 413 MOVE		R1	R2	; R1:e
+   54 416 MOVE		R3	R1	; R1:e
+   54 419 SSEND		R2	:p	n=1
+   54 423 JMP		428
+   54 426 RAISEIF	R2	
+   55 428 LOADI_1	R3	(1)
+   55 430 LOADI_2	R4	(2)
+   55 432 SSEND		R2	:putc	n=2
+   55 436 JMP		469
+   55 439 EXCEPT	R2	
+   55 441 GETCONST	R3	StandardError
+   55 444 RESCUE	R2	R3
+   55 447 JMPIF		R3	454
+   55 451 JMP		467
+   55 454 MOVE		R1	R2	; R1:e
+   55 457 MOVE		R3	R1	; R1:e
+   55 460 SSEND		R2	:p	n=1
+   55 464 JMP		469
+   55 467 RAISEIF	R2	
+   55 469 RETURN	R2	
+   55 471 STOP
+
+irep 0x5eb1a2eae8d0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/printf_putc.rb
+   33 000 TDEF		R1	:to_s	I[0]
+   33 004 RETURN	R1	
+
+irep 0x5eb1a2eb0020 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/printf_putc.rb
+   33 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   34 004 STRING	R2	L[0]	; zebra
+   34 007 RETURN	R2	
+

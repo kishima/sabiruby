@@ -18,6 +18,8 @@ pub fn init(vm: &mut Vm) {
         ("<=>", |vm, s, a, _b| { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } if s == a[0] || vm.equal(s, a[0])? { return Ok(Value::Int(0)); } Ok(Value::Nil) }),
         ("puts", puts),
         ("print", print),
+        ("printf", printf),
+        ("putc", putc),
         ("p", p),
         ("raise", raise),
         ("block_given?", block_given),
@@ -62,7 +64,7 @@ pub fn init(vm: &mut Vm) {
     vm.set_visibility(k, ic, crate::object::Vis::Private).expect("initialize_copy private");
     // module functions: callable as Kernel.raise, private as instance methods (kernel.c MRB_MT_PRIVATE)
     let ksc = vm.singleton_class(Value::Obj(k)).unwrap();
-    for name in ["raise", "block_given?", "iterator?", "p", "print", "puts", "lambda", "proc", "__printstr__"] {
+    for name in ["raise", "block_given?", "iterator?", "p", "print", "printf", "putc", "puts", "lambda", "proc", "__printstr__"] {
         let n = vm.intern(name);
         if let Some((m, _)) = vm.find_method(k, n) {
             vm.def_method_raw(ksc, n, m);
@@ -91,6 +93,37 @@ fn puts(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
 
 fn print(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     for v in a { let b = vm.as_string(*v)?; vm.write_out(&b); }
+    Ok(Value::Nil)
+}
+
+/// `Kernel#printf`. The reference has it in mruby-io (`mrblib/kernel.rb`): `$stdout.printf(...)`,
+/// and `IO#printf` is `write sprintf(*args)`. There is no IO here, so it writes where `print`
+/// writes and answers nil, which is what the reference answers (`IO#write`'s count does not come
+/// back out of `Kernel#printf`). The one deviation is that the reference reaches `sprintf` as a
+/// Ruby call and so would see it redefined; this one shares the formatter itself.
+fn printf(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    let (out, _binary) = super::ext_sprintf::sprintf_bytes(vm, a)?;
+    vm.write_out(&out);
+    Ok(Value::Nil)
+}
+
+/// `Kernel#putc` (mruby-io `mrblib/kernel.rb`: `$stdout.putc(c); nil`, so nil and not the
+/// argument `IO#putc` answers). An Integer writes the one byte `c & 0xff`; anything else is made
+/// a String (`mrb_obj_as_string`) and the *first character* of it goes out — one byte in a
+/// byte-read build, the whole UTF-8 sequence in a character-read one (`io_putc` reads
+/// `mrb_utf8len` under `MRB_UTF8_STRING` without asking whether the string itself is binary,
+/// which was checked against the reference: `putc("\u2192".b)` writes three bytes there too).
+fn putc(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
+    argc!(vm, a, 1);
+    if let Value::Int(i) = a[0] {
+        vm.write_out(&[(i & 0xff) as u8]);
+        return Ok(Value::Nil);
+    }
+    let b = vm.as_string(a[0])?;
+    if !b.is_empty() {
+        let n = super::string::utf8len(&b, 0, super::string::UTF8);
+        vm.write_out(&b[..n]);
+    }
     Ok(Value::Nil)
 }
 
