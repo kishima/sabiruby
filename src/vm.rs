@@ -3238,42 +3238,63 @@ impl Vm {
     fn exec_frames(&mut self, stop_depth: usize, lc: usize) -> VmResult<Value> {
         let mut ext: u8 = 0;
         loop {
-            // mruby-task: the tick a timer interrupt gives the reference is the instruction
-            // count here, and a switch the tick asked for is taken at the next instruction
-            // boundary of a task's own frame (`RETURN_IF_TASK_STOPPED`)
-            if self.task.tick_every != 0 && self.task.running.is_some() {
-                self.task.tick_left = self.task.tick_left.saturating_sub(1);
-                if self.task.tick_left == 0 {
-                    crate::builtins::ext_task::tick(self);
-                    if self.task.overrun {
-                        if let Some(e) = crate::builtins::ext_task::overrun(self) { return Err(e); }
+            // Four things can happen before an instruction runs: the tick a running task is
+            // counted by, a switch the scheduler has asked for, the step budget running out,
+            // and a collection. None of them is true in a program that makes no task, sets no
+            // step budget and has not filled its heap, but asking four times meant reading
+            // four fields from four corners of `Vm` and branching on each, on every single
+            // instruction -- and `&mut self` reaches the called code, so none of the four can
+            // stay in a register. One test of the four conditions (`|`, not `||`: the loads
+            // issue together and one branch is spent on the answer) leaves the four blocks
+            // below to re-test their own condition, which costs nothing when something really
+            // is pending. Worth 9-10% of `vmo_dispatch` and `vmo_arith`; the probe that
+            // measured the ceiling is in `../worklog/2026-09-16-perf3.md`.
+            //
+            // `tick_every` is *not* one of the four: it is the tick length and is non-zero by
+            // default, so testing it here would make the guard always true. What says that no
+            // task is running is `task.running`.
+            if self.task.running.is_some()
+                | self.task.switching
+                | self.step_left.is_some()
+                | self.heap.gc_pending
+            {
+                // mruby-task: the tick a timer interrupt gives the reference is the instruction
+                // count here, and a switch the tick asked for is taken at the next instruction
+                // boundary of a task's own frame (`RETURN_IF_TASK_STOPPED`)
+                if self.task.tick_every != 0 && self.task.running.is_some() {
+                    self.task.tick_left = self.task.tick_left.saturating_sub(1);
+                    if self.task.tick_left == 0 {
+                        crate::builtins::ext_task::tick(self);
+                        if self.task.overrun {
+                            if let Some(e) = crate::builtins::ext_task::overrun(self) { return Err(e); }
+                        }
                     }
                 }
-            }
-            if self.task.switching && self.cur != ROOT && self.exc.is_none()
-                && !self.fiber_check_native(self.cur) && self.contexts[self.cur].vmexec
-            {
-                // the task is left suspended at this instruction, as a `Fiber.yield` leaves a
-                // fiber, and the scheduler's nested loop ends here
-                self.task.switching = false;
-                let c = self.cur;
-                let prev = self.contexts[c].prev.take().unwrap_or(ROOT);
-                self.contexts[c].status = FiberState::Suspended;
-                self.contexts[c].vmexec = false;
-                self.switch_context(prev, SwitchKind::Yield);
-                return Ok(Value::Nil);
-            }
-            if let Some(left) = self.step_left {
-                // Suspend only in the outermost loop: a nested loop (native code
-                // waiting for a block) must run to completion, so the pause lands
-                // at the next instruction boundary of the top-level program.
-                if left == 0 && stop_depth == 0 && lc == ROOT {
+                if self.task.switching && self.cur != ROOT && self.exc.is_none()
+                    && !self.fiber_check_native(self.cur) && self.contexts[self.cur].vmexec
+                {
+                    // the task is left suspended at this instruction, as a `Fiber.yield` leaves a
+                    // fiber, and the scheduler's nested loop ends here
+                    self.task.switching = false;
+                    let c = self.cur;
+                    let prev = self.contexts[c].prev.take().unwrap_or(ROOT);
+                    self.contexts[c].status = FiberState::Suspended;
+                    self.contexts[c].vmexec = false;
+                    self.switch_context(prev, SwitchKind::Yield);
                     return Ok(Value::Nil);
                 }
-                self.step_left = Some(left.saturating_sub(1));
+                if let Some(left) = self.step_left {
+                    // Suspend only in the outermost loop: a nested loop (native code
+                    // waiting for a block) must run to completion, so the pause lands
+                    // at the next instruction boundary of the top-level program.
+                    if left == 0 && stop_depth == 0 && lc == ROOT {
+                        return Ok(Value::Nil);
+                    }
+                    self.step_left = Some(left.saturating_sub(1));
+                }
+                // the only place the collector runs: every register and frame is in the Vm
+                if self.heap.gc_pending { self.gc_maybe(); }
             }
-            // the only place the collector runs: every register and frame is in the Vm
-            if self.heap.gc_pending { self.gc_maybe(); }
             self.instructions += 1;
             // The frame is read field by field, not copied: `base`, `irep` and `pc` are what
             // every instruction needs, and the handful of instructions that want the rest
