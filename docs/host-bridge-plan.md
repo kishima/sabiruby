@@ -37,13 +37,55 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 
 | 段階 | 内容 | 状態 |
 |---|---|---|
-| 0 | `unsafe` を 0 に | 未着手 |
-| 1 | ベンチの分類 | 未着手 |
-| 2 | 実行ループの無駄取り | 未着手 |
-| 3 | ネイティブのクロージャと型付きホスト状態 | 未着手 |
+| 0 | `unsafe` を 0 に | **済み**（2026-09-15、`354b6bb`）。ただし 2.5% 遅くなった。段階 2 で取り戻す（下の知見） |
+| 1 | ベンチの分類 | **済み**（2026-09-15、`9837294`）。基準の計測は `bench/results/e9da768.tsv`、表は `docs/bench.md` |
+| 2 | 実行ループの無駄取り | 未着手。段階 1 の結果を受けて順番を見直す（下の知見） |
+| 3 | ネイティブのクロージャと型付きホスト状態 | **済み**（2026-09-15、`93824b1` `1472346`）。sabiruby 側のみ。rubevy 側の置き換えは未 |
 | 4 | `FromRuby` / `IntoRuby` と `define_fn` | 未着手 |
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | 未着手 |
 | 6 | マクロ、Future 連携、動的プロキシ | 方針だけ |
+
+進め方（2026-09-15 から）: 計画は本体（Fable）が書き、実装は `implementer`（Opus のサブエージェント、
+`/home/kishima/book/.claude/agents/implementer.md`）が worktree のブランチで行い、本体がレビューしてマージする。
+段階 0・1 と 3 は 2 人が並行して行ったが、**両方がベンチを回して互いの数値を汚した**ので、ベンチを伴う作業は並行させない。
+
+## 実装で分かったこと（段階ごと）
+
+### 段階 0
+
+* **`transmute` の除去は無料ではなかった。** 全体で 2.5%、ディスパッチ律速のベンチ（`loop_times` 7.7 ns/命令）で 6〜7%、
+  命令の重いベンチ（`so_lists` 69 ns/命令）で 0%。`transmute` 版は範囲チェックだけで**読み出しが無い**（`u8` と `Op` は同じビット列）のに対し、
+  表引きは毎命令 `OP_TABLE` から 1 バイト読む。計画書の「コストは今と同じ」は、変更前を 1 回多く数えていた。
+* 受け入れて（著者判断 2026-09-15）、段階 2 で取り戻す。候補は、まず 119 本の `match`（判別子と値が同じなので無変換に落ちる公算が高い。未計測）、
+  駄目なら実行ループが生のバイトで分岐する形（`from_u8` を呼ぶ熱い場所は `exec_frames` の 1 か所だけ。`rite.rs` と `inspect.rs` の利用は熱くない）。
+* `tools/gen_opcode.py` は履歴にも本体が無い 253 バイトのスタブだった。`ops.h` から復元し、コミット済みの `opcode.rs` を
+  `from_u8` と `OP_TABLE` 以外 1 バイトも変えずに再生成できることを確かめた。名前の規則は「`_` で分けて各語を capitalize、`LOADI__1` の空要素は `M`」。
+
+### 段階 1
+
+* 基準の計測（`e9da768`、本家 4.1.0-rc との倍率、P コア固定、best of 5）: データ構造 **10.9x**（`so_lists` 16.4x、`ds_hash` 12.9x、`ds_string` 11.4x、
+  `ds_array` 4.6x）、命令ループ 5.7x（中央値 4.1x。`vm_optimization_bench` だけ 7.1x）、呼び出し 3.4x、実アプリ寄り 3.4x、メモリ 1.1x。
+  **遅さの中心は Hash と String** で、Array が 4.6x なので Slot の出し入れではなく、Hash（挿入順の線形探索、`performance.md`）と String に固有の重さがある。
+  段階 2 は「Hash / String の調査 → メソッドキャッシュ → 命令ループ」の順に組み替える価値がある。
+* `mem_retained`（2 万個の長命オブジェクトを抱えたまま割り当て続ける）は SabiRuby の方が速い（0.5x）。本家の世代別 GC が live set を繰り返し mark するため。
+  10 万個では本家 31 秒、SabiRuby 1.2 秒。ベンチは本家側が長くなりすぎるので 2 万に下げてある。
+* この機械（i7-13700）は P コアと E コアが混在し、`taskset` 無しだと E コアに落ちて 20% 遅くなる。`tools/bench.sh --core 2` を必ず使う。
+* 2 つの担当が同時にベンチを回すと ±20〜35% ぶれる。best と median の差が 0.5% 程度に収まっているかで、静かだったかを判断できる。
+* `docs/bench.md` は `tools/bench.sh` が上書きしない（`BENCH_DOC` で明示したときだけ）。基準と段階ごとの結果は `bench/results/<sha>.tsv` に残す。
+
+### 段階 3
+
+* `Method` に `Arc` を持つ variant を足すと、`#[derive(Clone)]` が 16 バイトの memcpy から「判別子の分岐 + 片方の腕で atomic 増加」になる。
+  `find_method` が呼び出しごとに `Method` を clone する今の作りでは、fib のような呼び出しだけのベンチがそれを拾う。静かな機械で測り直した結果
+  （`docs/bench.md`）: fib +4.2%、`call_args` +4.0%、`app_tak` +3.8%、全体 +1.8%。データ構造は変わらず。`loop_while_add` の +6.6% は呼び出しが無いので
+  この説明では足りず、`loop_times` が同時に −5.8% 動いていることから、コードの配置（アラインメント）の影響と見ている。段階 2 の候補 3（`find_method` の値返しをやめる）が本来の対処。代案は `Closure(u32)` で VM 側の表を引く形
+  （`Method` が Copy に戻る。再定義したクロージャが VM の生存中残る）。
+* `Method::Native` の分岐 16 か所のうち 7 か所を変更。変更不要としたもの: `respond_to?` の `notimpl_fns` 判定（関数アドレス比較。クロージャは該当しない）、
+  `Class#new` の `default_allocate` 早道、`ext_struct.rs` の `initialize_is`、`native_arity` の表（クロージャは `-1`）。
+* クロージャが捕まえた `Value` は GC の根にならない。ホストは `gc_register` を使う（rustdoc に明記）。段階 5 の `Data` が本来の答え。
+* `Method#arity` はクロージャだと常に `-1`。段階 4 の `define_fn` は引数の個数を知っているので、そこで埋められる。
+* `Hash#[]` の「再定義された `default` を尊重する」判定にも `Closure` を足した（ホストが `default` をクロージャで定義した場合のため）。
+
 
 ## 段階 0: `unsafe` を 0 に
 
@@ -56,7 +98,7 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 * `tools/gen_opcode.py` に `const OP_TABLE: [Op; OP_COUNT] = [Op::Nop, Op::Move, …]` の生成を足し、
   `from_u8` を `OP_TABLE.get(b as usize).copied()` にする。`opcode.rs` は生成物なので手で直さない
   （生成器の本体はリポジトリの履歴にある、と冒頭のコメントにある。無ければ今の `opcode.rs` から表を作る小さな生成を足す）。
-* コストは今と同じ「範囲チェック 1 回 + 読み出し 1 回」。119 バイトの表はキャッシュに載る。
+* ~~コストは今と同じ「範囲チェック 1 回 + 読み出し 1 回」。~~ 見込み違いだった: `transmute` 版に読み出しは無く、表引きで 2.5% 遅くなった（「実装で分かったこと」の段階 0）。
 
 **確認**: `cargo test --workspace`、`tools/check_no_std.sh`、fib と `vm_optimization_bench` が変更前とぶれの範囲。
 
