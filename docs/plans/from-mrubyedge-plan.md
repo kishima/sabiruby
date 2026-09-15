@@ -12,6 +12,7 @@
 |---|---|---|
 | 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | **済み**（2026-09-16、`bd71d31`）。記録は `docs/worklog/2026-09-16-serde.md`、設計は `docs/design/serde.md` |
 | 2 | RBS で境界を宣言する（検討→設計） | **済み（設計文書）**（2026-09-16、`584d42c`）。記録は `docs/worklog/2026-09-16-rbs-study.md`、設計は `docs/design/rbs.md`。実装は次の段階 |
+| 2b | `.rbs` を出荷する: `sig/` に組込みクラス（coverage.md から生成）、rubevy の `Rubevy`/`Entity`/`Proxy`/`ask` の kind、rubevy_games の DSL。マクロの `T::RBS` はその一部。パーサは VM に入れない（Steep/TypeProf/LSP が読む側を持つ） | 未着手（著者判断 2026-09-17: パーサは保留、出荷物として `.rbs` を足す方向） |
 | 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | **済み**（2026-09-16、`f57949b`）。記録は `docs/worklog/2026-09-16-coverage.md`、生成物は `docs/verification/coverage.md` |
 | 4 | Cargo feature で gem を落とせるようにする（まず regexp） | **済み**（2026-09-16、`874c6d1`）。記録は `docs/worklog/2026-09-16-regexp-feature.md`、サイズは `docs/verification/size.md`、設計は `docs/design/gems.md` の «Gems as Cargo features» |
 | 5 | `RUBY_ENGINE` をどう答えるか決める | **済み**（2026-09-16）。(a) `"mruby"` のまま、`SABIRUBY_VERSION` を追加。理由は `docs/design/gems.md` の Deviations kept |
