@@ -13,7 +13,7 @@
 | 4 | `#[ruby_methods]` でブロックを取るメソッド（`define_fn` の `Block` を通す） | 6a | **済み**（2026-09-16、`a9461d8`） |
 | 5 | `Kernel#printf` / `#putc` が無く、本家のベンチ `bm_ao_render` と `bm_mandel_term` が動かない | 段階 1 から | 未着手 |
 | 6 | `items()` が配列を複製する箇所の残り（中身を読むだけのもの。ベンチには出ないが実コードで効く） | 2d | 未着手 |
-| 7 | rubevy の `Rubevy.ask` の `Arg` に Hash/Array を運べない（`Arg::Value`。今は数値と文字列と Entity だけ） | ECS の橋 A | 未着手 |
+| 7 | rubevy の `Rubevy.ask` の `Arg` に Hash/Array を運べない（`Arg::Value`。今は数値と文字列と Entity だけ） | ECS の橋 A | **済み**（2026-09-16、rubevy `0142f93`）。`Request` の drop で解放（`Vm` が無いので次の `tick_scripts` 先頭で `gc_unregister`）。記録は rubevy `docs/worklog/2026-09-16-arg-value.md` |
 | 8 | SabiRuby の公開 API で足りなかったもの: Hash のキー列挙、`Task::Queue` の長さと非ブロッキング pop（rubevy が `funcall` で代用している） | ECS の橋 B | **済み**（2026-09-16、`6af8276`）。rubevy 側の置き換えは未（`reflect.rs:136`、`lib.rs:782`・`789`） |
 | 9 | coverage が見つけた「本家にあって本当に無い」もの: `Hash#default_proc=`、`Numeric#fdiv`、`Module#const_added`/`#method_undefined`、`BasicObject#singleton_method_added`/`_removed`/`_undefined` | coverage | **済み**（2026-09-16、`ef4611f`）。`coverage.md` の「本家だけ」22 → 15 |
 | 10 | 可視性の食い違い 50 件（本家が private、SabiRuby が public。`Module#private`/`module_function`/`included`/`method_added` の類）と、トップレベルの `def` が private にならない件 | coverage | **著者判断待ち**（直すか「意図した差分」にするか）。項目 9 のフック 5 件が加わって 45 → 50 |
@@ -96,3 +96,17 @@ VM の crate の `unsafe` 0、`cargo doc` の rustdoc 警告 0。
    * `7.fdiv(0)`: 本家は ZeroDivisionError（`int_fdiv` の `if (y == 0) mrb_int_zerodiv`）、SabiRuby は `Infinity`。
    * `1.0.fdiv("2")`: 本家 `String cannot be converted to Float`、SabiRuby `String can't be coerced into Float`。
    * `public_send(**{})`（上の 1 を参照）。
+
+### 7. `Arg::Value`（rubevy 側）
+
+* `Drop` に `Vm` が来ないので、`Root::drop` は `ObjId` をキューに積み、`ScriptWorld::release_dropped_values`（`tick_scripts` の先頭）が
+  `gc_unregister` する。値が request より最大 1 フレーム長生きするが、早く死ぬよりよい。`Request` は `Clone` のまま（`Arc<Root>`）。
+* `gc_register` を外すと `access to freed object` になることを negative control で確認。解放は GC 後の生存数で実測（1043 → 633）。
+* 振る舞いの変更 2 点: `nil`/`true`/`false` と `to_s` を持つ独自オブジェクトは `Arg::Text("")` に潰れていたのが `Arg::Value` で届く。
+
+### 見つけたが直していない差（項目 1・9 の副産物、範囲外）
+
+* `public_send(:one, **{})` — 本家 `{}`、SabiRuby `ArgumentError`。`public_send` が `vm.funcall` に落ちるため。`op_send_redirect` に可視性検査付きで通せば閉じる。
+* `7.fdiv(0)` — 本家 `ZeroDivisionError`、SabiRuby `Infinity`。`1.0.fdiv("2")` の文言も違う。
+* `docs/verification/mrbtest-bytes.md` が `notes.tsv` に対して古い（数値は不変）。
+
