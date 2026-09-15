@@ -227,6 +227,28 @@ pub struct CallInfo {
     pub vis_break: bool,
 }
 
+/// Entries in [`Vm::method_cache`]. A power of two, so the index is a mask.
+const METHOD_CACHE_LEN: usize = 1024;
+
+/// One line of the method cache: what `(class, mid)` resolved to, and the
+/// [`Heap::method_serial`] it was resolved under. Direct-mapped and one deep, like the
+/// reference's per-call-site inline cache but keyed globally: a miss is the chain walk that
+/// used to happen every time, so a wrong guess costs nothing but the compare.
+#[derive(Clone, Copy)]
+struct MethodCacheLine {
+    serial: u64,
+    class: ObjId,
+    mid: Sym,
+    /// `None` = the lookup found nothing, which is worth caching too (`method_missing`).
+    found: Option<(MethodRef, ObjId)>,
+}
+
+impl Default for MethodCacheLine {
+    // serial 0 is younger than any live heap (`Heap::method_serial` starts at 1), so an
+    // untouched line never matches
+    fn default() -> Self { MethodCacheLine { serial: 0, class: ObjId(0), mid: Sym(0), found: None } }
+}
+
 /// Well-known classes and modules.
 #[derive(Clone, Copy)]
 pub struct Core {
@@ -372,6 +394,8 @@ pub struct Vm {
     /// Whether the instruction loop fills `op_counts`. Off by default: the counter is a
     /// read-modify-write per instruction and the tightest loops pay 3 to 7% for it.
     count_ops: bool,
+    /// `(class, mid) -> (method, owner)`, thrown away wholesale by `Heap::method_serial`.
+    method_cache: alloc::boxed::Box<[MethodCacheLine; METHOD_CACHE_LEN]>,
     /// Nesting of native -> VM re-entries (`call_proc_with`); bounded to protect the host stack.
     native_depth: u32,
     /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
@@ -594,7 +618,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, method_cache: alloc::boxed::Box::new([MethodCacheLine::default(); METHOD_CACHE_LEN]), native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
             host_state: None,
@@ -1426,6 +1450,22 @@ impl Vm {
         let (m, x) = self.find_method_entry(class, mid)?;
         Some((MethodRef::of(m)?, x))
     }
+    /// [`Vm::find_method_ref`] through the method cache. The answer is the same; what the
+    /// cache saves is walking the superclass chain and hashing the name at each node.
+    /// Anything that could change the answer bumps `Heap::method_serial` (`Heap::class_mut`
+    /// and allocating a class), which makes every line stale at once.
+    fn find_method_cached(&mut self, class: ObjId, mid: Sym) -> Option<(MethodRef, ObjId)> {
+        // the two ids are dense small integers, so the low bits of one would collide with
+        // every method of the same class; mixing in a shifted copy spreads them
+        let i = ((class.0 as usize).wrapping_mul(31) ^ (mid.0 as usize) ^ ((mid.0 as usize) << 5))
+            & (METHOD_CACHE_LEN - 1);
+        let serial = self.heap.method_serial;
+        let line = self.method_cache[i];
+        if line.serial == serial && line.class == class && line.mid == mid { return line.found; }
+        let found = self.find_method_ref(class, mid);
+        self.method_cache[i] = MethodCacheLine { serial, class, mid, found };
+        found
+    }
     /// The closure of a [`MethodRef::Closure`] found in `owner`. `find_method_ref` left the
     /// `Arc` where it was, so the call site asks for it here, and only when it has to run one.
     pub fn closure_of(&self, owner: ObjId, mid: Sym) -> Option<crate::object::NativeClosure> {
@@ -1527,7 +1567,7 @@ impl Vm {
     /// Calls a method on `recv` from native code.
     pub fn funcall(&mut self, recv: Value, mid: Sym, args: &[Value], blk: Value) -> VmResult<Value> {
         let cls = self.class_of(recv);
-        match self.find_method_ref(cls, mid) {
+        match self.find_method_cached(cls, mid) {
             Some((MethodRef::Native(f), _)) => {
                 // native -> native recursion (e.g. inspect of nested containers) also uses the host stack
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
@@ -3578,7 +3618,7 @@ impl Vm {
             let owner = self.ci.last().unwrap().target_class;
             match self.heap.class(owner).superclass { Some(s) => s, None => return Err(self.raise(self.core.no_method_error, "super: no superclass method")) }
         } else { self.class_of(recv) };
-        let found = self.find_method_ref(start_class, mid);
+        let found = self.find_method_cached(start_class, mid);
         let (m, owner) = match found {
             Some((m, owner)) => {
                 if explicit && !is_super {

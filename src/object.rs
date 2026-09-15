@@ -291,11 +291,17 @@ pub struct Heap {
     pub malloc_threshold: usize,
     /// A collection is due; the VM runs it at the next instruction boundary.
     pub gc_pending: bool,
+    /// Bumped whenever a method lookup could answer differently than before: any mutable
+    /// access to a `ClassData` (its table, its visibilities, its superclass, its origin or
+    /// its iclass) and every allocation of a class (a collected class's `ObjId` comes back
+    /// as a different class). [`crate::vm::Vm`]'s method cache keeps this number beside each
+    /// entry and throws the entry away when it no longer matches.
+    pub method_serial: u64,
 }
 
 impl Default for Heap {
     fn default() -> Heap {
-        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false }
+        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false, method_serial: 1 }
     }
 }
 
@@ -318,6 +324,9 @@ impl Heap {
         if self.allocated_since_gc >= self.alloc_threshold || (self.malloc_threshold != 0 && self.malloc_increase > self.malloc_threshold) {
             self.gc_pending = true;
         }
+        // a class coming back on a reused slot must not answer to a cached lookup of the
+        // class that used to live there
+        if matches!(kind, ObjKind::Class(_)) { self.method_serial += 1; }
         let o = HeapObject { class, ivars: Vec::new(), frozen: false, binary: false, kind };
         match self.free.pop() {
             Some(i) => {
@@ -486,7 +495,11 @@ impl Heap {
             _ => panic!("object {:?} is not a class", id),
         }
     }
+    /// Mutable access to a class. Every caller is a potential change to what a lookup finds
+    /// — a `def`, an `include`, an `undef_method`, a visibility — so this is where the method
+    /// cache is invalidated, once, rather than at each of the forty-odd call sites.
     pub fn class_mut(&mut self, id: ObjId) -> &mut ClassData {
+        self.method_serial += 1;
         match &mut self.get_mut(id).kind {
             ObjKind::Class(c) => c,
             _ => panic!("object {:?} is not a class", id),
