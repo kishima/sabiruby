@@ -15,6 +15,8 @@
 | 6 | `items()` が配列を複製する箇所の残り（中身を読むだけのもの。ベンチには出ないが実コードで効く） | 2d | 未着手 |
 | 7 | rubevy の `Rubevy.ask` の `Arg` に Hash/Array を運べない（`Arg::Value`。今は数値と文字列と Entity だけ） | ECS の橋 A | 未着手 |
 | 8 | SabiRuby の公開 API で足りなかったもの: Hash のキー列挙、`Task::Queue` の長さと非ブロッキング pop（rubevy が `funcall` で代用している） | ECS の橋 B | 未着手 |
+| 9 | coverage が見つけた「本家にあって本当に無い」もの: `Hash#default_proc=`、`Numeric#fdiv`、`Module#const_added`/`#method_undefined`、`BasicObject#singleton_method_added`/`_removed`/`_undefined` | coverage | 未着手 |
+| 10 | 可視性の食い違い 45 件（本家が private、SabiRuby が public。`Module#private`/`module_function`/`included`/`method_added` の類）と、トップレベルの `def` が private にならない件 | coverage | **著者判断待ち**（直すか「意図した差分」にするか） |
 
 ## 各項目
 
@@ -35,3 +37,9 @@
 ## 守ること
 
 `host-bridge-plan.md` と同じ。5 と 6 は性能に触るので交互 A/B（5 はベンチの本数が変わるので基準の取り直し）。
+9. **coverage の穴**: `docs/verification/coverage.md` の「本家だけ」22 件のうち効くもの。`Hash#default_proc=` は本家 `mrb_hash_default_proc_set`（`hash.c`）、
+   `Numeric#fdiv` は `mruby-numeric-ext`、フックは `mrb_method_added` 系の呼び出し箇所（`class.c`）と突き合わせる。各 1 本 `tests/custom/`。終わったら `tools/coverage.sh` で生成し直す。
+10. **可視性**: 45 件の一覧は `coverage.md` の「両方にあるが可視性が違う」。直すなら `define_methods` に可視性を渡す形（本家の `MRB_METHOD_PRIVATE_FL`）と、
+    `OP_DEF` がトップレベル（`self` が main）で private にする本家の規則（`vm.c` の `OP_DEF` → `mrb_define_method_raw` の可視性）。`respond_to?` と `send` の差にだけ効くので、
+    mrbtest には出ていない。著者が「意図した差分」と決めるなら `docs/design/gems.md` の Deviations kept に 1 項。
+
