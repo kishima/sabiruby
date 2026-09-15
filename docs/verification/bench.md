@@ -137,6 +137,101 @@ spread averaged 3.3% and reached 7.7% (`loop_while_add`), where every earlier ba
 0.8–0.9%. §4's rule — over 1%, take it again — applies to the whole-set run as much as to an A/B.
 The kept run is 0.8% mean, 2.7% worst.
 
+### The third round of speed: `perf3-plan.md` stages 3a and 3b (`a0ef97e`, 2026-09-16)
+
+Four changes went in ([`../design/optimizations.md`](../design/optimizations.md) #18-#21; how each was measured, and
+the four candidates that were dropped, in [`../worklog/2026-09-16-perf3.md`](../worklog/2026-09-16-perf3.md)):
+
+| stage | commit | what changed | measured alone (interleaved A/B, 7 rounds, `codegen-units=1`) |
+|---|---|---|---|
+| 3a | `a423a92` | `String#<<` grows the string in place | `ds_string` −5.4% and −6.1% (two runs, default build), −4.8% (cgu=1); one million appends 268 → 152 ms |
+| 3a | `f83cc81` | eleven String natives borrow instead of copying | `ds_string` **−11.3%**; `String#+` −19.7%, `size` −11.3%, `==` −3.0%, empty loop −0.1% |
+| 3b | `e26ccff` | one guard over the four things the loop head asks | all eight benchmarks −1.1 to −4.6% (`bm_fib` −4.6%, `loop_while_add` −4.2%) |
+| 3b | `a0ef97e` | `OP_ADD` and the comparisons answer two numbers where they stand | all eight −0.9 to −6.7% (`bm_so_mandelbrot` −6.7%, `bm_fib` −4.2%, `vmo_arith` −4.0%) |
+
+**Read the two totals below together.** The per-candidate numbers are `codegen-units=1` builds, which is what
+isolates the change; the whole-set run is the default build, which is what the earlier baselines are, and the default
+build re-rolls its code-generation-unit partitioning at every edit (see §4 of `optimizations.md`: the same
+`String#<<` change measured `bm_so_mandelbrot` **+16%** in the default build and −2.5% at `codegen-units=1`,
+both reproduced).
+
+Best of 5, reference included, `--core 2` (`bench/results/a0ef97e.tsv`; the run is quiet on SabiRuby's side,
+0.68% mean best-to-median spread and 1.62% worst, but the reference column is not — it averages 4.06% and
+reaches 33% on `call_kwargs`, which is Docker start-up jitter and is why its ratio column moves):
+
+| | SabiRuby ms | mruby ms | ratio (sum) | ratio (median) |
+|---|---:|---:|---:|---:|
+| `519eb17`, 27 all | 47851 | 17831 | 2.68x | 2.87x |
+| `a0ef97e`, 27 all | **47254** | 17656 | **2.68x** | 3.05x |
+
+Per benchmark against `519eb17` (`tools/bench_compare.sh`), SabiRuby only:
+
+| benchmark | 519eb17 | a0ef97e | change | | benchmark | 519eb17 | a0ef97e | change |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| ds_string | 446.452 | 384.116 | **−14.0%** | | bm_so_mandelbrot | 1412.855 | 1482.693 | +4.9% |
+| ds_hash | 228.295 | 220.120 | −3.6% | | app_json_hash | 1247.028 | 1300.003 | +4.2% |
+| mem_short_lived | 1010.371 | 974.941 | −3.5% | | bm_mandel_term | 20.231 | 20.957 | +3.6% |
+| bm_ao_render | 5578.982 | 5407.529 | −3.1% | | call_block_yield | 1016.881 | 1051.558 | +3.4% |
+| bm_fib | 5333.604 | 5179.682 | −2.9% | | gc_churn | 381.100 | 393.169 | +3.2% |
+| ds_array | 860.198 | 840.008 | −2.3% | | call_kwargs | 851.606 | 866.800 | +1.8% |
+| vm_optimization_bench | 11071.396 | 10842.976 | −2.1% | | bm_so_lists | 973.053 | 988.293 | +1.6% |
+| vmo_dispatch | 2172.188 | 2126.015 | −2.1% | | mem_retained | 730.217 | 740.931 | +1.5% |
+| call_fiber | 1012.895 | 994.228 | −1.8% | | loop_times | 859.266 | 869.921 | +1.2% |
+| app_robot | 1178.589 | 1163.310 | −1.3% | | loop_while_add | 841.535 | 848.913 | +0.9% |
+| app_tak | 1132.832 | 1118.714 | −1.2% | | vmo_index | 514.448 | 517.944 | +0.7% |
+| vmo_arith | 3700.926 | 3657.410 | −1.2% | | vmo_objects | 619.491 | 621.730 | +0.4% |
+| loop_if_branch | 890.735 | 884.099 | −0.7% | | call_args | 875.563 | 875.640 | +0.0% |
+| vmo_calls | 2889.959 | 2882.313 | −0.3% | | | | | |
+
+| category (sum) | 519eb17 | a0ef97e | change |
+|---|---:|---:|---:|
+| whole program | 25563 | 25033 | −2.1% |
+| data structures | 3642 | 3572 | −1.9% |
+| instruction loop | 9878 | 9869 | −0.1% |
+| calls | 6647 | 6671 | +0.4% |
+| memory | 2122 | 2109 | −0.6% |
+| **all** | 47851 | **47254** | **−1.2%** |
+
+The whole stage measured the way a candidate is measured -- `ad8e7cb` against `a0ef97e`, both built at
+`codegen-units=1`, interleaved, 7 rounds, all 27 benchmarks (`bench/results/ab-perf3-cgu1.tsv`):
+
+| benchmark | A (`ad8e7cb`) | B (`a0ef97e`) | change | | benchmark | A | B | change |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| ds_string | 426.084 | 361.191 | **−15.2%** | | vmo_dispatch | 2245.858 | 2121.305 | −5.5% |
+| bm_mandel_term | 21.805 | 18.512 | **−15.1%** | | app_tak | 1170.444 | 1112.957 | −4.9% |
+| bm_so_mandelbrot | 1482.835 | 1283.357 | **−13.5%** | | loop_times | 888.265 | 846.144 | −4.7% |
+| loop_while_add | 879.454 | 807.791 | −8.1% | | gc_churn | 372.394 | 355.838 | −4.4% |
+| bm_fib | 5508.710 | 5100.221 | −7.4% | | loop_if_branch | 868.205 | 833.022 | −4.1% |
+| vmo_objects | 610.204 | 569.295 | −6.7% | | vm_optimization_bench | 11293.267 | 10892.173 | −3.6% |
+| call_kwargs | 874.903 | 824.336 | −5.8% | | vmo_calls | 2912.025 | 2818.037 | −3.2% |
+| vmo_arith | 3842.531 | 3617.880 | −5.8% | | ds_array | 849.095 | 822.723 | −3.1% |
+| call_block_yield | 1050.790 | 992.785 | −5.5% | | call_fiber | 897.887 | 870.789 | −3.0% |
+| call_args | 908.201 | 860.662 | −5.2% | | ds_hash | 220.896 | 214.499 | −2.9% |
+| app_json_hash | 1231.917 | 1207.885 | −2.0% | | bm_ao_render | 5504.783 | 5460.360 | −0.8% |
+| vmo_index | 505.549 | 501.356 | −0.8% | | bm_so_lists | 922.702 | 917.901 | −0.5% |
+| app_robot | 1146.517 | 1160.472 | +1.2% | | mem_short_lived | 991.572 | 1008.322 | +1.7% |
+| mem_retained | 716.917 | 738.088 | +3.0% | | | | | |
+
+| category | A ms | B ms | change |
+|---|---:|---:|---:|
+| whole program | 25877 | 24953 | −3.6% |
+| data structures | 3535 | 3387 | −4.2% |
+| instruction loop | 10207 | 9509 | **−6.8%** |
+| calls | 6644 | 6367 | −4.2% |
+| memory | 2081 | 2102 | +1.0% |
+| **all** | 48344 | 46318 | **−4.2%** |
+
+Twenty-four of the twenty-seven are faster, and the three that are not are +1.2 to +3.0%. That is what the
+four changes are worth to the code; **−1.2%** is what the shipped binary does today, because the default
+profile's code-generation-unit partitioning took the rest back.
+
+The one benchmark that moved on its own terms in the default build is `ds_string` (**4.33x → 3.77x**). The rest is a −1.2% total
+where the four changes are worth more than that in isolation and the code-generation-unit roll takes the
+difference back: `bm_so_mandelbrot` +4.9% here is the same benchmark the arithmetic fast path measured
+**−6.7%** on at `codegen-units=1`, and it calls no string method and takes no keyword argument. Which of the
+two numbers is "the truth" depends on what is being asked — the isolated A/B answers "is the change right",
+the whole-set run answers "what does the binary we ship do today".
+
 ### `items()` without the copy, where the answer is small (`e27d9a4`, `87ad19b`, `e877d17`, 2026-09-16)
 
 `leftovers-plan.md` item 6. No benchmark in the set calls the methods that changed, and the eight

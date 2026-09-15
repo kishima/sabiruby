@@ -18,6 +18,19 @@ fn frozen(vm: &Vm, v: Value) -> bool { v.obj().map(|o| vm.heap.get(o).frozen).un
 /// `mrb_str_modify`'s check, whose message names no value (unlike `mrb_check_frozen`).
 fn check_frozen(vm: &mut Vm, v: Value) -> VmResult<()> { if frozen(vm, v) { return Err(vm.raise(vm.core.frozen_error, "can't modify frozen String")); } Ok(()) }
 /// `mrb_str_modify` + write.
+/// Appends to the string in place (`mrb_str_cat`). Reading the receiver out into a `Vec`,
+/// extending the copy and putting it back made `<<` cost the whole length of the receiver at
+/// every call, so a loop of appends was O(n^2); the argument is already a `Vec` of its own by
+/// the time we get here (its conversion can run Ruby), so nothing borrows the heap twice.
+fn append(vm: &mut Vm, v: Value, add: &[u8]) -> VmResult<()> {
+    if let Some(o) = v.obj() {
+        if let ObjKind::String(b) = &mut vm.heap.get_mut(o).kind {
+            b.extend_from_slice(add);
+            return Ok(());
+        }
+    }
+    Err(vm.raise_type("not a string"))
+}
 fn set(vm: &mut Vm, v: Value, b: Vec<u8>) -> VmResult<()> {
     check_frozen(vm, v)?;
     match v.obj().map(|o| &mut vm.heap.get_mut(o).kind) { Some(ObjKind::String(s)) => { *s = b; Ok(()) } _ => Err(vm.raise_type("not a string")) }
@@ -227,9 +240,7 @@ fn concat_enc(vm: &mut Vm, s: Value, v: Value, binary: bool) -> VmResult<()> {
         _ => ensure_str(vm, v)?,
     };
     check_frozen(vm, s)?;
-    let mut b = bytes(vm, s);
-    b.extend_from_slice(&add);
-    set(vm, s, b)?;
+    append(vm, s, &add)?;
     // bytes that spell no character carry their reading over: a string read as characters that is
     // handed a byte-read string holding one becomes byte-read itself (`str_cat_enc_check`)
     if !binary && !vm.str_binary(s) && vm.str_binary(v) && !add.iter().all(|c| *c < 0x80) {

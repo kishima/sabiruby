@@ -49,7 +49,7 @@ in English; plans and the worklog are in Japanese.
 | [after-gems-plan.md](plans/after-gems-plan.md) | done (2026-09-13): rubevy on one VM with tasks, backtraces, `sleep`/`strftime` |
 | [playground-plan.md](plans/playground-plan.md) | done (2026-09-12); the playground repository carries the visualizer plan |
 | [leftovers-plan.md](plans/leftovers-plan.md) | items 1–9 done (2026-09-16); 10 is the author's — the small items each stage left behind |
-| [perf3-plan.md](plans/perf3-plan.md) | to do (2026-09-16): the third round of speed — String, the instruction loop, calls, the 8-byte `Slot` experiment, what is left of `so_lists` |
+| [perf3-plan.md](plans/perf3-plan.md) | 3a and 3b done, 3c/3d/3e dropped with their measurements (2026-09-16): the third round of speed — String, the instruction loop, calls, the 8-byte `Slot` experiment, what is left of `so_lists` |
 | [from-mrubyedge-plan.md](plans/from-mrubyedge-plan.md) | items 1 and 3 done (2026-09-16); what mruby/edge does that is worth having — serde, RBS at the boundary, a coverage list, gems as features, `RUBY_ENGINE` |
 | [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b is rubevy's and 6c is both. Carries the findings of each stage |
 
@@ -64,6 +64,11 @@ hiding in `hash_sync`, and cutting `vm_optimization_bench` into five), and
 [stage6a-macros](worklog/2026-09-15-stage6a-macros.md) is stage 6a: why the host's stores sit in
 the `Vm`, how a method that is given the `&mut Vm` borrows its receiver, and what the macros read
 out of a signature.
+[2026-09-16-perf3](worklog/2026-09-16-perf3.md) is the third round of speed: what `ds_string`,
+`call_args` and `bm_so_lists` are actually made of when split by operation, the four changes that were
+kept and the four that were measured and dropped, why `codegen-units = 16` and not "code layout" is
+half of this machine's ±15% swing, and the estimate that says an 8-byte `Slot` is not the next thing
+to do.
 [getidx-dispatch](worklog/2026-09-15-getidx-dispatch.md) is the same move for the three index
 opcodes: the reference's fast paths for Array, Hash and String, the six slots that say when one
 of them may answer, why `p` in mruby-print made a test look wrong, and what the shape of an

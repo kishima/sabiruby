@@ -225,6 +225,11 @@ fn check_frozen(vm: &mut Vm, v: Value) -> VmResult<()> {
 fn bytes(vm: &Vm, v: Value) -> Vec<u8> {
     vm.str_bytes(v).map(|b| b.to_vec()).unwrap_or_default()
 }
+/// The bytes of a string without copying them, for a native whose answer is not the string
+/// itself (a length, a byte, a comparison). The borrow must not be held across anything that
+/// takes `&mut Vm`, so the argument conversions come first; where that is not possible the
+/// method keeps `bytes` above. The empty slice for a non-String matches what `bytes` answers.
+fn sbytes(vm: &Vm, v: Value) -> &[u8] { vm.str_bytes(v).unwrap_or(&[]) }
 fn set(vm: &mut Vm, v: Value, b: Vec<u8>) -> VmResult<()> {
     match v.obj() {
         Some(o) => {
@@ -502,9 +507,9 @@ pub fn init(vm: &mut Vm) {
         ("to_sym", |vm, s, _a, _b| { let b = bytes(vm, s); Ok(Value::Sym(vm.syms.intern(&b))) }),
         ("intern", |vm, s, _a, _b| { let b = bytes(vm, s); Ok(Value::Sym(vm.syms.intern(&b))) }),
         ("to_i", |vm, s, a, _b| { argc!(vm, a, 0, 1); let base = if a.len() == 1 { vm.expect_int(a[0], "base")? as u32 } else { 10 }; if !(2..=36).contains(&base) { return Err(vm.raise_arg(&format!("invalid radix {base}"))); } { let b = bytes(vm, s); Ok(to_i(vm, &b, base)) } }),
-        ("to_f", |vm, s, _a, _b| Ok(Value::Float(to_f(&bytes(vm, s))))),
-        ("size", |vm, s, _a, _b| { let chars = char_mode(vm, s); Ok(Value::Int(char_len(&bytes(vm, s), chars) as i64)) }),
-        ("length", |vm, s, _a, _b| { let chars = char_mode(vm, s); Ok(Value::Int(char_len(&bytes(vm, s), chars) as i64)) }),
+        ("to_f", |vm, s, _a, _b| Ok(Value::Float(to_f(sbytes(vm, s))))),
+        ("size", |vm, s, _a, _b| { let chars = char_mode(vm, s); Ok(Value::Int(char_len(sbytes(vm, s), chars) as i64)) }),
+        ("length", |vm, s, _a, _b| { let chars = char_mode(vm, s); Ok(Value::Int(char_len(sbytes(vm, s), chars) as i64)) }),
         ("byteslice", |vm, s, a, _b| { argc!(vm, a, 1, 2); let b = bytes(vm, s); match index_args(vm, b.len(), a)? { Some((i, n)) => { let piece = b[i..i + n].to_vec(); Ok(vm.str_new_like(&piece, s)) } None => Ok(Value::Nil) } }),
         ("byteindex", |vm, s, a, _b| {
             argc!(vm, a, 1, 2);
@@ -522,18 +527,18 @@ pub fn init(vm: &mut Vm) {
             if !valid_chars(&n, char_mode(vm, a[0])) { return Ok(Value::Nil); }
             Ok(find(&b, &n, from).map(|i| Value::Int(i as i64)).unwrap_or(Value::Nil))
         }),
-        ("bytesize", |vm, s, _a, _b| Ok(Value::Int(bytes(vm, s).len() as i64))),
-        ("empty?", |vm, s, _a, _b| Ok(Value::bool(bytes(vm, s).is_empty()))),
+        ("bytesize", |vm, s, _a, _b| Ok(Value::Int(sbytes(vm, s).len() as i64))),
+        ("empty?", |vm, s, _a, _b| Ok(Value::bool(sbytes(vm, s).is_empty()))),
         ("==", str_eq),
         ("eql?", str_eq),
         ("===", str_eq),
         ("hash", |vm, s, _a, _b| Ok(Value::Int(vm.value_hash(s)))),
-        ("<=>", |vm, s, a, _b| { argc!(vm, a, 1); match vm.str_bytes(a[0]).map(|b| b.to_vec()) { Some(o) => Ok(Value::Int(bytes(vm, s).cmp(&o) as i64)), None => Ok(Value::Nil) } }),
+        ("<=>", |vm, s, a, _b| { argc!(vm, a, 1); match vm.str_bytes(a[0]) { Some(o) => Ok(Value::Int(sbytes(vm, s).cmp(o) as i64)), None => Ok(Value::Nil) } }),
         // `mrb_str_plus`: the sum is a string with no history, so its reading comes from the
         // bytes it was built out of rather than from either operand's standing — two byte-read
         // operands stay that way, and one byte-read operand carrying a byte above ASCII hands the
         // sum bytes no other reading holds
-        ("+", |vm, s, a, _b| { argc!(vm, a, 1); let mut b = bytes(vm, s); match vm.str_bytes(a[0]).map(|o| o.to_vec()) { Some(o) => { let (x, y) = (vm.str_binary(s), vm.str_binary(a[0])); let ascii = |v: &[u8]| v.iter().all(|c| *c < 0x80); let binary = (x && y) || (x && !ascii(&b)) || (y && !ascii(&o)); b.extend_from_slice(&o); let r = vm.str_new(&b); vm.str_set_binary(r, binary); Ok(r) } None => { let d = vm.describe_for_error(a[0]); Err(vm.raise_type(&format!("{d} cannot be converted to String"))) } } }),
+        ("+", |vm, s, a, _b| { argc!(vm, a, 1); if vm.str_bytes(a[0]).is_none() { let d = vm.describe_for_error(a[0]); return Err(vm.raise_type(&format!("{d} cannot be converted to String"))); } let (x, y) = (vm.str_binary(s), vm.str_binary(a[0])); let (binary, joined) = { let (b, o) = (sbytes(vm, s), sbytes(vm, a[0])); let ascii = |v: &[u8]| v.iter().all(|c| *c < 0x80); let binary = (x && y) || (x && !ascii(b)) || (y && !ascii(o)); let mut j = Vec::with_capacity(b.len() + o.len()); j.extend_from_slice(b); j.extend_from_slice(o); (binary, j) }; let r = vm.str_new(&joined); vm.str_set_binary(r, binary); Ok(r) }),
         ("*", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("negative argument")); } let b = bytes(vm, s); if (b.len() as i64).checked_mul(n).map(|t| t > i32::MAX as i64).unwrap_or(true) { return Err(vm.raise_arg("argument too big")); } let b = b.repeat(n as usize); Ok(vm.str_new_like(&b, s)) }),
         ("<<", str_concat),
         ("concat", str_concat),
@@ -578,7 +583,7 @@ pub fn init(vm: &mut Vm) {
         ("bytes", |vm, s, _a, _b| { let items: Vec<Value> = bytes(vm, s).iter().map(|c| Value::Int(*c as i64)).collect(); Ok(vm.ary_new(items)) }),
         ("each_char", |vm, s, _a, b| { let chars = char_mode(vm, s); let src = bytes(vm, s); let parts: Vec<Vec<u8>> = chars_of(&src, chars).into_iter().map(|c| c.to_vec()).collect(); for c in parts { let ch = vm.str_new_like(&c, s); vm.call_block(b, &[ch])?; } Ok(s) }),
         ("each_byte", |vm, s, _a, b| { for c in bytes(vm, s) { vm.call_block(b, &[Value::Int(c as i64)])?; } Ok(s) }),
-        ("getbyte", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let b = bytes(vm, s); let i = if i < 0 { i + b.len() as i64 } else { i }; Ok(b.get(i as usize).map(|c| Value::Int(*c as i64)).unwrap_or(Value::Nil)) }),
+        ("getbyte", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; let b = sbytes(vm, s); let i = if i < 0 { i + b.len() as i64 } else { i }; Ok(b.get(i as usize).map(|c| Value::Int(*c as i64)).unwrap_or(Value::Nil)) }),
         ("ord", |vm, s, _a, _b| { let chars = char_mode(vm, s); let b = bytes(vm, s); if b.is_empty() { return Err(vm.raise_arg("empty string")); } Ok(Value::Int(char_code(vm, &b, 0, chars)?)) }),
         ("include?", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_str(a[0], "argument")?; if !valid_chars(&n, char_mode(vm, a[0])) { return Ok(Value::False); } Ok(Value::bool(find(&bytes(vm, s), &n, 0).is_some())) }),
         ("index", |vm, s, a, _b| {
@@ -688,7 +693,7 @@ pub(crate) fn char_code(vm: &mut Vm, b: &[u8], i: usize, chars: bool) -> VmResul
 
 fn str_eq(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1);
-    Ok(Value::bool(match vm.str_bytes(a[0]) { Some(o) => o == &bytes(vm, s)[..], None => false }))
+    Ok(Value::bool(match vm.str_bytes(a[0]) { Some(o) => o == sbytes(vm, s), None => false }))
 }
 
 fn str_concat(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
