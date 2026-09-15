@@ -48,6 +48,37 @@ pub enum Method {
     Undef,
 }
 
+/// What a call site needs from a method lookup, without cloning the [`Method`].
+///
+/// `Method` gained a variant holding an `Arc` in stage 3, so cloning one stopped being a
+/// plain copy: it branches on the discriminant, may touch a reference count, and — the part
+/// that costs most on the dispatch path — gives the returned value drop glue. Every variant
+/// but `Closure` is `Copy`; a `Closure` is named here only by its kind, and the one call site
+/// that has to run it asks the owner's table for the `Arc` ([`crate::vm::Vm::closure_of`]),
+/// which is the rare case. Lookups that want the `Method` itself still call `find_method`.
+#[derive(Clone, Copy)]
+pub enum MethodRef {
+    Ruby(ObjId),
+    Native(NativeFn),
+    Closure,
+    AttrReader(Sym),
+    AttrWriter(Sym),
+}
+
+impl MethodRef {
+    /// `None` for [`Method::Undef`], which stops a lookup rather than answering it.
+    pub fn of(m: &Method) -> Option<MethodRef> {
+        Some(match m {
+            Method::Ruby(p) => MethodRef::Ruby(*p),
+            Method::Native(f) => MethodRef::Native(*f),
+            Method::Closure(_) => MethodRef::Closure,
+            Method::AttrReader(s) => MethodRef::AttrReader(*s),
+            Method::AttrWriter(s) => MethodRef::AttrWriter(*s),
+            Method::Undef => return None,
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct ClassData {
     pub name: Option<Sym>,

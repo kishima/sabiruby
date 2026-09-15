@@ -9,7 +9,7 @@ use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use hashbrown::HashMap;
 
 use crate::error::{VmError, VmResult};
-use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, ObjKind, ProcData, Vis, GC_MIN_INTERVAL};
+use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, MethodRef, ObjKind, ProcData, Vis, GC_MIN_INTERVAL};
 use crate::inspect::{CatchHandlerInfo, DetachReason, SwitchKind, TraceEvent, UnwindBy};
 use crate::opcode::{Op, Operands};
 use crate::rite::{self, CatchType, Pool};
@@ -1387,23 +1387,41 @@ impl Vm {
         }
         false
     }
-    /// Method lookup along the superclass chain; returns the method and the
-    /// class that owns it (for `super`).
-    pub fn find_method(&self, class: ObjId, mid: Sym) -> Option<(Method, ObjId)> {
+    /// Method lookup along the superclass chain: the entry as it sits in the table, and the
+    /// class that owns it (for `super`). A `Method::Undef` answers the lookup by stopping it,
+    /// so it comes back as `Some` here and the two wrappers below turn it into `None`.
+    fn find_method_entry(&self, class: ObjId, mid: Sym) -> Option<(&Method, ObjId)> {
         let mut c = Some(class);
         while let Some(x) = c {
             let cd = self.heap.class(x);
             if cd.origin.is_some() { c = cd.superclass; continue; } // own table lives in the origin
             let tbl = &self.heap.class(self.table_owner(x)).methods;
-            if let Some(m) = tbl.get(&mid) {
-                return match m {
-                    Method::Undef => None,
-                    _ => Some((m.clone(), x)),
-                };
-            }
+            if let Some(m) = tbl.get(&mid) { return Some((m, x)); }
             c = cd.superclass;
         }
         None
+    }
+    /// Method lookup that clones the `Method`. For the places that want to keep it (`alias`,
+    /// `Method#unbind`, copying a table); the dispatch path uses [`Vm::find_method_ref`].
+    pub fn find_method(&self, class: ObjId, mid: Sym) -> Option<(Method, ObjId)> {
+        match self.find_method_entry(class, mid)? {
+            (Method::Undef, _) => None,
+            (m, x) => Some((m.clone(), x)),
+        }
+    }
+    /// Method lookup for dispatch: a `Copy` answer, so nothing is cloned and nothing the
+    /// caller holds needs dropping (`docs/host-bridge-plan.md`, stage 2 candidate 3).
+    pub fn find_method_ref(&self, class: ObjId, mid: Sym) -> Option<(MethodRef, ObjId)> {
+        let (m, x) = self.find_method_entry(class, mid)?;
+        Some((MethodRef::of(m)?, x))
+    }
+    /// The closure of a [`MethodRef::Closure`] found in `owner`. `find_method_ref` left the
+    /// `Arc` where it was, so the call site asks for it here, and only when it has to run one.
+    pub fn closure_of(&self, owner: ObjId, mid: Sym) -> Option<crate::object::NativeClosure> {
+        match self.heap.class(self.table_owner(owner)).methods.get(&mid) {
+            Some(Method::Closure(f)) => Some(f.clone()),
+            _ => None,
+        }
     }
     pub fn respond_to(&self, v: Value, mid: Sym) -> bool {
         match self.find_method(self.class_of(v), mid) {
@@ -1498,8 +1516,8 @@ impl Vm {
     /// Calls a method on `recv` from native code.
     pub fn funcall(&mut self, recv: Value, mid: Sym, args: &[Value], blk: Value) -> VmResult<Value> {
         let cls = self.class_of(recv);
-        match self.find_method(cls, mid) {
-            Some((Method::Native(f), _)) => {
+        match self.find_method_ref(cls, mid) {
+            Some((MethodRef::Native(f), _)) => {
                 // native -> native recursion (e.g. inspect of nested containers) also uses the host stack
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 self.native_mid = Some(mid);
@@ -1511,8 +1529,9 @@ impl Vm {
                 self.orphan_block_of_native(blk);
                 r
             }
-            Some((Method::Closure(f), _)) => {
+            Some((MethodRef::Closure, owner)) => {
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
+                let f = match self.closure_of(owner, mid) { Some(f) => f, None => return Err(VmError::Internal("closure vanished between lookup and call".into())) };
                 self.native_mid = Some(mid);
                 self.native_depth += 1;
                 let direct = core::mem::replace(&mut self.direct_send, false);
@@ -1522,13 +1541,13 @@ impl Vm {
                 self.orphan_block_of_native(blk);
                 r
             }
-            Some((Method::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
-            Some((Method::AttrWriter(iv), _)) => {
+            Some((MethodRef::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
+            Some((MethodRef::AttrWriter(iv), _)) => {
                 let v = args.first().copied().unwrap_or(Value::Nil);
                 if let Some(o) = recv.obj() { self.heap.ivar_set(o, iv, v); }
                 Ok(v)
             }
-            Some((Method::Ruby(p), owner)) => {
+            Some((MethodRef::Ruby(p), owner)) => {
                 // A native forwarding its own arguments (`send`, `Class#new`) keeps
                 // the caller's keywords: the trailing Hash is the pending kdict.
                 let kw = match (self.pending_kw, args.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => Some(k), _ => None };
@@ -1538,7 +1557,7 @@ impl Vm {
                     None => self.call_proc_with(p, recv, args, None, blk, Some(mid), tc),
                 }
             }
-            Some((Method::Undef, _)) | None => {
+            None => {
                 // a user-defined method_missing takes the call (the basic one only reports)
                 let mm = self.s.method_missing;
                 if let Some((m, owner)) = self.find_method(cls, mm) {
@@ -3546,7 +3565,7 @@ impl Vm {
             let owner = self.ci.last().unwrap().target_class;
             match self.heap.class(owner).superclass { Some(s) => s, None => return Err(self.raise(self.core.no_method_error, "super: no superclass method")) }
         } else { self.class_of(recv) };
-        let found = self.find_method(start_class, mid);
+        let found = self.find_method_ref(start_class, mid);
         let (m, owner) = match found {
             Some((m, owner)) => {
                 if explicit && !is_super {
@@ -3593,7 +3612,7 @@ impl Vm {
             }
         };
         match m {
-            Method::Native(f) => {
+            MethodRef::Native(f) => {
                 self.native_mid = Some(mid);
                 if core::ptr::fn_addr_eq(f, crate::builtins::object::send as crate::object::NativeFn) {
                     // `send`/`__send__` from bytecode re-dispatches in this frame
@@ -3608,8 +3627,9 @@ impl Vm {
                 let (v, switched) = r?;
                 if !switched { self.stack[base + a] = Slot::from(v); }
             }
-            Method::Closure(f) => {
+            MethodRef::Closure => {
                 self.native_mid = Some(mid);
+                let f = match self.closure_of(owner, mid) { Some(f) => f, None => return Err(VmError::Internal("closure vanished between lookup and call".into())) };
                 let (args, kd) = self.native_args(base + a, argc, kw);
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
                 let r = self.call_closure_direct(&f, recv, &args, blk, base + a);
@@ -3617,19 +3637,19 @@ impl Vm {
                 let (v, switched) = r?;
                 if !switched { self.stack[base + a] = Slot::from(v); }
             }
-            Method::AttrReader(iv) => {
+            MethodRef::AttrReader(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
                 if !args.is_empty() { return Err(self.argnum_error(args.len(), "0")); }
                 self.stack[base + a] = Slot::from(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil));
             }
-            Method::AttrWriter(iv) => {
+            MethodRef::AttrWriter(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
                 if args.len() != 1 { return Err(self.argnum_error(args.len(), "1")); }
                 let v = args[0];
                 match recv { Value::Obj(o) => self.heap.ivar_set(o, iv, v), _ => return Err(self.raise_type("can't set instance variable")) }
                 self.stack[base + a] = Slot::from(v);
             }
-            Method::Ruby(p) => {
+            MethodRef::Ruby(p) => {
                 if self.ci.len() >= CALL_LEVEL_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 let nbase = base + a;
                 let nirep = self.heap.proc_data(p).irep;
@@ -3639,7 +3659,6 @@ impl Vm {
                 for i in used..nregs { self.stack[nbase + i] = Slot::NIL; }
                 self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(self.heap.proc_data(p).mid.unwrap_or(mid)), target_class: owner, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
             }
-            Method::Undef => unreachable!(),
         }
         Ok(())
     }
