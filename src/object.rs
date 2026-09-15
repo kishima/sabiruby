@@ -353,19 +353,42 @@ impl core::ops::DerefMut for ArrayData {
 /// invalidation hangs off it.
 #[derive(Clone, Default)]
 pub struct HashData {
-    /// Insertion-ordered entries; lookup is linear with `eql?` semantics
-    /// (like mruby's AR mode, without the hash-table switch yet).
+    /// Insertion-ordered entries. The order is this vector's, whatever else is built
+    /// beside it, which is why `Hash#each` never has to sort anything.
     entries: Vec<(Slot, Slot)>,
     /// `hash` of each key, parallel to `entries` (rebuilt lazily when lengths differ).
     hashes: Vec<i64>,
+    /// `hash code -> one entry with that code`, built once the hash has more than
+    /// [`HASH_INDEX_THRESHOLD`] entries. This is the switch mruby makes from its "array"
+    /// representation to a hash table at the same size, except that insertion order does
+    /// not have to be stored anywhere: `entries` already has it.
+    ///
+    /// `None` while the hash is small, while the hash codes are stale (hashing a key can
+    /// run Ruby, which the writes that replace every entry cannot do), and from a removal
+    /// until it is rebuilt.
+    index: Option<HashMap<i64, u32>>,
+    /// `chain[i]` is another entry whose key hashes like entry `i`'s, or [`NO_ENTRY`].
+    /// Keys in a hash are unique under `eql?`, so at most one entry of a chain can match
+    /// and the order they come back in does not matter.
+    chain: Vec<u32>,
     pub default: Slot,
 }
+
+/// Entries above which a lookup builds an index instead of walking the cached hash codes.
+/// mruby switches an `RHash` from its "array" representation to a hash table at the same
+/// size (`AR_DEFAULT_LEN` doubles up to 16), and for the same reason: below it the walk
+/// over one `i64` slice is cheaper than a table lookup, and the table's memory is not worth
+/// paying for the small hashes most programs are made of.
+pub const HASH_INDEX_THRESHOLD: usize = 16;
+
+/// End of a chain in [`HashData`]'s index.
+const NO_ENTRY: u32 = u32::MAX;
 
 impl HashData {
     /// A hash holding `entries`, whose key hash codes the first lookup fills in
     /// (`hashes_stale`).
     pub fn from_entries(entries: Vec<(Slot, Slot)>, default: Slot) -> HashData {
-        HashData { entries, hashes: Vec::new(), default }
+        HashData { entries, hashes: Vec::new(), index: None, chain: Vec::new(), default }
     }
     /// The entries in insertion order.
     #[inline]
@@ -400,13 +423,26 @@ impl HashData {
     /// the borrow again: verifying a candidate means calling `eql?`, which can be Ruby, so
     /// nothing may be held across it.
     pub fn first_candidate(&self, kh: i64) -> Option<(usize, Slot)> {
-        self.scan_from(kh, 0)
+        match &self.index {
+            Some(ix) => self.at(*ix.get(&kh)?),
+            None => self.scan_from(kh, 0),
+        }
     }
     /// The next entry whose key hashes to `kh`, for a lookup that has just rejected the one
     /// at `p`. Keys in a hash are unique under `eql?`, so the order these come back in does
     /// not matter — at most one of them can match.
     pub fn next_candidate(&self, p: usize, kh: i64) -> Option<(usize, Slot)> {
-        self.scan_from(kh, p + 1)
+        match &self.index {
+            // `eql?` may have run Ruby, which may have edited this hash, so the chain is
+            // read defensively: a position that is no longer there ends the walk.
+            Some(_) => self.at(*self.chain.get(p)?),
+            None => self.scan_from(kh, p + 1),
+        }
+    }
+    fn at(&self, p: u32) -> Option<(usize, Slot)> {
+        if p == NO_ENTRY { return None; }
+        let p = p as usize;
+        Some((p, self.entries.get(p)?.0))
     }
     fn scan_from(&self, kh: i64, from: usize) -> Option<(usize, Slot)> {
         let n = self.hashes.len().min(self.entries.len());
@@ -414,10 +450,33 @@ impl HashData {
         let d = self.hashes[from..n].iter().position(|c| *c == kh)?;
         Some((from + d, self.entries[from + d].0))
     }
+    /// Builds the index, or drops it when the hash is too small for one or its hash codes
+    /// are not usable. Every write that could have invalidated the index ends here.
+    fn reindex(&mut self) {
+        if self.entries.len() <= HASH_INDEX_THRESHOLD || self.hashes_stale() {
+            self.index = None;
+            self.chain = Vec::new();
+            return;
+        }
+        let mut ix: HashMap<i64, u32> = HashMap::with_capacity(self.entries.len());
+        let mut chain: Vec<u32> = Vec::new();
+        chain.resize(self.entries.len(), NO_ENTRY);
+        for (i, kh) in self.hashes.iter().enumerate() {
+            // the new entry becomes the head of its chain and points at the old head
+            chain[i] = ix.insert(*kh, i as u32).unwrap_or(NO_ENTRY);
+        }
+        self.index = Some(ix);
+        self.chain = chain;
+    }
     /// Appends an entry that is known not to be in the hash yet, with its key's hash code.
     pub fn push_entry(&mut self, k: Slot, v: Slot, kh: i64) {
+        let at = self.entries.len() as u32;
         self.entries.push((k, v));
         self.hashes.push(kh);
+        match &mut self.index {
+            Some(ix) => self.chain.push(ix.insert(kh, at).unwrap_or(NO_ENTRY)),
+            None => self.reindex(),
+        }
     }
     /// Overwrites the value of entry `i`; the key and its hash code stay.
     pub fn set_value_at(&mut self, i: usize, v: Slot) {
@@ -426,27 +485,37 @@ impl HashData {
     /// Removes entry `i` and its hash code, keeping the order of the rest.
     pub fn remove_entry(&mut self, i: usize) -> (Slot, Slot) {
         if i < self.hashes.len() { self.hashes.remove(i); }
-        self.entries.remove(i)
+        let e = self.entries.remove(i);
+        // every position after `i` moved down one, so every chain naming one is wrong.
+        // Rebuilding is O(n), which is what `Vec::remove` just cost anyway.
+        if self.index.is_some() { self.reindex(); }
+        e
     }
     pub fn clear(&mut self) {
         self.entries.clear();
         self.hashes.clear();
+        self.index = None;
+        self.chain = Vec::new();
     }
     /// Replaces every entry. The hash codes are dropped: the caller is handing over keys it
     /// did not hash (`replace`, `initialize_copy`, `merge`), and hashing them needs the VM.
     pub fn set_entries(&mut self, entries: Vec<(Slot, Slot)>) {
         self.entries = entries;
         self.hashes.clear();
+        self.index = None;
+        self.chain = Vec::new();
     }
     /// Replaces every entry together with the hash codes the caller already computed for
     /// them (`rehash`, `compact!`), which saves the next lookup from hashing them again.
     pub fn set_entries_with_hashes(&mut self, entries: Vec<(Slot, Slot)>, hashes: Vec<i64>) {
         self.entries = entries;
         self.hashes = hashes;
+        self.reindex();
     }
     /// Fills in the hash codes `hashes_stale` asked for.
     pub fn set_hashes(&mut self, hashes: Vec<i64>) {
         self.hashes = hashes;
+        self.reindex();
     }
 }
 

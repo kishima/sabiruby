@@ -1,0 +1,516 @@
+irep 0x5d46da2a00e0 nregs=20 nlocals=11 pools=17 syms=22 reps=7 ilen=939
+local variable names:
+  R1:h
+  R2:k
+  R3:a
+  R4:b
+  R5:c
+  R6:d
+  R7:e
+  R8:f
+  R9:s
+  R10:g
+file: /w/hash_index_boundary.rb
+    9 000 TDEF		R11	:build	I[0]
+   15 004 LOADI8	R11	15
+   15 007 LOADI8	R12	16
+   15 010 LOADI8	R13	17
+   15 013 LOADI8	R14	40
+   15 016 ARRAY		R11	4
+   15 019 BLOCK		R12	I[1]
+   15 022 SENDB		R11	:each	n=0
+   23 026 LOADI8	R12	20
+   23 029 SSEND		R11	:build	n=1
+   23 033 MOVE		R1	R11	; R1:h
+   24 036 LOADI_5	R11	(5)
+   24 038 BLOCK		R12	I[2]
+   24 041 SENDB		R11	:times	n=0
+   25 045 MOVE		R12	R1	; R1:h
+   25 048 SEND0		R12	:size
+   25 051 MOVE		R13	R1	; R1:h
+   25 054 STRING	R14	L[0]	; k4
+   25 057 GETIDX	R13	(R14)
+   25 059 MOVE		R14	R1	; R1:h
+   25 062 STRING	R15	L[1]	; k5
+   25 065 GETIDX	R14	(R15)
+   25 067 MOVE		R15	R1	; R1:h
+   25 070 SEND0		R15	:keys
+   25 073 SEND0		R15	:first
+   25 076 ARRAY		R12	4
+   25 079 SSEND		R11	:p	n=1
+   26 083 LOADI8	R11	10
+   26 086 BLOCK		R12	I[3]
+   26 089 SENDB		R11	:times	n=0
+   27 093 MOVE		R12	R1	; R1:h
+   27 096 SEND0		R12	:size
+   27 099 MOVE		R13	R1	; R1:h
+   27 102 SEND0		R13	:keys
+   27 105 SEND0		R13	:first
+   27 108 MOVE		R14	R1	; R1:h
+   27 111 SEND0		R14	:keys
+   27 114 SEND0		R14	:last
+   27 117 ARRAY		R12	3
+   27 120 SSEND		R11	:p	n=1
+   28 124 MOVE		R11	R1	; R1:h
+   28 127 STRING	R12	L[2]	; late
+   28 130 LOADSYM	R13	:late
+   28 133 SETIDX	R11	(R12)	(R13)
+   29 135 MOVE		R12	R1	; R1:h
+   29 138 SEND0		R12	:size
+   29 141 MOVE		R13	R1	; R1:h
+   29 144 STRING	R14	L[2]	; late
+   29 147 GETIDX	R13	(R14)
+   29 149 MOVE		R14	R1	; R1:h
+   29 152 SEND0		R14	:keys
+   29 155 SEND0		R14	:last
+   29 158 ARRAY		R12	3
+   29 161 SSEND		R11	:p	n=1
+   32 165 LOADI8	R12	30
+   32 168 SSEND		R11	:build	n=1
+   32 172 MOVE		R1	R11	; R1:h
+   33 175 MOVE		R11	R1	; R1:h
+   33 178 STRING	R12	L[3]	; k10
+   33 181 SEND		R11	:delete	n=1
+   34 185 MOVE		R12	R1	; R1:h
+   34 188 SEND0		R12	:size
+   34 191 MOVE		R13	R1	; R1:h
+   34 194 STRING	R14	L[4]	; k9
+   34 197 GETIDX	R13	(R14)
+   34 199 MOVE		R14	R1	; R1:h
+   34 202 STRING	R15	L[3]	; k10
+   34 205 GETIDX	R14	(R15)
+   34 207 MOVE		R15	R1	; R1:h
+   34 210 STRING	R16	L[5]	; k11
+   34 213 GETIDX	R15	(R16)
+   34 215 MOVE		R16	R1	; R1:h
+   34 218 STRING	R17	L[6]	; k29
+   34 221 GETIDX	R16	(R17)
+   34 223 MOVE		R17	R1	; R1:h
+   34 226 SEND0		R17	:keys
+   34 229 LOADI8	R18	10
+   34 232 GETIDX	R17	(R18)
+   34 234 ARRAY		R12	6
+   34 237 SSEND		R11	:p	n=1
+   37 241 LOADI8	R12	20
+   37 244 SSEND		R11	:build	n=1
+   37 248 MOVE		R1	R11	; R1:h
+   38 251 MOVE		R12	R1	; R1:h
+   38 254 SEND0		R12	:shift
+   38 257 SSEND		R11	:p	n=1
+   39 261 MOVE		R12	R1	; R1:h
+   39 264 SEND0		R12	:size
+   39 267 MOVE		R13	R1	; R1:h
+   39 270 STRING	R14	L[7]	; k0
+   39 273 GETIDX	R13	(R14)
+   39 275 MOVE		R14	R1	; R1:h
+   39 278 STRING	R15	L[8]	; k1
+   39 281 GETIDX	R14	(R15)
+   39 283 MOVE		R15	R1	; R1:h
+   39 286 SEND0		R15	:keys
+   39 289 SEND0		R15	:first
+   39 292 ARRAY		R12	4
+   39 295 SSEND		R11	:p	n=1
+   42 299 LOADNIL	R11	(nil)
+   42 301 LOADNIL	R12	(nil)
+   42 303 CLASS		R11	:Same
+   42 306 EXEC		R11	I[4]
+   49 309 HASH		R1	0	; R1:h
+   50 312 LOADI8	R11	25
+   50 315 BLOCK		R12	I[5]
+   50 318 SENDB		R11	:times	n=0
+   51 322 MOVE		R12	R1	; R1:h
+   51 325 SEND0		R12	:size
+   51 328 SSEND		R11	:p	n=1
+   52 332 MOVE		R12	R1	; R1:h
+   52 335 GETCONST	R13	Same
+   52 338 LOADI_0	R14	(0)
+   52 340 SEND		R13	:new	n=1
+   52 344 GETIDX	R12	(R13)
+   52 346 MOVE		R13	R1	; R1:h
+   52 349 GETCONST	R14	Same
+   52 352 LOADI8	R15	24
+   52 355 SEND		R14	:new	n=1
+   52 359 GETIDX	R13	(R14)
+   52 361 MOVE		R14	R1	; R1:h
+   52 364 GETCONST	R15	Same
+   52 367 LOADI8	R16	25
+   52 370 SEND		R15	:new	n=1
+   52 374 GETIDX	R14	(R15)
+   52 376 ARRAY		R12	3
+   52 379 SSEND		R11	:p	n=1
+   53 383 MOVE		R11	R1	; R1:h
+   53 386 GETCONST	R12	Same
+   53 389 LOADI_3	R13	(3)
+   53 391 SEND		R12	:new	n=1
+   53 395 SEND		R11	:delete	n=1
+   54 399 MOVE		R12	R1	; R1:h
+   54 402 SEND0		R12	:size
+   54 405 MOVE		R13	R1	; R1:h
+   54 408 GETCONST	R14	Same
+   54 411 LOADI_3	R15	(3)
+   54 413 SEND		R14	:new	n=1
+   54 417 GETIDX	R13	(R14)
+   54 419 MOVE		R14	R1	; R1:h
+   54 422 GETCONST	R15	Same
+   54 425 LOADI_4	R16	(4)
+   54 427 SEND		R15	:new	n=1
+   54 431 GETIDX	R14	(R15)
+   54 433 ARRAY		R12	3
+   54 436 SSEND		R11	:p	n=1
+   57 440 LOADI_1	R11	(1)
+   57 442 ARRAY		R2	R11	1	; R2:k
+   58 446 LOADI8	R12	20
+   58 449 SSEND		R11	:build	n=1
+   58 453 MOVE		R1	R11	; R1:h
+   59 456 MOVE		R11	R1	; R1:h
+   59 459 MOVE		R12	R2	; R2:k
+   59 462 LOADSYM	R13	:ary
+   59 465 SETIDX	R11	(R12)	(R13)
+   60 467 MOVE		R11	R2	; R2:k
+   60 470 LOADI_2	R12	(2)
+   60 472 SEND		R11	:<<	n=1
+   61 476 MOVE		R12	R1	; R1:h
+   61 479 LOADI_1	R13	(1)
+   61 481 LOADI_2	R14	(2)
+   61 483 ARRAY		R13	2
+   61 486 GETIDX	R12	(R13)
+   61 488 SSEND		R11	:p	n=1
+   62 492 MOVE		R11	R1	; R1:h
+   62 495 SEND0		R11	:rehash
+   63 498 MOVE		R12	R1	; R1:h
+   63 501 LOADI_1	R13	(1)
+   63 503 LOADI_2	R14	(2)
+   63 505 ARRAY		R13	2
+   63 508 GETIDX	R12	(R13)
+   63 510 MOVE		R13	R1	; R1:h
+   63 513 LOADI_1	R14	(1)
+   63 515 ARRAY		R14	1
+   63 518 GETIDX	R13	(R14)
+   63 520 MOVE		R14	R1	; R1:h
+   63 523 SEND0		R14	:size
+   63 526 MOVE		R15	R1	; R1:h
+   63 529 STRING	R16	L[7]	; k0
+   63 532 GETIDX	R15	(R16)
+   63 534 ARRAY		R12	4
+   63 537 SSEND		R11	:p	n=1
+   66 541 LOADI8	R12	20
+   66 544 SSEND		R11	:build	n=1
+   66 548 MOVE		R3	R11	; R3:a
+   67 551 LOADI_3	R12	(3)
+   67 553 SSEND		R11	:build	n=1
+   67 557 MOVE		R4	R11	; R4:b
+   68 560 MOVE		R11	R4	; R4:b
+   68 563 MOVE		R12	R3	; R3:a
+   68 566 SEND		R11	:replace	n=1
+   69 570 MOVE		R12	R4	; R4:b
+   69 573 SEND0		R12	:size
+   69 576 MOVE		R13	R4	; R4:b
+   69 579 STRING	R14	L[9]	; k19
+   69 582 GETIDX	R13	(R14)
+   69 584 MOVE		R14	R4	; R4:b
+   69 587 SEND0		R14	:keys
+   69 590 SEND0		R14	:first
+   69 593 ARRAY		R12	3
+   69 596 SSEND		R11	:p	n=1
+   70 600 MOVE		R11	R3	; R3:a
+   70 603 SEND0		R11	:dup
+   70 606 MOVE		R5	R11	; R5:c
+   71 609 MOVE		R11	R5	; R5:c
+   71 612 STRING	R12	L[10]	; extra
+   71 615 LOADI_1	R13	(1)
+   71 617 SETIDX	R11	(R12)	(R13)
+   72 619 MOVE		R12	R3	; R3:a
+   72 622 SEND0		R12	:size
+   72 625 MOVE		R13	R5	; R5:c
+   72 628 SEND0		R13	:size
+   72 631 MOVE		R14	R5	; R5:c
+   72 634 STRING	R15	L[9]	; k19
+   72 637 GETIDX	R14	(R15)
+   72 639 MOVE		R15	R5	; R5:c
+   72 642 STRING	R16	L[10]	; extra
+   72 645 GETIDX	R15	(R16)
+   72 647 ARRAY		R12	4
+   72 650 SSEND		R11	:p	n=1
+   73 654 LOADI8	R12	18
+   73 657 SSEND		R11	:build	n=1
+   73 661 LOADI8	R13	20
+   73 664 SSEND		R12	:build	n=1
+   73 668 SEND		R11	:merge	n=1
+   73 672 MOVE		R6	R11	; R6:d
+   74 675 MOVE		R12	R6	; R6:d
+   74 678 SEND0		R12	:size
+   74 681 MOVE		R13	R6	; R6:d
+   74 684 STRING	R14	L[9]	; k19
+   74 687 GETIDX	R13	(R14)
+   74 689 MOVE		R14	R6	; R6:d
+   74 692 SEND0		R14	:keys
+   74 695 SEND0		R14	:first
+   74 698 MOVE		R15	R6	; R6:d
+   74 701 SEND0		R15	:keys
+   74 704 SEND0		R15	:last
+   74 707 ARRAY		R12	4
+   74 710 SSEND		R11	:p	n=1
+   75 714 LOADI8	R12	20
+   75 717 SSEND		R11	:build	n=1
+   75 721 MOVE		R7	R11	; R7:e
+   76 724 MOVE		R11	R7	; R7:e
+   76 727 SEND0		R11	:clear
+   77 730 MOVE		R12	R7	; R7:e
+   77 733 SEND0		R12	:size
+   77 736 MOVE		R13	R7	; R7:e
+   77 739 STRING	R14	L[7]	; k0
+   77 742 GETIDX	R13	(R14)
+   77 744 ARRAY		R12	2
+   77 747 SSEND		R11	:p	n=1
+   78 751 MOVE		R11	R7	; R7:e
+   78 754 STRING	R12	L[11]	; after
+   78 757 LOADI_1	R13	(1)
+   78 759 SETIDX	R11	(R12)	(R13)
+   79 761 MOVE		R12	R7	; R7:e
+   79 764 SEND0		R12	:size
+   79 767 MOVE		R13	R7	; R7:e
+   79 770 STRING	R14	L[11]	; after
+   79 773 GETIDX	R13	(R14)
+   79 775 ARRAY		R12	2
+   79 778 SSEND		R11	:p	n=1
+   82 782 LOADI8	R12	20
+   82 785 SSEND		R11	:build	n=1
+   82 789 MOVE		R8	R11	; R8:f
+   83 792 STRING	R11	L[12]	; k3
+   83 795 STRING	R12	L[13]	; k7
+   83 798 STRING	R13	L[9]	; k19
+   83 801 ARRAY		R11	3
+   83 804 BLOCK		R12	I[6]
+   83 807 SENDB		R11	:each	n=0
+   84 811 MOVE		R12	R8	; R8:f
+   84 814 SEND0		R12	:size
+   84 817 SSEND		R11	:p	n=1
+   85 821 MOVE		R11	R8	; R8:f
+   85 824 SEND0		R11	:compact!
+   86 827 MOVE		R12	R8	; R8:f
+   86 830 SEND0		R12	:size
+   86 833 MOVE		R13	R8	; R8:f
+   86 836 STRING	R14	L[12]	; k3
+   86 839 GETIDX	R13	(R14)
+   86 841 MOVE		R14	R8	; R8:f
+   86 844 STRING	R15	L[0]	; k4
+   86 847 GETIDX	R14	(R15)
+   86 849 MOVE		R15	R8	; R8:f
+   86 852 STRING	R16	L[9]	; k19
+   86 855 GETIDX	R15	(R16)
+   86 857 MOVE		R16	R8	; R8:f
+   86 860 SEND0		R16	:keys
+   86 863 SEND0		R16	:last
+   86 866 ARRAY		R12	5
+   86 869 SSEND		R11	:p	n=1
+   89 873 STRING	R9	L[14]	; mutable	; R9:s
+   90 876 LOADI8	R12	20
+   90 879 SSEND		R11	:build	n=1
+   90 883 MOVE		R10	R11	; R10:g
+   91 886 MOVE		R11	R10	; R10:g
+   91 889 MOVE		R12	R9	; R9:s
+   91 892 LOADSYM	R13	:v
+   91 895 SETIDX	R11	(R12)	(R13)
+   92 897 MOVE		R11	R9	; R9:s
+   92 900 STRING	R12	L[15]	; !
+   92 903 SEND		R11	:<<	n=1
+   93 907 MOVE		R12	R10	; R10:g
+   93 910 STRING	R13	L[14]	; mutable
+   93 913 GETIDX	R12	(R13)
+   93 915 MOVE		R13	R10	; R10:g
+   93 918 STRING	R14	L[16]	; mutable!
+   93 921 GETIDX	R13	(R14)
+   93 923 MOVE		R14	R10	; R10:g
+   93 926 SEND0		R14	:size
+   93 929 ARRAY		R12	3
+   93 932 SSEND		R11	:p	n=1
+   93 936 RETURN	R11	
+   93 938 STOP
+
+irep 0x5d46da2ae6a0 nregs=6 nlocals=4 pools=0 syms=1 reps=1 ilen=19
+local variable names:
+  R1:n
+  R3:h
+file: /w/hash_index_boundary.rb
+    9 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   10 004 HASH		R3	0	; R3:h
+   11 007 MOVE		R4	R1	; R1:n
+   11 010 BLOCK		R5	I[0]
+   11 013 SENDB		R4	:times	n=0
+   12 017 RETURN	R3		; R3:h
+
+irep 0x5d46da2afdd0 nregs=8 nlocals=3 pools=1 syms=0 reps=0 ilen=26
+local variable names:
+  R1:i
+file: /w/hash_index_boundary.rb
+   11 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   11 004 GETUPVAR	R4	3	0
+   11 008 STRING	R5	L[0]	; k
+   11 011 MOVE		R6	R1	; R1:i
+   11 014 STRCAT	R5	(R6)
+   11 016 MOVE		R6	R1	; R1:i
+   11 019 MOVE		R3	R6
+   11 022 SETIDX	R4	(R5)	(R6)
+   11 024 RETURN	R3	
+
+irep 0x5d46da2af9e0 nregs=15 nlocals=4 pools=3 syms=8 reps=1 ilen=131
+local variable names:
+  R1:n
+  R3:h
+file: /w/hash_index_boundary.rb
+   15 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   16 004 MOVE		R5	R1	; R1:n
+   16 007 SSEND		R4	:build	n=1
+   16 011 MOVE		R3	R4	; R3:h
+   17 014 MOVE		R5	R1	; R1:n
+   17 017 MOVE		R6	R3	; R3:h
+   17 020 SEND0		R6	:size
+   17 023 MOVE		R7	R3	; R3:h
+   17 026 SEND0		R7	:keys
+   17 029 SEND0		R7	:first
+   17 032 MOVE		R8	R3	; R3:h
+   17 035 SEND0		R8	:keys
+   17 038 SEND0		R8	:last
+   17 041 MOVE		R9	R3	; R3:h
+   17 044 STRING	R10	L[0]	; k0
+   17 047 GETIDX	R9	(R10)
+   17 049 MOVE		R10	R3	; R3:h
+   17 052 STRING	R11	L[1]	; k
+   17 055 MOVE		R12	R1	; R1:n
+   17 058 SUBI		R12	1
+   17 061 STRCAT	R11	(R12)
+   17 063 GETIDX	R10	(R11)
+   17 065 MOVE		R11	R3	; R3:h
+   17 068 STRING	R12	L[2]	; nope
+   17 071 GETIDX	R11	(R12)
+   17 073 ARRAY		R5	7
+   17 076 SSEND		R4	:p	n=1
+   18 080 MOVE		R5	R3	; R3:h
+   18 083 SEND0		R5	:keys
+   18 086 LOADI_0	R6	(0)
+   18 088 MOVE		R7	R1	; R1:n
+   18 091 RANGE_EXC	R6
+   18 093 BLOCK		R7	I[0]
+   18 096 SENDB		R6	:map	n=0
+   18 100 EQ		R5	(R6)
+   18 102 SSEND		R4	:p	n=1
+   19 106 MOVE		R5	R3	; R3:h
+   19 109 SEND0		R5	:to_a
+   19 112 SEND0		R5	:first
+   19 115 STRING	R6	L[0]	; k0
+   19 118 LOADI_0	R7	(0)
+   19 120 ARRAY		R6	2
+   19 123 EQ		R5	(R6)
+   19 125 SSEND		R4	:p	n=1
+   19 129 RETURN	R4	
+
+irep 0x5d46da2afd10 nregs=5 nlocals=3 pools=1 syms=0 reps=0 ilen=14
+local variable names:
+  R1:i
+file: /w/hash_index_boundary.rb
+   18 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   18 004 STRING	R3	L[0]	; k
+   18 007 MOVE		R4	R1	; R1:i
+   18 010 STRCAT	R3	(R4)
+   18 012 RETURN	R3	
+
+irep 0x5d46da2b0fc0 nregs=6 nlocals=3 pools=1 syms=1 reps=0 ilen=22
+local variable names:
+  R1:i
+file: /w/hash_index_boundary.rb
+   24 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   24 004 GETUPVAR	R3	1	0
+   24 008 STRING	R4	L[0]	; k
+   24 011 MOVE		R5	R1	; R1:i
+   24 014 STRCAT	R4	(R5)
+   24 016 SEND		R3	:delete	n=1
+   24 020 RETURN	R3	
+
+irep 0x5d46da2af7f0 nregs=8 nlocals=3 pools=1 syms=1 reps=0 ilen=25
+local variable names:
+  R1:i
+file: /w/hash_index_boundary.rb
+   26 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   26 004 GETUPVAR	R3	1	0
+   26 008 STRING	R4	L[0]	; k
+   26 011 MOVE		R5	R1	; R1:i
+   26 014 ADDI		R5	5
+   26 017 STRCAT	R4	(R5)
+   26 019 SEND		R3	:delete	n=1
+   26 023 RETURN	R3	
+
+irep 0x5d46da2ae330 nregs=4 nlocals=1 pools=0 syms=6 reps=4 ilen=25
+file: /w/hash_index_boundary.rb
+   43 000 TDEF		R1	:initialize	I[0]
+   44 004 TDEF		R1	:hash	I[1]
+   45 008 TDEF		R1	:eql?	I[2]
+   46 012 TDEF		R1	:==	I[3]
+   47 016 LOADSYM	R2	:n
+   47 019 SSEND		R1	:attr_reader	n=1
+   47 023 RETURN	R1	
+
+irep 0x5d46da2ae600 nregs=4 nlocals=3 pools=0 syms=1 reps=0 ilen=12
+local variable names:
+  R1:n
+file: /w/hash_index_boundary.rb
+   43 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   43 004 MOVE		R3	R1	; R1:n
+   43 007 SETIV		@n	R3
+   43 010 RETURN	R3	
+
+irep 0x5d46da2b4500 nregs=3 nlocals=2 pools=0 syms=0 reps=0 ilen=9
+file: /w/hash_index_boundary.rb
+   44 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   44 004 LOADI8	R2	42
+   44 007 RETURN	R2	
+
+irep 0x5d46da2b4ac0 nregs=6 nlocals=3 pools=0 syms=4 reps=0 ilen=31
+local variable names:
+  R1:o
+file: /w/hash_index_boundary.rb
+   45 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   45 004 MOVE		R3	R1	; R1:o
+   45 007 GETCONST	R4	Same
+   45 010 SEND		R3	:is_a?	n=1
+   45 014 JMPNOT	R3	029
+   45 018 MOVE		R3	R1	; R1:o
+   45 021 SEND0		R3	:n
+   45 024 GETIV		R4	@n
+   45 027 EQ		R3	(R4)
+   45 029 RETURN	R3	
+
+irep 0x5d46da2b4db0 nregs=6 nlocals=3 pools=0 syms=1 reps=0 ilen=13
+local variable names:
+  R1:o
+file: /w/hash_index_boundary.rb
+   46 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   46 004 MOVE		R4	R1	; R1:o
+   46 007 SSEND		R3	:eql?	n=1
+   46 011 RETURN	R3	
+
+irep 0x5d46da2b5550 nregs=8 nlocals=3 pools=0 syms=2 reps=0 ilen=28
+local variable names:
+  R1:i
+file: /w/hash_index_boundary.rb
+   50 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   50 004 GETUPVAR	R4	1	0
+   50 008 GETCONST	R5	Same
+   50 011 MOVE		R6	R1	; R1:i
+   50 014 SEND		R5	:new	n=1
+   50 018 MOVE		R6	R1	; R1:i
+   50 021 MOVE		R3	R6
+   50 024 SETIDX	R4	(R5)	(R6)
+   50 026 RETURN	R3	
+
+irep 0x5d46da2b5d80 nregs=8 nlocals=3 pools=0 syms=0 reps=0 ilen=20
+local variable names:
+  R1:x
+file: /w/hash_index_boundary.rb
+   83 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+   83 004 GETUPVAR	R4	8	0
+   83 008 MOVE		R5	R1	; R1:x
+   83 011 LOADNIL	R6	(nil)
+   83 013 MOVE		R3	R6
+   83 016 SETIDX	R4	(R5)	(R6)
+   83 018 RETURN	R3	
+
