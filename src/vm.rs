@@ -486,6 +486,11 @@ pub struct Vm {
     /// What the host wants told when a Data object is collected (`Vm::set_on_free`).
     #[doc(hidden)]
     pub on_free: Option<alloc::boxed::Box<dyn Fn(u32, u64) + Send + Sync>>,
+    /// One `HostStore` per host type, with the Data tag of its objects
+    /// (`Vm::install_host_store`, `crate::host_store`). The VM only drops entries from them.
+    pub(crate) host_stores: Vec<crate::host_store::HostStoreEntry>,
+    /// The next number `Vm::next_data_tag` hands out.
+    pub(crate) next_tag: u32,
 }
 
 /// Result of [`Vm::step`].
@@ -624,7 +629,7 @@ impl Vm {
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, method_cache: alloc::boxed::Box::new([MethodCacheLine::default(); METHOD_CACHE_LEN]), native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
-            host_state: None, on_free: None,
+            host_state: None, on_free: None, host_stores: Vec::new(), next_tag: 1,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -2388,6 +2393,12 @@ impl Vm {
         // later does not hear about objects freed before it.
         if !self.heap.freed_data.is_empty() {
             let freed = core::mem::take(&mut self.heap.freed_data);
+            // A store of the VM's own (`crate::host_store`) drops what the handle named first:
+            // the host's hook is then told about an object whose value is already gone, which
+            // is the order a hook that keeps a table of its own would want.
+            if !self.host_stores.is_empty() {
+                for (tag, handle) in freed.iter().copied() { self.host_store_free(tag, handle); }
+            }
             if let Some(hook) = &self.on_free {
                 for (tag, handle) in freed { hook(tag, handle); }
             }
