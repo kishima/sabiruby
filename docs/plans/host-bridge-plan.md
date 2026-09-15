@@ -47,7 +47,7 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | **済み**（2026-09-15、`c667a9d`）。rubevy 側も済み（2026-09-15、rubevy `68d80ed` `7b71c16`: static のキューを `host_state` へ、`Rubevy::Entity`） |
 | 6 | マクロ、Future 連携、動的プロキシ | 方針だけ（3b の後） |
 | 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | 着手（2026-09-15） |
-| 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | 着手（2026-09-15） |
+| 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | **済み**（2026-09-15、sabiruby `4e5b590`、rubevy `1afb91c`）。rubevy の `src/` に `vm.heap` / `vm.task` / `vm.globals` への直接アクセスは 0 |
 
 進め方（2026-09-15 から）: 計画は本体（Fable）が書き、実装は `implementer`（Opus のサブエージェント、
 `/home/kishima/book/.claude/agents/implementer.md`）が worktree のブランチで行い、本体がレビューしてマージする。
@@ -110,6 +110,14 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 * 索引ありと索引なし（B1 のバイナリ）で境界（15/16/17/40 要素、閾値を下回る削除、`shift`、同一 `hash` で非 `eql?` の 25 キー、`rehash`）の出力が一致し、本家とも一致
   （`tests/custom/hash_index_boundary`）。
 * 計測中に自分で `cargo build` を回して数値が荒れ、取り直した（best/median が 44% 差）。自分の道具も外乱になる、の再現。
+
+### 段階 3b（過程は `docs/worklog/2026-09-15-stage3b-host-entry-points.md`、rubevy 側は rubevy の worklog）
+
+* 6 本の入口（`task_running`、`ivar_get`/`ivar_set`、`global_get`/`global_set`、`is_exception`）は既存の内部関数を包むだけ。
+  読む側の 2 本は `&self` のまま: `intern` は `&mut self` が要るが、intern されていない名前はどの ivar/global の名前でもありえない（どちらも nil）ので、
+  intern せずに引くだけの `Interner::lookup_str`（3 行）を足した。読むだけの入口が `&mut Vm` を要ると `&Vm` しか持たない場所から呼べない。
+* rubevy の `Slot` と `ObjKind` の import が消え、VM の内部表現を知っているのは VM だけになった。
+* `pgrep -f` で自分の待ちシェルを見つけ続ける失敗（`[b]ench` の形が要る）。
 
 ### 段階 4・5（過程は `docs/worklog/2026-09-15-stage4-5-bridge.md`）
 
