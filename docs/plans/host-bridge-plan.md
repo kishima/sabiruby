@@ -45,8 +45,9 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 | 3 | ネイティブのクロージャと型付きホスト状態 | **済み**（2026-09-15、`93824b1` `1472346`）。sabiruby 側のみ。rubevy 側の置き換えは未 |
 | 4 | `FromRuby` / `IntoRuby` と `define_fn` | **済み**（2026-09-15、`ccc60de`） |
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | **済み**（2026-09-15、`c667a9d`）。rubevy 側も済み（2026-09-15、rubevy `68d80ed` `7b71c16`: static のキューを `host_state` へ、`Rubevy::Entity`） |
-| 6a | `sabiruby-macros`（`#[derive(RubyClass)]`、`#[ruby_methods]`、`HostStore`） | 着手（2026-09-15） |
-| 6b, 6c | rubevy: Future 連携（`answer_with`）、動的プロキシ（`proxy.rb`） | 着手（2026-09-15） |
+| 6a | `sabiruby-macros`（`#[derive(RubyClass)]`、`#[ruby_methods]`、`HostStore`） | **済み**（2026-09-15、`e7ea20e`〜`bd7fcb7`） |
+| 6b | rubevy: Future 連携（`answer_with`） | **済み**（2026-09-15、rubevy `995cd5d`〜`5007337`） |
+| 6c | rubevy: 動的プロキシ（`proxy.rb`） | **止まっている**: `method_missing` の中では `ask(...).pop` で止まれない（VM が入れ子の実行ループで呼ぶ）。案 A（VM の `method_missing` を `send` と同じ再ディスパッチに）を推奨、著者判断待ち |
 | 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | **済み**（2026-09-15、`07659aa` `2521b79` `f222934` `17ab5dc`）。通しで −15.8%（元の 20 本で −11.1%）、`ds_hash` −63% |
 | 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | **済み**（2026-09-15、sabiruby `4e5b590`、rubevy `1afb91c`）。rubevy の `src/` に `vm.heap` / `vm.task` / `vm.globals` への直接アクセスは 0 |
 
@@ -123,6 +124,27 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 * `items()` の複製は、段階 2c の 8 か所修正でベンチからは消えていた。残っていたのは `include?`/`member?`/`count` がループ内で `items()` を呼ぶ O(n²)。
   100 要素の `count` で −86%。ベンチ 22 本は呼ばないので合計は動かない。
 * `vm_optimization_bench` を 5 本（`vmo_dispatch`/`arith`/`calls`/`index`/`objects`）に分けて分類し直した。元は「実アプリ寄り」へ。
+
+### 段階 6a（過程は `docs/worklog/2026-09-15-stage6a-macros.md`）
+
+* `HostStore<T>` は VM が `TypeId` で型ごとに持つ（案 B）。決め手は解放フック: `set_on_free` は 1 つしか持てず `&mut Vm` も受け取らないので、
+  型ごとにフックを張る設計は 2 型目が 1 型目を潰す。VM が自分の store を回収時に解放する形にしたので、生成コードはフックを使わず、
+  フックはホスト用に空いたまま。
+* クラスメソッドの判定は「`self` を取らない `fn`」。`&mut Vm` を取るインスタンスメソッドのために、番号を予約したまま実体を貸し出す
+  `take`/`restore` を用意し、同じオブジェクトへの再入は `RuntimeError`。枠は `Empty`/`Full`/`Out` の 3 状態。
+* 引数の型が `FromRuby` 非対応のときのエラーが読めなかった（`{closure@…}: RubyFn<_>`）ので、生成コードが引数の型の span で `FromRuby` を要求し直す。
+* 判断待ち: 生成された `register` に残る `expect` 1 つ（`VmResult` を返す形にするか）、`allocate` で作った素のオブジェクトへの呼び出しの文言、ブロックを取るメソッド。
+
+### 段階 6b・6c（過程は rubevy の `docs/worklog/2026-09-15-stage6bc-futures-proxy.md`）
+
+* `answer_with` の system は `tick_scripts` の**前**: 前フレームの終わりから今フレームの頭までに終わった future を今フレームで拾える。
+* rubevy の Bevy に `multi_threaded` は付いていなかった。無いとタスクプールはメインスレッドで進めるだけ進めてから帰り、計算だけの future はフレームを止める。
+  ライブラリは要求せず利用側が足す（README）。
+* テストは `sleep` との競争を避け、テストが自分で開ける門（`bool` + `Waker`）に future を待たせる形。
+* **6c の壁**: `method_missing` の中で `ask(...).pop` すると `blocking pop cannot be called from within a C function boundary`。
+  VM が `method_missing` を `call_proc_with`（入れ子の実行ループ）で呼ぶため。`initialize` の中も同じ（`Class#new` がネイティブ）。
+  `define_method` で作った本物のメソッドなら止まれる。案 A（VM 側で `send` の `op_send_redirect` と同じ再ディスパッチにする。本家も `mrb_exec_irep` で
+  同じフレームに入る）、B（キューを返して呼ぶ側で `.pop`）、C（名前の一覧から `define_method`）。
 
 ### 段階 3b（過程は `docs/worklog/2026-09-15-stage3b-host-entry-points.md`、rubevy 側は rubevy の worklog）
 
