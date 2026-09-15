@@ -45,7 +45,8 @@ rubevy `docs/rust-bridge.ja.md`（今の接続の全容と C の mruby との比
 | 3 | ネイティブのクロージャと型付きホスト状態 | **済み**（2026-09-15、`93824b1` `1472346`）。sabiruby 側のみ。rubevy 側の置き換えは未 |
 | 4 | `FromRuby` / `IntoRuby` と `define_fn` | **済み**（2026-09-15、`ccc60de`） |
 | 5 | Data オブジェクト（ハンドル方式）と解放フック | **済み**（2026-09-15、`c667a9d`）。rubevy 側も済み（2026-09-15、rubevy `68d80ed` `7b71c16`: static のキューを `host_state` へ、`Rubevy::Entity`） |
-| 6 | マクロ、Future 連携、動的プロキシ | 方針だけ（3b の後） |
+| 6a | `sabiruby-macros`（`#[derive(RubyClass)]`、`#[ruby_methods]`、`HostStore`） | 着手（2026-09-15） |
+| 6b, 6c | rubevy: Future 連携（`answer_with`）、動的プロキシ（`proxy.rb`） | 着手（2026-09-15） |
 | 2d | 性能の第 2 弾: Hash の固定費と `eql?`、`items()` の複製、`vm_optimization_bench` の分類分け | **済み**（2026-09-15、`07659aa` `2521b79` `f222934` `17ab5dc`）。通しで −15.8%（元の 20 本で −11.1%）、`ds_hash` −63% |
 | 3b | VM の公開 API の穴埋め: rubevy が内部フィールドに触る 4 か所に入口を足し、rubevy を移す | **済み**（2026-09-15、sabiruby `4e5b590`、rubevy `1afb91c`）。rubevy の `src/` に `vm.heap` / `vm.task` / `vm.globals` への直接アクセスは 0 |
 
@@ -361,14 +362,67 @@ vm.define_fn(class, "greet", |vm: &mut Vm, name: String| format!("hi {name}")); 
 
 **確認**: sabiruby の `cargo test --workspace`、no_std、本家テストの基準。rubevy の `cargo test`、examples。ベンチは不要（ホットパスに触らない）。
 
-## 段階 6: その先（方針だけ。着手は段階 5 の後に決める）
+## 段階 6: マクロ、Future 連携、動的プロキシ（2026-09-15 に具体化。6a と 6b は並行、6c は 6b の担当）
 
-* **マクロ**: 別 crate `sabiruby-macros`。`#[ruby_methods] impl Player { … }` が段階 4 の `define_fn` と段階 5 の `Data` を呼ぶコードを
-  生成するだけにし、コアに新しい機構を足さない。
-* **Future 連携**: Rust の Future が完了したら `task_queue_push` する薄い層。`Rubevy.ask` がすでにこの形なので、
-  汎用にするだけ（`Vm::task_queue_new` を返す `spawn_future` 相当）。時計は段階 3 の後の rubevy の仕事。
-* **動的プロキシ**: `method_missing` は VM が対応済み。Ruby 側のライブラリ（prelude）で書けるので VM の変更は要らない。
-  議論のとおり、明示登録が基本で、外部オブジェクトにだけ使う。
+### 6a: `sabiruby-macros`（属性マクロ）
+
+**到達点**: Rust の構造体とその `impl` を、手書きの `define_fn`/`data_new` なしで Ruby のクラスにできる。
+
+```rust
+#[derive(RubyClass)]            // Data のタグと、Ruby 側のクラス名（既定は型名）
+struct Player { hp: i64 }
+
+#[ruby_methods]                  // impl 内の pub fn を、そのままメソッドとして登録
+impl Player {
+    fn new(hp: i64) -> Self { Player { hp } }          // `Player.new(100)`
+    fn damage(&mut self, n: i64) { self.hp -= n; }     // `player.damage(10)`
+    fn hp(&self) -> i64 { self.hp }                    // `player.hp`
+}
+// 登録: sabiruby_macros で生成された `Player::register(&mut vm, store)`
+```
+
+**設計の要点**（段階 4・5 の上に載せるだけ。コアに新しい機構を足さない）:
+* 新しい crate `macros/`（`sabiruby-macros`、`proc-macro = true`、`syn`/`quote`）。ワークスペースの `members` に足す。`sabiruby` からは依存しない
+  （利用側が `sabiruby` と `sabiruby-macros` の両方を書く。将来 `sabiruby` の feature `macros` で re-export してもよい）。
+* **実体は Rust 側が所有する**（Host Object 方式）。生成コードは、`Vm::host_state` の中に置いた `HostStore<T>`（slab: `Vec<Option<T>>` と空き番号）に
+  実体を入れ、Ruby には `data_new(class, TAG, handle)` を渡す。`&self`/`&mut self` を取るメソッドは、`This<DataRef>` で受けたハンドルから
+  `host_state_mut::<HostStore<T>>()` を引いて実体を借りる。解放フック（`set_on_free`）で slab から外す。
+* `self` を取らない `fn new(...) -> Self` はクラスメソッド `new` に。`&self` は読み、`&mut self` は書き。引数と戻り値は段階 4 の `FromRuby`/`IntoRuby`
+  （対応外の型はコンパイルエラーにし、エラーメッセージに型名を出す）。`&mut Vm` を先頭に取る形も許す。
+* `HostStore<T>` と `TAG` の割り当て（型ごとに一意な `u32`。`TypeId` は `no_std` で `const` にできないので、登録時に VM から採番する `Vm::next_data_tag()` を足す）
+  は `sabiruby` 側の小さな追加（`src/convert.rs` か新しい `src/host_store.rs`）。ここだけがコアの変更。
+* マクロの出力が読めること: `cargo expand` 相当を `macros/tests/expand.rs` に固定（生成コードの意図をテストで示す）。
+
+**確認**: `macros/tests/` に上の `Player` を含む結合テスト（`new`、読み書き、`Method#arity`、解放フックで slab から消える、`dup` は `TypeError`、
+2 つの型を同時に登録して tag が衝突しない）。`cargo test --workspace`、`cargo doc --no-deps` 警告なし、`tools/check_no_std.sh`（`sabiruby` 本体は
+`no_std` のまま。`macros` は proc-macro なので対象外）、本家テストの基準、`cargo publish --dry-run --workspace`（`macros` の `Cargo.toml` に
+`version`/`license`/`description`/`repository` を書く。公開はしない）。
+
+**大きさ**: 中。
+
+### 6b: Future 連携（rubevy）
+
+**到達点**: ゲームが「答えを非同期に作る」仕事を Bevy のタスクプールに投げ、完了したら待っているスクリプトが起きる。
+
+* `ScriptWorld::answer_with(request, future)`: `Future<Output = Answer> + Send + 'static` を `AsyncComputeTaskPool` に投げ、
+  完了を毎フレームの system（`drain_commands` の隣）が拾って `answer` する。`Request` は今のまま（queue を持つ）。
+  スクリプト側は何も変わらない（`Rubevy.ask(...).pop` で待つだけ）。
+* `examples/` に 1 本（`headless` の隣。数フレームかかる計算を future で答える）。`tests/` に 1 本（answer が数フレーム後に届き、
+  その間スクリプトが止まっていて他のスクリプトは動く）。
+* `docs/host-api.md` に節を足す。
+
+**大きさ**: 小。
+
+### 6c: 動的プロキシ（rubevy の Ruby 側）
+
+**到達点**: ホストのオブジェクトに、Ruby 側で `method_missing` を使った代理を薄く作れる。
+
+* rubevy の `assets/scripts/` に `proxy.rb`（`require` できる Ruby のライブラリ）: `Rubevy::Proxy.new(kind)` が、未定義メソッド `name(*args)` を
+  `Rubevy.ask("#{kind}.#{name}", *args).pop` に変え、`respond_to_missing?` も答える。VM の変更は要らない。
+* 使い道の例を `examples/` の 1 本に足す（6b の例と同じでよい: `robot = Rubevy::Proxy.new("robot"); robot.move_to(1, 2)`）。
+* 議論の結論どおり、**明示登録が基本で、外部オブジェクトにだけ使う**、と `docs/host-api.md` に書く。
+
+**大きさ**: 小。
 
 ## 記録
 
