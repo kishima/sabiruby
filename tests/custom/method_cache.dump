@@ -1,0 +1,799 @@
+irep 0x5eb8c754dcd0 nregs=21 nlocals=17 pools=5 syms=44 reps=34 ilen=1173
+local variable names:
+  R1:a
+  R2:b
+  R3:c
+  R4:d1
+  R5:d2
+  R6:e
+  R7:f
+  R8:g
+  R9:h
+  R10:i
+  R11:j
+  R12:l
+  R13:o
+  R14:p1
+  R15:p2
+  R16:s
+catch type: rescue   begin: 0142 end: 0155 target: 0158
+catch type: rescue   begin: 0221 end: 0227 target: 0230
+catch type: rescue   begin: 0731 end: 0737 target: 0740
+catch type: rescue   begin: 0886 end: 0899 target: 0902
+file: /w/method_cache.rb
+    5 000 TDEF		R17	:warm	I[0]
+    9 004 LOADNIL	R17	(nil)
+    9 006 LOADNIL	R18	(nil)
+    9 008 CLASS		R17	:A
+    9 011 EXEC		R17	I[1]
+   12 014 LOADNIL	R17	(nil)
+   12 016 GETCONST	R18	A
+   12 019 CLASS		R17	:B
+   12 022 LOADNIL	R17	(nil)
+   13 024 GETCONST	R17	A
+   13 027 SEND0		R17	:new
+   13 030 MOVE		R1	R17	; R1:a
+   13 033 GETCONST	R17	B
+   13 036 SEND0		R17	:new
+   13 039 MOVE		R2	R17	; R2:b
+   15 042 MOVE		R18	R2	; R2:b
+   15 045 LOADSYM	R19	:x
+   15 048 SSEND		R17	:warm	n=2
+   15 052 MOVE		R18	R2	; R2:b
+   15 055 SEND0		R18	:x
+   15 058 SSEND		R17	:puts	n=1
+   18 062 LOADNIL	R17	(nil)
+   18 064 LOADNIL	R18	(nil)
+   18 066 CLASS		R17	:B
+   18 069 EXEC		R17	I[2]
+   19 072 MOVE		R18	R2	; R2:b
+   19 075 SEND0		R18	:x
+   19 078 SSEND		R17	:puts	n=1
+   22 082 LOADNIL	R17	(nil)
+   22 084 LOADNIL	R18	(nil)
+   22 086 CLASS		R17	:B
+   22 089 EXEC		R17	I[3]
+   23 092 MOVE		R18	R2	; R2:b
+   23 095 SEND0		R18	:x
+   23 098 SSEND		R17	:puts	n=1
+   26 102 LOADNIL	R17	(nil)
+   26 104 LOADNIL	R18	(nil)
+   26 106 CLASS		R17	:B
+   26 109 EXEC		R17	I[4]
+   27 112 MOVE		R18	R2	; R2:b
+   27 115 SEND0		R18	:x
+   27 118 SSEND		R17	:puts	n=1
+   30 122 MOVE		R18	R2	; R2:b
+   30 125 LOADSYM	R19	:x
+   30 128 SSEND		R17	:warm	n=2
+   30 132 LOADNIL	R17	(nil)
+   30 134 LOADNIL	R18	(nil)
+   30 136 CLASS		R17	:B
+   30 139 EXEC		R17	I[5]
+   31 142 MOVE		R17	R2	; R2:b
+   31 145 SEND0		R17	:x
+   31 148 STRING	R18	L[0]	; no raise
+   31 151 SSEND		R17	:puts	n=1
+   31 155 JMP		185
+   31 158 EXCEPT	R17	
+   31 160 GETCONST	R18	NoMethodError
+   31 163 RESCUE	R17	R18
+   31 166 JMPIF		R18	173
+   31 170 JMP		183
+   31 173 STRING	R18	L[1]	; undef ok
+   31 176 SSEND		R17	:puts	n=1
+   31 180 JMP		185
+   31 183 RAISEIF	R17	
+   34 185 LOADNIL	R17	(nil)
+   34 187 MODULE	R17	:M
+   34 190 EXEC		R17	I[6]
+   35 193 LOADNIL	R17	(nil)
+   35 195 LOADNIL	R18	(nil)
+   35 197 CLASS		R17	:C
+   35 200 LOADNIL	R17	(nil)
+   36 202 GETCONST	R17	C
+   36 205 SEND0		R17	:new
+   36 208 MOVE		R3	R17	; R3:c
+   37 211 MOVE		R18	R3	; R3:c
+   37 214 LOADSYM	R19	:y
+   37 217 SSEND		R17	:warm	n=2
+   38 221 MOVE		R17	R3	; R3:c
+   38 224 SEND0		R17	:y
+   38 227 JMP		257
+   38 230 EXCEPT	R17	
+   38 232 GETCONST	R18	NoMethodError
+   38 235 RESCUE	R17	R18
+   38 238 JMPIF		R18	245
+   38 242 JMP		255
+   38 245 STRING	R18	L[2]	; y missing ok
+   38 248 SSEND		R17	:puts	n=1
+   38 252 JMP		257
+   38 255 RAISEIF	R17	
+   39 257 LOADNIL	R17	(nil)
+   39 259 LOADNIL	R18	(nil)
+   39 261 CLASS		R17	:C
+   39 264 EXEC		R17	I[7]
+   40 267 MOVE		R18	R3	; R3:c
+   40 270 SEND0		R18	:y
+   40 273 SSEND		R17	:puts	n=1
+   43 277 LOADNIL	R17	(nil)
+   43 279 MODULE	R17	:P
+   43 282 EXEC		R17	I[8]
+   44 285 MOVE		R18	R3	; R3:c
+   44 288 LOADSYM	R19	:y
+   44 291 SSEND		R17	:warm	n=2
+   45 295 LOADNIL	R17	(nil)
+   45 297 LOADNIL	R18	(nil)
+   45 299 CLASS		R17	:C
+   45 302 EXEC		R17	I[9]
+   46 305 MOVE		R18	R3	; R3:c
+   46 308 SEND0		R18	:y
+   46 311 SSEND		R17	:puts	n=1
+   49 315 LOADNIL	R17	(nil)
+   49 317 LOADNIL	R18	(nil)
+   49 319 CLASS		R17	:D
+   49 322 EXEC		R17	I[10]
+   50 325 GETCONST	R17	D
+   50 328 SEND0		R17	:new
+   50 331 MOVE		R4	R17	; R4:d1
+   50 334 GETCONST	R17	D
+   50 337 SEND0		R17	:new
+   50 340 MOVE		R5	R17	; R5:d2
+   51 343 MOVE		R18	R4	; R4:d1
+   51 346 LOADSYM	R19	:z
+   51 349 SSEND		R17	:warm	n=2
+   51 353 MOVE		R18	R5	; R5:d2
+   51 356 LOADSYM	R19	:z
+   51 359 SSEND		R17	:warm	n=2
+   52 363 MOVE		R17	R4	; R4:d1
+   52 366 SDEF		R17	:z	I[11]
+   53 370 MOVE		R18	R4	; R4:d1
+   53 373 SEND0		R18	:z
+   53 376 SSEND		R17	:puts	n=1
+   54 380 MOVE		R18	R5	; R5:d2
+   54 383 SEND0		R18	:z
+   54 386 SSEND		R17	:puts	n=1
+   57 390 LOADNIL	R17	(nil)
+   57 392 MODULE	R17	:E
+   57 395 EXEC		R17	I[12]
+   58 398 GETCONST	R17	Object
+   58 401 SEND0		R17	:new
+   58 404 MOVE		R6	R17	; R6:e
+   59 407 MOVE		R18	R6	; R6:e
+   59 410 LOADSYM	R19	:w
+   59 413 SSEND		R17	:warm	n=2
+   60 417 MOVE		R17	R6	; R6:e
+   60 420 GETCONST	R18	E
+   60 423 SEND		R17	:extend	n=1
+   61 427 MOVE		R18	R6	; R6:e
+   61 430 SEND0		R18	:w
+   61 433 SSEND		R17	:puts	n=1
+   64 437 LOADNIL	R17	(nil)
+   64 439 LOADNIL	R18	(nil)
+   64 441 CLASS		R17	:F
+   64 444 EXEC		R17	I[13]
+   65 447 GETCONST	R17	F
+   65 450 SEND0		R17	:new
+   65 453 MOVE		R7	R17	; R7:f
+   66 456 MOVE		R18	R7	; R7:f
+   66 459 LOADSYM	R19	:v
+   66 462 SSEND		R17	:warm	n=2
+   66 466 MOVE		R18	R7	; R7:f
+   66 469 SEND0		R18	:v
+   66 472 SSEND		R17	:puts	n=1
+   67 476 GETCONST	R17	F
+   67 479 LOADSYM	R18	:define_method
+   67 482 LOADSYM	R19	:v
+   67 485 BLOCK		R20	I[14]
+   67 488 SENDB		R17	:send	n=2
+   68 492 MOVE		R18	R7	; R7:f
+   68 495 SEND0		R18	:v
+   68 498 SSEND		R17	:puts	n=1
+   71 502 LOADNIL	R17	(nil)
+   71 504 LOADNIL	R18	(nil)
+   71 506 CLASS		R17	:G
+   71 509 EXEC		R17	I[15]
+   72 512 GETCONST	R17	G
+   72 515 SEND0		R17	:new
+   72 518 MOVE		R8	R17	; R8:g
+   73 521 MOVE		R18	R8	; R8:g
+   73 524 LOADSYM	R19	:g1
+   73 527 SSEND		R17	:warm	n=2
+   73 531 MOVE		R18	R8	; R8:g
+   73 534 SEND0		R18	:g1
+   73 537 SSEND		R17	:puts	n=1
+   74 541 LOADNIL	R17	(nil)
+   74 543 LOADNIL	R18	(nil)
+   74 545 CLASS		R17	:G
+   74 548 EXEC		R17	I[16]
+   75 551 MOVE		R18	R8	; R8:g
+   75 554 SEND0		R18	:g1
+   75 557 SSEND		R17	:puts	n=1
+   78 561 LOADNIL	R17	(nil)
+   78 563 LOADNIL	R18	(nil)
+   78 565 CLASS		R17	:G
+   78 568 EXEC		R17	I[17]
+   79 571 MOVE		R18	R8	; R8:g
+   79 574 SEND0		R18	:g1
+   79 577 SSEND		R17	:puts	n=1
+   82 581 LOADNIL	R17	(nil)
+   82 583 MODULE	R17	:M2
+   82 586 LOADNIL	R17	(nil)
+   83 588 LOADNIL	R17	(nil)
+   83 590 LOADNIL	R18	(nil)
+   83 592 CLASS		R17	:H
+   83 595 EXEC		R17	I[18]
+   84 598 GETCONST	R17	H
+   84 601 SEND0		R17	:new
+   84 604 MOVE		R9	R17	; R9:h
+   85 607 MOVE		R18	R9	; R9:h
+   85 610 LOADSYM	R19	:m2
+   85 613 SSEND		R17	:warm	n=2
+   86 617 LOADNIL	R17	(nil)
+   86 619 MODULE	R17	:M2
+   86 622 EXEC		R17	I[19]
+   87 625 MOVE		R18	R9	; R9:h
+   87 628 SEND0		R18	:m2
+   87 631 SSEND		R17	:puts	n=1
+   90 635 LOADNIL	R17	(nil)
+   90 637 LOADNIL	R18	(nil)
+   90 639 CLASS		R17	:I2
+   90 642 LOADNIL	R17	(nil)
+   91 644 GETCONST	R17	I2
+   91 647 SEND0		R17	:new
+   91 650 MOVE		R10	R17	; R10:i
+   92 653 MOVE		R18	R10	; R10:i
+   92 656 LOADSYM	R19	:top
+   92 659 SSEND		R17	:warm	n=2
+   93 663 LOADNIL	R17	(nil)
+   93 665 LOADNIL	R18	(nil)
+   93 667 CLASS		R17	:Object
+   93 670 EXEC		R17	I[20]
+   94 673 MOVE		R18	R10	; R10:i
+   94 676 SEND0		R18	:top
+   94 679 SSEND		R17	:puts	n=1
+   95 683 LOADNIL	R17	(nil)
+   95 685 LOADNIL	R18	(nil)
+   95 687 CLASS		R17	:I2
+   95 690 EXEC		R17	I[21]
+   96 693 MOVE		R18	R10	; R10:i
+   96 696 SEND0		R18	:top
+   96 699 SSEND		R17	:puts	n=1
+   99 703 LOADNIL	R17	(nil)
+   99 705 LOADNIL	R18	(nil)
+   99 707 CLASS		R17	:J
+   99 710 LOADNIL	R17	(nil)
+  100 712 GETCONST	R17	J
+  100 715 SEND0		R17	:new
+  100 718 MOVE		R11	R17	; R11:j
+  101 721 MOVE		R18	R11	; R11:j
+  101 724 LOADSYM	R19	:mm
+  101 727 SSEND		R17	:warm	n=2
+  102 731 MOVE		R17	R11	; R11:j
+  102 734 SEND0		R17	:mm
+  102 737 JMP		767
+  102 740 EXCEPT	R17	
+  102 742 GETCONST	R18	NoMethodError
+  102 745 RESCUE	R17	R18
+  102 748 JMPIF		R18	755
+  102 752 JMP		765
+  102 755 STRING	R18	L[3]	; mm missing ok
+  102 758 SSEND		R17	:puts	n=1
+  102 762 JMP		767
+  102 765 RAISEIF	R17	
+  103 767 LOADNIL	R17	(nil)
+  103 769 LOADNIL	R18	(nil)
+  103 771 CLASS		R17	:J
+  103 774 EXEC		R17	I[22]
+  104 777 MOVE		R18	R11	; R11:j
+  104 780 SEND0		R18	:mm
+  104 783 SSEND		R17	:puts	n=1
+  107 787 LOADNIL	R17	(nil)
+  107 789 LOADNIL	R18	(nil)
+  107 791 CLASS		R17	:K
+  107 794 EXEC		R17	I[23]
+  108 797 GETCONST	R18	K
+  108 800 LOADSYM	R19	:cm
+  108 803 SSEND		R17	:warm	n=2
+  108 807 GETCONST	R18	K
+  108 810 SEND0		R18	:cm
+  108 813 SSEND		R17	:puts	n=1
+  109 817 LOADNIL	R17	(nil)
+  109 819 LOADNIL	R18	(nil)
+  109 821 CLASS		R17	:K
+  109 824 EXEC		R17	I[24]
+  110 827 GETCONST	R18	K
+  110 830 SEND0		R18	:cm
+  110 833 SSEND		R17	:puts	n=1
+  113 837 LOADNIL	R17	(nil)
+  113 839 LOADNIL	R18	(nil)
+  113 841 CLASS		R17	:L
+  113 844 EXEC		R17	I[25]
+  114 847 GETCONST	R17	L
+  114 850 SEND0		R17	:new
+  114 853 MOVE		R12	R17	; R12:l
+  115 856 MOVE		R18	R12	; R12:l
+  115 859 LOADSYM	R19	:pub
+  115 862 SSEND		R17	:warm	n=2
+  115 866 MOVE		R18	R12	; R12:l
+  115 869 SEND0		R18	:pub
+  115 872 SSEND		R17	:puts	n=1
+  116 876 LOADNIL	R17	(nil)
+  116 878 LOADNIL	R18	(nil)
+  116 880 CLASS		R17	:L
+  116 883 EXEC		R17	I[26]
+  117 886 MOVE		R17	R12	; R12:l
+  117 889 SEND0		R17	:pub
+  117 892 STRING	R18	L[0]	; no raise
+  117 895 SSEND		R17	:puts	n=1
+  117 899 JMP		929
+  117 902 EXCEPT	R17	
+  117 904 GETCONST	R18	NoMethodError
+  117 907 RESCUE	R17	R18
+  117 910 JMPIF		R18	917
+  117 914 JMP		927
+  117 917 STRING	R18	L[4]	; private ok
+  117 920 SSEND		R17	:puts	n=1
+  117 924 JMP		929
+  117 927 RAISEIF	R17	
+  118 929 MOVE		R18	R12	; R12:l
+  118 932 LOADSYM	R19	:pub
+  118 935 SEND		R18	:send	n=1
+  118 939 SSEND		R17	:puts	n=1
+  121 943 GETCONST	R18	A
+  121 946 SEND0		R18	:new
+  121 949 LOADSYM	R19	:x
+  121 952 SSEND		R17	:warm	n=2
+  122 956 GETCONST	R17	Object
+  122 959 LOADSYM	R18	:A
+  122 962 SEND		R17	:const_get	n=1
+  122 966 BLOCK		R18	I[27]
+  122 969 SENDB		R17	:class_eval	n=0
+  123 973 MOVE		R18	R1	; R1:a
+  123 976 SEND0		R18	:x
+  123 979 SSEND		R17	:puts	n=1
+  126 983 GETCONST	R17	Object
+  126 986 SEND0		R17	:new
+  126 989 MOVE		R13	R17	; R13:o
+  127 992 MOVE		R18	R13	; R13:o
+  127 995 LOADSYM	R19	:ie
+  127 998 SSEND		R17	:warm	n=2
+  128 1002 MOVE		R17	R13	; R13:o
+  128 1005 BLOCK		R18	I[28]
+  128 1008 SENDB		R17	:instance_eval	n=0
+  129 1012 MOVE		R18	R13	; R13:o
+  129 1015 SEND0		R18	:ie
+  129 1018 SSEND		R17	:puts	n=1
+  132 1022 LOADNIL	R17	(nil)
+  132 1024 LOADNIL	R18	(nil)
+  132 1026 CLASS		R17	:N2
+  132 1029 EXEC		R17	I[29]
+  138 1032 GETCONST	R17	N2
+  138 1035 LOADI_1	R18	(1)
+  138 1037 SEND		R17	:new	n=1
+  138 1041 MOVE		R14	R17	; R14:p1
+  138 1044 GETCONST	R17	N2
+  138 1047 LOADI_2	R18	(2)
+  138 1049 SEND		R17	:new	n=1
+  138 1053 MOVE		R15	R17	; R15:p2
+  139 1056 LOADI8	R17	200
+  139 1059 BLOCK		R18	I[30]
+  139 1062 SENDB		R17	:times	n=0
+  140 1066 MOVE		R18	R14	; R14:p1
+  140 1069 MOVE		R19	R15	; R15:p2
+  140 1072 LT		R18	(R19)
+  140 1074 SSEND		R17	:puts	n=1
+  141 1078 LOADNIL	R17	(nil)
+  141 1080 LOADNIL	R18	(nil)
+  141 1082 CLASS		R17	:N2
+  141 1085 EXEC		R17	I[31]
+  142 1088 MOVE		R18	R14	; R14:p1
+  142 1091 MOVE		R19	R15	; R15:p2
+  142 1094 LT		R18	(R19)
+  142 1096 SSEND		R17	:puts	n=1
+  145 1100 GETCONST	R17	Struct
+  145 1103 LOADSYM	R18	:aa
+  145 1106 LOADSYM	R19	:bb
+  145 1109 SEND		R17	:new	n=2
+  145 1113 SETCONST	S1	R17
+  146 1116 GETCONST	R17	S1
+  146 1119 LOADI_1	R18	(1)
+  146 1121 LOADI_2	R19	(2)
+  146 1123 SEND		R17	:new	n=2
+  146 1127 MOVE		R16	R17	; R16:s
+  147 1130 LOADI8	R17	200
+  147 1133 BLOCK		R18	I[32]
+  147 1136 SENDB		R17	:times	n=0
+  148 1140 MOVE		R18	R16	; R16:s
+  148 1143 SEND0		R18	:aa
+  148 1146 SSEND		R17	:puts	n=1
+  149 1150 LOADNIL	R17	(nil)
+  149 1152 LOADNIL	R18	(nil)
+  149 1154 CLASS		R17	:S1
+  149 1157 EXEC		R17	I[33]
+  150 1160 MOVE		R18	R16	; R16:s
+  150 1163 SEND0		R18	:aa
+  150 1166 SSEND		R17	:puts	n=1
+  150 1170 RETURN	R17	
+  150 1172 STOP
+
+irep 0x5eb8c7560790 nregs=7 nlocals=5 pools=0 syms=1 reps=1 ilen=25
+local variable names:
+  R1:o
+  R2:m
+  R3:n
+file: /w/method_cache.rb
+    5 000 ENTER		2:1:0:0:0:0:0:0 (0x82000)
+    5 004 JMP		010
+    5 007 JMP		013
+    5 010 LOADI8	R3	200	; R3:n
+    6 013 MOVE		R5	R3	; R3:n
+    6 016 BLOCK		R6	I[0]
+    6 019 SENDB		R5	:times	n=0
+    6 023 RETURN	R5	
+
+irep 0x5eb8c7561ee0 nregs=5 nlocals=2 pools=0 syms=2 reps=0 ilen=37
+catch type: rescue   begin: 0004 end: 0016 target: 0019
+file: /w/method_cache.rb
+    6 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+    6 004 GETUPVAR	R2	1	0
+    6 008 GETUPVAR	R3	2	0
+    6 012 SEND		R2	:send	n=1
+    6 016 JMP		035
+    6 019 EXCEPT	R2	
+    6 021 GETCONST	R3	StandardError
+    6 024 RESCUE	R2	R3
+    6 027 JMPIF		R3	033
+    6 031 RAISEIF	R2	
+    6 033 LOADNIL	R2	(nil)
+    6 035 RETURN	R2	
+
+irep 0x5eb8c7561af0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   10 000 TDEF		R1	:x	I[0]
+   10 004 RETURN	R1	
+
+irep 0x5eb8c7561de0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   10 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   10 004 STRING	R2	L[0]	; A#x
+   10 007 RETURN	R2	
+
+irep 0x5eb8c7563090 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   18 000 TDEF		R1	:x	I[0]
+   18 004 RETURN	R1	
+
+irep 0x5eb8c7563170 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   18 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   18 004 STRING	R2	L[0]	; B#x
+   18 007 RETURN	R2	
+
+irep 0x5eb8c75619b0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   22 000 TDEF		R1	:x	I[0]
+   22 004 RETURN	R1	
+
+irep 0x5eb8c7565110 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   22 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   22 004 STRING	R2	L[0]	; B#x2
+   22 007 RETURN	R2	
+
+irep 0x5eb8c75652b0 nregs=4 nlocals=1 pools=0 syms=2 reps=0 ilen=9
+file: /w/method_cache.rb
+   26 000 LOADSYM	R2	:x
+   26 003 SSEND		R1	:remove_method	n=1
+   26 007 RETURN	R1	
+
+irep 0x5eb8c7566860 nregs=4 nlocals=1 pools=0 syms=2 reps=0 ilen=9
+file: /w/method_cache.rb
+   30 000 LOADSYM	R2	:x
+   30 003 SSEND		R1	:undef_method	n=1
+   30 007 RETURN	R1	
+
+irep 0x5eb8c7564970 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   34 000 TDEF		R1	:y	I[0]
+   34 004 RETURN	R1	
+
+irep 0x5eb8c7564a50 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   34 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   34 004 STRING	R2	L[0]	; M#y
+   34 007 RETURN	R2	
+
+irep 0x5eb8c75664f0 nregs=4 nlocals=1 pools=0 syms=2 reps=0 ilen=9
+file: /w/method_cache.rb
+   39 000 GETCONST	R2	M
+   39 003 SSEND		R1	:include	n=1
+   39 007 RETURN	R1	
+
+irep 0x5eb8c7564fc0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   43 000 TDEF		R1	:y	I[0]
+   43 004 RETURN	R1	
+
+irep 0x5eb8c7565b50 nregs=5 nlocals=2 pools=1 syms=0 reps=0 ilen=17
+file: /w/method_cache.rb
+   43 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   43 004 STRING	R2	L[0]	; P#y then 
+   43 007 MOVE		R4	R1
+   43 010 SUPER		R3	n=0
+   43 013 ADD		R2	(R3)
+   43 015 RETURN	R2	
+
+irep 0x5eb8c7567e30 nregs=4 nlocals=1 pools=0 syms=2 reps=0 ilen=9
+file: /w/method_cache.rb
+   45 000 GETCONST	R2	P
+   45 003 SSEND		R1	:prepend	n=1
+   45 007 RETURN	R1	
+
+irep 0x5eb8c7567f30 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   49 000 TDEF		R1	:z	I[0]
+   49 004 RETURN	R1	
+
+irep 0x5eb8c7568250 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   49 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   49 004 STRING	R2	L[0]	; D#z
+   49 007 RETURN	R2	
+
+irep 0x5eb8c7565fa0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   52 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   52 004 STRING	R2	L[0]	; d1#z
+   52 007 RETURN	R2	
+
+irep 0x5eb8c75660c0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   57 000 TDEF		R1	:w	I[0]
+   57 004 RETURN	R1	
+
+irep 0x5eb8c75692b0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   57 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   57 004 STRING	R2	L[0]	; E#w
+   57 007 RETURN	R2	
+
+irep 0x5eb8c7567200 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   64 000 TDEF		R1	:v	I[0]
+   64 004 RETURN	R1	
+
+irep 0x5eb8c75672a0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   64 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   64 004 STRING	R2	L[0]	; F#v
+   64 007 RETURN	R2	
+
+irep 0x5eb8c7567ae0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   67 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   67 004 STRING	R2	L[0]	; F#v redefined
+   67 007 RETURN	R2	
+
+irep 0x5eb8c7569690 nregs=2 nlocals=1 pools=0 syms=2 reps=2 ilen=10
+file: /w/method_cache.rb
+   71 000 TDEF		R1	:g1	I[0]
+   71 004 TDEF		R1	:g2	I[1]
+   71 008 RETURN	R1	
+
+irep 0x5eb8c7569730 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   71 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   71 004 STRING	R2	L[0]	; G#g1
+   71 007 RETURN	R2	
+
+irep 0x5eb8c756ab60 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   71 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   71 004 STRING	R2	L[0]	; G#g2
+   71 007 RETURN	R2	
+
+irep 0x5eb8c7567670 nregs=2 nlocals=1 pools=0 syms=2 reps=0 ilen=4
+file: /w/method_cache.rb
+   74 000 ALIAS		:g1	g2
+   74 003 RETNIL
+
+irep 0x5eb8c756bf80 nregs=5 nlocals=1 pools=0 syms=3 reps=0 ilen=12
+file: /w/method_cache.rb
+   78 000 LOADSYM	R2	:g1
+   78 003 LOADSYM	R3	:g2
+   78 006 SSEND		R1	:alias_method	n=2
+   78 010 RETURN	R1	
+
+irep 0x5eb8c756c080 nregs=4 nlocals=1 pools=0 syms=2 reps=0 ilen=9
+file: /w/method_cache.rb
+   83 000 GETCONST	R2	M2
+   83 003 SSEND		R1	:include	n=1
+   83 007 RETURN	R1	
+
+irep 0x5eb8c7568ae0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   86 000 TDEF		R1	:m2	I[0]
+   86 004 RETURN	R1	
+
+irep 0x5eb8c7568bc0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   86 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   86 004 STRING	R2	L[0]	; M2#m2
+   86 007 RETURN	R2	
+
+irep 0x5eb8c756e570 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   93 000 TDEF		R1	:top	I[0]
+   93 004 RETURN	R1	
+
+irep 0x5eb8c756af50 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   93 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   93 004 STRING	R2	L[0]	; Object#top
+   93 007 RETURN	R2	
+
+irep 0x5eb8c7568f00 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+   95 000 TDEF		R1	:top	I[0]
+   95 004 RETURN	R1	
+
+irep 0x5eb8c7568fa0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+   95 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+   95 004 STRING	R2	L[0]	; I2#top
+   95 007 RETURN	R2	
+
+irep 0x5eb8c756c460 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+  103 000 TDEF		R1	:method_missing	I[0]
+  103 004 RETURN	R1	
+
+irep 0x5eb8c7570920 nregs=6 nlocals=4 pools=1 syms=0 reps=0 ilen=14
+local variable names:
+  R1:n
+  R2:a
+file: /w/method_cache.rb
+  103 000 ENTER		1:0:1:0:0:0:0:0 (0x41000)
+  103 004 STRING	R4	L[0]	; mm:
+  103 007 MOVE		R5	R1	; R1:n
+  103 010 STRCAT	R4	(R5)
+  103 012 RETURN	R4	
+
+irep 0x5eb8c7570a60 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=8
+file: /w/method_cache.rb
+  107 000 LOADSELF	R1	(R0)
+  107 002 SDEF		R1	:cm	I[0]
+  107 006 RETURN	R1	
+
+irep 0x5eb8c756a350 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+  107 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  107 004 STRING	R2	L[0]	; K.cm
+  107 007 RETURN	R2	
+
+irep 0x5eb8c75723d0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=8
+file: /w/method_cache.rb
+  109 000 LOADSELF	R1	(R0)
+  109 002 SDEF		R1	:cm	I[0]
+  109 006 RETURN	R1	
+
+irep 0x5eb8c7572680 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+  109 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  109 004 STRING	R2	L[0]	; K.cm2
+  109 007 RETURN	R2	
+
+irep 0x5eb8c7573ac0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+  113 000 TDEF		R1	:pub	I[0]
+  113 004 RETURN	R1	
+
+irep 0x5eb8c756cfb0 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+  113 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  113 004 STRING	R2	L[0]	; L#pub
+  113 007 RETURN	R2	
+
+irep 0x5eb8c75737d0 nregs=4 nlocals=1 pools=0 syms=2 reps=0 ilen=9
+file: /w/method_cache.rb
+  116 000 LOADSYM	R2	:pub
+  116 003 SSEND		R1	:private	n=1
+  116 007 RETURN	R1	
+
+irep 0x5eb8c75738f0 nregs=3 nlocals=2 pools=0 syms=1 reps=1 ilen=10
+file: /w/method_cache.rb
+  122 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  122 004 TDEF		R2	:x	I[0]
+  122 008 RETURN	R2	
+
+irep 0x5eb8c7575270 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+  122 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  122 004 STRING	R2	L[0]	; A#x2
+  122 007 RETURN	R2	
+
+irep 0x5eb8c756a750 nregs=3 nlocals=2 pools=0 syms=1 reps=1 ilen=10
+file: /w/method_cache.rb
+  128 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  128 004 TDEF		R2	:ie	I[0]
+  128 008 RETURN	R2	
+
+irep 0x5eb8c756a830 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+  128 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  128 004 STRING	R2	L[0]	; o#ie
+  128 007 RETURN	R2	
+
+irep 0x5eb8c7576790 nregs=4 nlocals=1 pools=0 syms=6 reps=2 ilen=24
+file: /w/method_cache.rb
+  133 000 GETCONST	R2	Comparable
+  133 003 SSEND		R1	:include	n=1
+  134 007 LOADSYM	R2	:n
+  134 010 SSEND		R1	:attr_accessor	n=1
+  135 014 TDEF		R1	:initialize	I[0]
+  136 018 TDEF		R1	:<=>	I[1]
+  136 022 RETURN	R1	
+
+irep 0x5eb8c756cba0 nregs=4 nlocals=3 pools=0 syms=1 reps=0 ilen=12
+local variable names:
+  R1:n
+file: /w/method_cache.rb
+  135 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  135 004 MOVE		R3	R1	; R1:n
+  135 007 SETIV		@n	R3
+  135 010 RETURN	R3	
+
+irep 0x5eb8c756cce0 nregs=6 nlocals=3 pools=0 syms=2 reps=0 ilen=19
+local variable names:
+  R1:x
+file: /w/method_cache.rb
+  136 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  136 004 SSEND0	R3	:n
+  136 007 MOVE		R4	R1	; R1:x
+  136 010 SEND0		R4	:n
+  136 013 SEND		R3	:<=>	n=1
+  136 017 RETURN	R3	
+
+irep 0x5eb8c75773a0 nregs=5 nlocals=2 pools=0 syms=0 reps=0 ilen=16
+file: /w/method_cache.rb
+  139 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  139 004 GETUPVAR	R2	14	0
+  139 008 GETUPVAR	R3	15	0
+  139 012 LT		R2	(R3)
+  139 014 RETURN	R2	
+
+irep 0x5eb8c756e880 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+  141 000 TDEF		R1	:<=>	I[0]
+  141 004 RETURN	R1	
+
+irep 0x5eb8c756e940 nregs=6 nlocals=3 pools=0 syms=2 reps=0 ilen=19
+local variable names:
+  R1:x
+file: /w/method_cache.rb
+  141 000 ENTER		1:0:0:0:0:0:0:0 (0x40000)
+  141 004 MOVE		R3	R1	; R1:x
+  141 007 SEND0		R3	:n
+  141 010 SSEND0	R4	:n
+  141 013 SEND		R3	:<=>	n=1
+  141 017 RETURN	R3	
+
+irep 0x5eb8c756f100 nregs=4 nlocals=2 pools=0 syms=1 reps=0 ilen=13
+file: /w/method_cache.rb
+  147 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  147 004 GETUPVAR	R2	16	0
+  147 008 SEND0		R2	:aa
+  147 011 RETURN	R2	
+
+irep 0x5eb8c756f1d0 nregs=2 nlocals=1 pools=0 syms=1 reps=1 ilen=6
+file: /w/method_cache.rb
+  149 000 TDEF		R1	:aa	I[0]
+  149 004 RETURN	R1	
+
+irep 0x5eb8c756dd00 nregs=3 nlocals=2 pools=1 syms=0 reps=0 ilen=9
+file: /w/method_cache.rb
+  149 000 ENTER		0:0:0:0:0:0:0:0 (0x0)
+  149 004 STRING	R2	L[0]	; overridden
+  149 007 RETURN	R2	
+

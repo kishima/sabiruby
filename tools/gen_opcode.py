@@ -4,8 +4,9 @@ usage: tools/gen_opcode.py ../ref/mruby/include/mruby/ops.h > src/opcode.rs
 
 ops.h is a list of `OPCODE(NAME, LAYOUT) /* semantics */` lines, in the order the
 bytes are numbered. Each line becomes one `Op` variant (with the semantics as its
-doc comment) and one entry in each of the three tables: the mruby name, the operand
-layout, and `OP_TABLE`, which `Op::from_u8` indexes instead of transmuting a byte.
+doc comment), one arm of `Op::from_u8` (a `match` over the byte, which decodes
+without `unsafe` and without reading a table) and one entry in each of the two
+tables: the mruby name and the operand layout.
 
 The Rust name of an opcode is its mruby name in CamelCase: the parts between the
 underscores, each capitalised (`GETIDX0` -> `Getidx0`, `RANGE_INC` -> `RangeInc`).
@@ -53,18 +54,23 @@ def main(path: str) -> None:
     out("\n")
     out("impl Op {\n")
     out("    /// Decode a byte into an opcode. Returns `None` for an undefined byte.\n")
-    out("    pub fn from_u8(b: u8) -> Option<Op> { OP_TABLE.get(b as usize).copied() }\n")
+    out("    ///\n")
+    out("    /// One arm per opcode rather than a table: the byte and the discriminant are the\n")
+    out("    /// same number, so the compiler folds the whole `match` into a range check and\n")
+    out("    /// leaves no load behind (a table costs one read per instruction).\n")
+    out("    #[inline]\n")
+    out("    pub fn from_u8(b: u8) -> Option<Op> {\n")
+    out("        match b {\n")
+    for i, (name, _layout, _doc) in enumerate(ops):
+        out(f"            {i} => Some(Op::{rust_name(name)}),\n")
+    out("            _ => None,\n")
+    out("        }\n")
+    out("    }\n")
     out("    /// mruby name of the opcode (as printed by `mrbc --verbose`).\n")
     out("    pub fn name(self) -> &'static str { OP_NAMES[self as usize] }\n")
     out("    /// Operand layout.\n")
     out("    pub fn operands(self) -> Operands { OP_OPERANDS[self as usize] }\n")
     out("}\n")
-    out("\n")
-    out("/// The byte-to-opcode table `from_u8` reads, in opcode order.\n")
-    out("pub const OP_TABLE: [Op; OP_COUNT] = [\n")
-    for name, _layout, _doc in ops:
-        out(f"    Op::{rust_name(name)},\n")
-    out("];\n")
     out("\n")
     out("pub const OP_NAMES: [&str; OP_COUNT] = [\n")
     for name, _layout, _doc in ops:

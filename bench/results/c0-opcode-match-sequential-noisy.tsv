@@ -1,0 +1,23 @@
+category	benchmark	ms_best	ms_median	instructions	ref_ms_best	ref_ms_median
+whole program	app_json_hash	1319.962	1326.754	31828141	
+whole program	app_robot	1315.197	1340.968	78076105	
+whole program	app_tak	1574.617	1726.938	174127313	
+whole program	bm_ao_render	fail: undefined method 'printf' for Object (NoMethodError)				
+whole program	bm_fib	7875.566	8165.837	742675934	
+whole program	bm_mandel_term	fail: undefined method 'putc' for Object (NoMethodError)				
+data structures	bm_so_lists	4560.948	4675.238	57014842	
+instruction loop	bm_so_mandelbrot	2069.176	2109.561	341836245	
+calls	call_args	1312.084	1331.533	150000752	
+calls	call_block_yield	1308.274	1363.303	120000749	
+calls	call_fiber	1272.873	1387.405	108000742	
+calls	call_kwargs	1246.273	1262.089	86000749	
+data structures	ds_array	1243.482	1336.663	106641040	
+data structures	ds_hash	1319.106	1342.010	27019240	
+data structures	ds_string	1306.266	1400.912	13685740	
+memory	gc_churn	476.063	486.553	15000742	
+instruction loop	loop_if_branch	1164.710	1231.842	135334074	
+instruction loop	loop_times	1211.904	1222.678	144000748	
+instruction loop	loop_while_add	1152.151	1250.912	220000740	
+memory	mem_retained	986.515	1051.928	46740755	
+memory	mem_short_lived	1347.694	1369.210	78000749	
+instruction loop	vm_optimization_bench	26115.468	28223.921	1796631487	

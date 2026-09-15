@@ -40,7 +40,7 @@ browser main thread                    Web Worker
   | `sabi_state(regs_frames, len_out) -> ptr` | `Vm::snapshot` as JSON |
   | `sabi_take_trace(len_out) -> ptr` | the events since the last call, as JSON |
   | `sabi_gc_collect()` / `sabi_gc_stress(on)` | collect now; collect after every allocation |
-  | `sabi_op_counts(len_out) -> ptr` | `[{"op":"MOVE","count":n}, ..]` |
+  | `sabi_op_counts(len_out) -> ptr` | `[{"op":"MOVE","count":n}, ..]` — needs `Vm::set_op_counting(true)` at start-up (2026-09-15): the instruction loop stopped counting by default, because the read-modify-write per instruction costs 3 to 7% |
   | `sabi_dump_json(len_out) -> ptr` | the listing as data: ireps, catch tables, and every instruction with its pc, line, opcode and operands |
   | `sabi_alloc` / `sabi_free`, `sabi_version` | buffers for JS; a NUL-terminated version string |
 

@@ -120,6 +120,11 @@ pub(crate) fn utf8len(b: &[u8], i: usize, chars: bool) -> usize {
 /// Characters in the string (`RSTRING_CHAR_LEN`).
 pub(crate) fn char_len(b: &[u8], chars: bool) -> usize {
     if !chars { return b.len(); }
+    // Every byte below 0x80 stands for itself, so an ASCII string has as many characters as
+    // bytes. `is_ascii` reads a machine word at a time where the `utf8len` walk reads a byte
+    // at a time and carries a table lookup with it, and the strings a program indexes in a
+    // loop are usually ASCII. A string that is not pays one extra pass.
+    if b.is_ascii() { return b.len(); }
     let (mut i, mut n) = (0, 0);
     while i < b.len() { i += utf8len(b, i, chars); n += 1; }
     n
@@ -128,6 +133,9 @@ pub(crate) fn char_len(b: &[u8], chars: bool) -> usize {
 /// Byte offset of character `ci` (the end of the string when it is past the last one).
 pub(crate) fn char_to_byte(b: &[u8], ci: usize, chars: bool) -> usize {
     if !chars { return ci.min(b.len()); }
+    // the same shortcut, over the prefix this has to walk anyway
+    let head = ci.min(b.len());
+    if b[..head].is_ascii() { return head; }
     let (mut i, mut n) = (0, 0);
     while i < b.len() && n < ci { i += utf8len(b, i, chars); n += 1; }
     i
@@ -717,17 +725,27 @@ fn str_concat(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> 
 
 fn str_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 1, 2);
-    let b = bytes(vm, s);
+    // The receiver's bytes are borrowed for each step and never copied whole: `index_args`
+    // needs `&mut Vm` between them (it can call `to_int` and it can raise), so the borrow is
+    // taken three times rather than held, and only the piece that comes out is allocated.
     if a.len() == 1 {
         if let Some(n) = vm.str_bytes(a[0]).map(|n| n.to_vec()) {
             // a needle whose bytes spell no character is found nowhere (`str_index_str`)
             if !valid_chars(&n, char_mode(vm, a[0])) { return Ok(Value::Nil); }
-            return Ok(if find(&b, &n, 0).is_some() { vm.str_new(&n) } else { Value::Nil });
+            let found = vm.str_bytes(s).map(|b| find(b, &n, 0).is_some()).unwrap_or(false);
+            return Ok(if found { vm.str_new(&n) } else { Value::Nil });
         }
     }
     let chars = char_mode(vm, s);
-    match index_args(vm, char_len(&b, chars), a)? {
-        Some((i, n)) => { let (bi, bn) = char_span(&b, i, n, chars); let piece = b[bi..bi + bn].to_vec(); Ok(vm.str_new_like(&piece, s)) }
+    let len = vm.str_bytes(s).map(|b| char_len(b, chars)).unwrap_or(0);
+    match index_args(vm, len, a)? {
+        Some((i, n)) => {
+            let piece = match vm.str_bytes(s) {
+                Some(b) => { let (bi, bn) = char_span(b, i, n, chars); b[bi..bi + bn].to_vec() }
+                None => Vec::new(),
+            };
+            Ok(vm.str_new_like(&piece, s))
+        }
         None => Ok(Value::Nil),
     }
 }

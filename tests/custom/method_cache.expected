@@ -1,0 +1,32 @@
+A#x
+B#x
+B#x2
+A#x
+undef ok
+y missing ok
+M#y
+P#y then M#y
+d1#z
+D#z
+E#w
+F#v
+F#v redefined
+G#g1
+G#g2
+G#g2
+M2#m2
+Object#top
+I2#top
+mm missing ok
+mm:mm
+K.cm
+K.cm2
+L#pub
+private ok
+L#pub
+A#x2
+o#ie
+true
+false
+1
+overridden

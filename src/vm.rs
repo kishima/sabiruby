@@ -9,7 +9,7 @@ use alloc::{format, string::String, string::ToString, vec, vec::Vec};
 use hashbrown::HashMap;
 
 use crate::error::{VmError, VmResult};
-use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, ObjKind, ProcData, Vis, GC_MIN_INTERVAL};
+use crate::object::{BreakTag, ClassData, EnvData, Heap, InstanceKind, IrepId, Method, MethodRef, ObjKind, ProcData, Vis, GC_MIN_INTERVAL};
 use crate::inspect::{CatchHandlerInfo, DetachReason, SwitchKind, TraceEvent, UnwindBy};
 use crate::opcode::{Op, Operands};
 use crate::rite::{self, CatchType, Pool};
@@ -227,6 +227,28 @@ pub struct CallInfo {
     pub vis_break: bool,
 }
 
+/// Entries in [`Vm::method_cache`]. A power of two, so the index is a mask.
+const METHOD_CACHE_LEN: usize = 1024;
+
+/// One line of the method cache: what `(class, mid)` resolved to, and the
+/// [`Heap::method_serial`] it was resolved under. Direct-mapped and one deep, like the
+/// reference's per-call-site inline cache but keyed globally: a miss is the chain walk that
+/// used to happen every time, so a wrong guess costs nothing but the compare.
+#[derive(Clone, Copy)]
+struct MethodCacheLine {
+    serial: u64,
+    class: ObjId,
+    mid: Sym,
+    /// `None` = the lookup found nothing, which is worth caching too (`method_missing`).
+    found: Option<(MethodRef, ObjId)>,
+}
+
+impl Default for MethodCacheLine {
+    // serial 0 is younger than any live heap (`Heap::method_serial` starts at 1), so an
+    // untouched line never matches
+    fn default() -> Self { MethodCacheLine { serial: 0, class: ObjId(0), mid: Sym(0), found: None } }
+}
+
 /// Well-known classes and modules.
 #[derive(Clone, Copy)]
 pub struct Core {
@@ -365,9 +387,15 @@ pub struct Vm {
     #[doc(hidden)]
     pub call_proc: ObjId,
     pub instructions: u64,
-    /// Executions per opcode (index = opcode number); the test runner reports
-    /// which opcodes a workload never reached.
-    pub op_counts: Vec<u64>,
+    /// Executions per opcode (index = opcode number), filled only while
+    /// [`Vm::set_op_counting`] is on; the test runner reports which opcodes a workload never
+    /// reached, and the Playground draws a histogram from it.
+    pub op_counts: [u64; crate::opcode::OP_COUNT],
+    /// Whether the instruction loop fills `op_counts`. Off by default: the counter is a
+    /// read-modify-write per instruction and the tightest loops pay 3 to 7% for it.
+    count_ops: bool,
+    /// `(class, mid) -> (method, owner)`, thrown away wholesale by `Heap::method_serial`.
+    method_cache: alloc::boxed::Box<[MethodCacheLine; METHOD_CACHE_LEN]>,
     /// Nesting of native -> VM re-entries (`call_proc_with`); bounded to protect the host stack.
     native_depth: u32,
     /// Objects whose `inspect` is in progress (recursive containers print `[...]`).
@@ -593,7 +621,7 @@ impl Vm {
         let call_proc = heap.alloc(core.proc_, ObjKind::Proc(ProcData { irep: 0, upper: None, env: None, target_class: Some(core.proc_), strict: true, scope: true, orphan: false, mid: None }));
         let mut vm = Vm {
             heap, syms, ireps: vec![call_irep], stack: Vec::new(), ci: Vec::new(), globals: HashMap::new(),
-            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
+            exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: [0; crate::opcode::OP_COUNT], count_ops: false, method_cache: alloc::boxed::Box::new([MethodCacheLine::default(); METHOD_CACHE_LEN]), native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
             host_state: None, on_free: None,
@@ -1457,23 +1485,64 @@ impl Vm {
         }
         false
     }
-    /// Method lookup along the superclass chain; returns the method and the
-    /// class that owns it (for `super`).
-    pub fn find_method(&self, class: ObjId, mid: Sym) -> Option<(Method, ObjId)> {
+    /// Count executions per opcode into [`Vm::op_counts`] (off by default). A host that shows
+    /// statistics — the Playground's opcode histogram, the test runner's coverage line — turns
+    /// this on before running; a host that does not keeps the instruction loop free of it.
+    pub fn set_op_counting(&mut self, on: bool) { self.count_ops = on; }
+    /// Whether [`Vm::set_op_counting`] is on.
+    pub fn op_counting(&self) -> bool { self.count_ops }
+
+    /// Method lookup along the superclass chain: the entry as it sits in the table, and the
+    /// class that owns it (for `super`). A `Method::Undef` answers the lookup by stopping it,
+    /// so it comes back as `Some` here and the two wrappers below turn it into `None`.
+    fn find_method_entry(&self, class: ObjId, mid: Sym) -> Option<(&Method, ObjId)> {
         let mut c = Some(class);
         while let Some(x) = c {
             let cd = self.heap.class(x);
             if cd.origin.is_some() { c = cd.superclass; continue; } // own table lives in the origin
             let tbl = &self.heap.class(self.table_owner(x)).methods;
-            if let Some(m) = tbl.get(&mid) {
-                return match m {
-                    Method::Undef => None,
-                    _ => Some((m.clone(), x)),
-                };
-            }
+            if let Some(m) = tbl.get(&mid) { return Some((m, x)); }
             c = cd.superclass;
         }
         None
+    }
+    /// Method lookup that clones the `Method`. For the places that want to keep it (`alias`,
+    /// `Method#unbind`, copying a table); the dispatch path uses [`Vm::find_method_ref`].
+    pub fn find_method(&self, class: ObjId, mid: Sym) -> Option<(Method, ObjId)> {
+        match self.find_method_entry(class, mid)? {
+            (Method::Undef, _) => None,
+            (m, x) => Some((m.clone(), x)),
+        }
+    }
+    /// Method lookup for dispatch: a `Copy` answer, so nothing is cloned and nothing the
+    /// caller holds needs dropping (`docs/host-bridge-plan.md`, stage 2 candidate 3).
+    pub fn find_method_ref(&self, class: ObjId, mid: Sym) -> Option<(MethodRef, ObjId)> {
+        let (m, x) = self.find_method_entry(class, mid)?;
+        Some((MethodRef::of(m)?, x))
+    }
+    /// [`Vm::find_method_ref`] through the method cache. The answer is the same; what the
+    /// cache saves is walking the superclass chain and hashing the name at each node.
+    /// Anything that could change the answer bumps `Heap::method_serial` (`Heap::class_mut`
+    /// and allocating a class), which makes every line stale at once.
+    fn find_method_cached(&mut self, class: ObjId, mid: Sym) -> Option<(MethodRef, ObjId)> {
+        // the two ids are dense small integers, so the low bits of one would collide with
+        // every method of the same class; mixing in a shifted copy spreads them
+        let i = ((class.0 as usize).wrapping_mul(31) ^ (mid.0 as usize) ^ ((mid.0 as usize) << 5))
+            & (METHOD_CACHE_LEN - 1);
+        let serial = self.heap.method_serial;
+        let line = self.method_cache[i];
+        if line.serial == serial && line.class == class && line.mid == mid { return line.found; }
+        let found = self.find_method_ref(class, mid);
+        self.method_cache[i] = MethodCacheLine { serial, class, mid, found };
+        found
+    }
+    /// The closure of a [`MethodRef::Closure`] found in `owner`. `find_method_ref` left the
+    /// `Arc` where it was, so the call site asks for it here, and only when it has to run one.
+    pub fn closure_of(&self, owner: ObjId, mid: Sym) -> Option<crate::object::NativeClosure> {
+        match self.heap.class(self.table_owner(owner)).methods.get(&mid) {
+            Some(Method::Closure(f)) => Some(f.clone()),
+            _ => None,
+        }
     }
     pub fn respond_to(&self, v: Value, mid: Sym) -> bool {
         match self.find_method(self.class_of(v), mid) {
@@ -1568,8 +1637,8 @@ impl Vm {
     /// Calls a method on `recv` from native code.
     pub fn funcall(&mut self, recv: Value, mid: Sym, args: &[Value], blk: Value) -> VmResult<Value> {
         let cls = self.class_of(recv);
-        match self.find_method(cls, mid) {
-            Some((Method::Native(f), _)) => {
+        match self.find_method_cached(cls, mid) {
+            Some((MethodRef::Native(f), _)) => {
                 // native -> native recursion (e.g. inspect of nested containers) also uses the host stack
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 self.native_mid = Some(mid);
@@ -1581,8 +1650,9 @@ impl Vm {
                 self.orphan_block_of_native(blk);
                 r
             }
-            Some((Method::Closure(f), _)) => {
+            Some((MethodRef::Closure, owner)) => {
                 if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
+                let f = match self.closure_of(owner, mid) { Some(f) => f, None => return Err(VmError::Internal("closure vanished between lookup and call".into())) };
                 self.native_mid = Some(mid);
                 self.native_depth += 1;
                 let direct = core::mem::replace(&mut self.direct_send, false);
@@ -1592,13 +1662,13 @@ impl Vm {
                 self.orphan_block_of_native(blk);
                 r
             }
-            Some((Method::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
-            Some((Method::AttrWriter(iv), _)) => {
+            Some((MethodRef::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
+            Some((MethodRef::AttrWriter(iv), _)) => {
                 let v = args.first().copied().unwrap_or(Value::Nil);
                 if let Some(o) = recv.obj() { self.heap.ivar_set(o, iv, v); }
                 Ok(v)
             }
-            Some((Method::Ruby(p), owner)) => {
+            Some((MethodRef::Ruby(p), owner)) => {
                 // A native forwarding its own arguments (`send`, `Class#new`) keeps
                 // the caller's keywords: the trailing Hash is the pending kdict.
                 let kw = match (self.pending_kw, args.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => Some(k), _ => None };
@@ -1608,7 +1678,7 @@ impl Vm {
                     None => self.call_proc_with(p, recv, args, None, blk, Some(mid), tc),
                 }
             }
-            Some((Method::Undef, _)) | None => {
+            None => {
                 // a user-defined method_missing takes the call (the basic one only reports)
                 let mm = self.s.method_missing;
                 if let Some((m, owner)) = self.find_method(cls, mm) {
@@ -2799,21 +2869,21 @@ impl Vm {
     }
 
     #[inline]
-    fn read_b(&self, ci: &CallInfo, pc: &mut usize) -> u32 {
-        let v = self.ireps[ci.irep].iseq[*pc] as u32;
+    fn read_b(&self, irep: IrepId, pc: &mut usize) -> u32 {
+        let v = self.ireps[irep].iseq[*pc] as u32;
         *pc += 1;
         v
     }
     #[inline]
-    fn read_s(&self, ci: &CallInfo, pc: &mut usize) -> u32 {
-        let s = &self.ireps[ci.irep].iseq;
+    fn read_s(&self, irep: IrepId, pc: &mut usize) -> u32 {
+        let s = &self.ireps[irep].iseq;
         let v = ((s[*pc] as u32) << 8) | s[*pc + 1] as u32;
         *pc += 2;
         v
     }
     #[inline]
-    fn read_w(&self, ci: &CallInfo, pc: &mut usize) -> u32 {
-        let s = &self.ireps[ci.irep].iseq;
+    fn read_w(&self, irep: IrepId, pc: &mut usize) -> u32 {
+        let s = &self.ireps[irep].iseq;
         let v = ((s[*pc] as u32) << 16) | ((s[*pc + 1] as u32) << 8) | s[*pc + 2] as u32;
         *pc += 3;
         v
@@ -2859,30 +2929,31 @@ impl Vm {
             // the only place the collector runs: every register and frame is in the Vm
             if self.heap.gc_pending { self.gc_maybe(); }
             self.instructions += 1;
-            let ci = self.ci.last().unwrap().clone();
-            let mut pc = ci.pc;
-            let byte = self.ireps[ci.irep].iseq[pc];
-            self.op_counts[byte as usize] += 1;
+            // The frame is read field by field, not copied: `base`, `irep` and `pc` are what
+            // every instruction needs, and the handful of instructions that want the rest
+            // (`proc_`, `target_class`, `mid`) read `self.ci[top]` where they stand.
+            let top = self.ci.len() - 1;
+            let (base, irep, mut pc) = { let ci = &self.ci[top]; (ci.base, ci.irep, ci.pc) };
+            let byte = self.ireps[irep].iseq[pc];
             let op = Op::from_u8(byte).ok_or_else(|| VmError::Internal(format!("bad opcode {byte}")))?;
+            if self.count_ops { self.op_counts[op as usize] += 1; }
             pc += 1;
             let (mut a, mut b, mut c) = (0u32, 0u32, 0u32);
             let a_wide = ext == 1 || ext == 3;
             let b_wide = ext == 2 || ext == 3;
             match op.operands() {
                 Operands::Z => {}
-                Operands::B => a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) },
-                Operands::BB => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = if b_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; }
-                Operands::BBB => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = if b_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; c = self.read_b(&ci, &mut pc); }
-                Operands::BS => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = self.read_s(&ci, &mut pc); }
-                Operands::BSS => { a = if a_wide { self.read_s(&ci, &mut pc) } else { self.read_b(&ci, &mut pc) }; b = self.read_s(&ci, &mut pc); c = self.read_s(&ci, &mut pc); }
-                Operands::S => a = self.read_s(&ci, &mut pc),
-                Operands::W => a = self.read_w(&ci, &mut pc),
+                Operands::B => a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) },
+                Operands::BB => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = if b_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; }
+                Operands::BBB => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = if b_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; c = self.read_b(irep, &mut pc); }
+                Operands::BS => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = self.read_s(irep, &mut pc); }
+                Operands::BSS => { a = if a_wide { self.read_s(irep, &mut pc) } else { self.read_b(irep, &mut pc) }; b = self.read_s(irep, &mut pc); c = self.read_s(irep, &mut pc); }
+                Operands::S => a = self.read_s(irep, &mut pc),
+                Operands::W => a = self.read_w(irep, &mut pc),
             }
             ext = 0;
             // pc now points at the next instruction (like mruby's DECODE_OPERANDS).
-            let top = self.ci.len() - 1;
             self.ci[top].pc = pc;
-            let base = ci.base;
             let (a, b, c) = (a as usize, b as usize, c as usize);
             macro_rules! reg { ($i:expr) => { self.stack[base + $i].get() } }
             macro_rules! setreg { ($i:expr, $v:expr) => { { let v = $v; self.stack[base + $i] = Slot::from(v); } } }
@@ -2890,7 +2961,7 @@ impl Vm {
                 Op::Nop => {}
                 Op::Move => { setreg!(a, reg!(b)); }
                 Op::Loadl => {
-                    let v = match &self.ireps[ci.irep].pool[b] {
+                    let v = match &self.ireps[irep].pool[b] {
                         Pool::Int(i) => Value::Int(*i),
                         Pool::Float(f) => Value::Float(*f),
                         Pool::Str(s) => { let s = s.clone(); self.str_new(&s) }
@@ -2919,7 +2990,7 @@ impl Vm {
                 Op::Loadi7 => { setreg!(a, Value::Int(7)); }
                 Op::Loadi16 => { setreg!(a, Value::Int(b as u16 as i16 as i64)); }
                 Op::Loadi32 => { setreg!(a, Value::Int((((b as u32) << 16) | c as u32) as i32 as i64)); }
-                Op::Loadsym => { setreg!(a, Value::Sym(self.ireps[ci.irep].syms[b])); }
+                Op::Loadsym => { setreg!(a, Value::Sym(self.ireps[irep].syms[b])); }
                 Op::Loadnil => { setreg!(a, Value::Nil); }
                 Op::Loadself => { setreg!(a, reg!(0)); }
                 Op::Loadtrue => { setreg!(a, Value::True); }
@@ -2929,13 +3000,13 @@ impl Vm {
                 // in the globals table but in the scope that owns it, so that a method's match
                 // stays out of its caller's `$~`
                 Op::Getgv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = if Some(s) == self.s.backref { self.svar_get() }
                         else { self.globals.get(&s).map(|s| s.get()).unwrap_or(Value::Nil) };
                     setreg!(a, v);
                 }
                 Op::Setgv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
                     if Some(s) == self.s.backref {
                         // the one place an arbitrary value reaches the slot (`backref_gv_set`)
@@ -2949,12 +3020,12 @@ impl Vm {
                     }
                 }
                 Op::Getiv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = match reg!(0) { Value::Obj(o) => self.heap.ivar_get(o, s), _ => Value::Nil };
                     setreg!(a, v);
                 }
                 Op::Setiv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
                     match reg!(0) {
                         Value::Obj(o) => { if self.heap.get(o).frozen { let r = reg!(0); return Err(self.frozen_error(r)); } self.heap.ivar_set(o, s, v) }
@@ -2962,8 +3033,8 @@ impl Vm {
                     }
                 }
                 Op::Getcv => {
-                    let s = self.ireps[ci.irep].syms[b];
-                    let cls = self.cvar_class(ci.proc_);
+                    let s = self.ireps[irep].syms[b];
+                    let cls = self.cvar_class(self.ci[top].proc_);
                     let v = match self.cvar_get(cls, s) {
                         Some(v) => v,
                         None => { let n = self.sym_name(s); let cn = self.class_name(cls); return Err(self.raise(self.core.name_error, &format!("uninitialized class variable {n} in {cn}"))); }
@@ -2971,20 +3042,21 @@ impl Vm {
                     setreg!(a, v);
                 }
                 Op::Setcv => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
-                    let cls = self.cvar_class(ci.proc_);
+                    let cls = self.cvar_class(self.ci[top].proc_);
                     self.cvar_set(cls, s, v)?;
                 }
                 Op::Getconst => {
-                    let s = self.ireps[ci.irep].syms[b];
-                    let v = self.const_lookup(&ci, s)?;
+                    let s = self.ireps[irep].syms[b];
+                    let (tc, pr) = { let ci = &self.ci[top]; (ci.target_class, ci.proc_) };
+                    let v = self.const_lookup(tc, pr, s)?;
                     setreg!(a, v);
                 }
                 Op::Setconst => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
-                    let tc = ci.target_class;
+                    let tc = self.ci[top].target_class;
                     if self.heap.is_class(tc) {
                         if self.heap.get(tc).frozen { return Err(self.frozen_error(Value::Obj(tc))); }
                         self.heap.class_mut(tc).consts.insert(s, Slot::from(v));
@@ -2998,7 +3070,7 @@ impl Vm {
                     }
                 }
                 Op::Getmcnst => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let base_v = reg!(a);
                     let cls = match base_v { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let v = match self.const_get(cls, s) {
@@ -3008,7 +3080,7 @@ impl Vm {
                     setreg!(a, v);
                 }
                 Op::Setmcnst => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let v = reg!(a);
                     match reg!(a + 1) {
                         Value::Obj(o) if self.heap.is_class(o) => {
@@ -3065,7 +3137,7 @@ impl Vm {
                 }
                 Op::Matcherr => { return Err(self.raise(self.core.no_matching_pattern_error, "pattern not matched")); }
                 Op::Ssend | Op::Ssend0 | Op::Ssendb | Op::Send | Op::Send0 | Op::Sendb => {
-                    let mid = self.ireps[ci.irep].syms[b];
+                    let mid = self.ireps[irep].syms[b];
                     let argc = if matches!(op, Op::Send0 | Op::Ssend0) { 0 } else { c };
                     let has_blk = matches!(op, Op::Sendb | Op::Ssendb);
                     let explicit = matches!(op, Op::Send | Op::Send0 | Op::Sendb);
@@ -3076,15 +3148,15 @@ impl Vm {
                 Op::Super => {
                     let argc = b;
                     setreg!(a, reg!(0));
-                    let mid = ci.mid.ok_or_else(|| self.raise(self.core.no_method_error, "super called outside of method"))?;
+                    let mid = self.ci[top].mid.ok_or_else(|| self.raise(self.core.no_method_error, "super called outside of method"))?;
                     self.op_send(base, a, mid, argc, true, true)?;
                     if let Some(v) = self.loop_exit.take() { return Ok(v); }
                 }
                 Op::Call => {
                     // `Proc#call`: replace this frame (pushed by SEND) with the proc's body.
                     let p = match reg!(0) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("wrong type (expected Proc)")) };
-                    let n = ci.n as usize;
-                    let nargs = (if n == 15 { 1 } else { n }) + (if ci.kw { 1 } else { 0 }) + 2;
+                    let n = self.ci[top].n as usize;
+                    let nargs = (if n == 15 { 1 } else { n }) + (if self.ci[top].kw { 1 } else { 0 }) + 2;
                     self.vm_call_proc(p, nargs);
                 }
                 Op::Blkcall => {
@@ -3093,26 +3165,26 @@ impl Vm {
                     let nbase = base + a;
                     let (n, kw, _) = self.prepare_call(nbase, b, false)?;
                     let npos = if n == 15 { 1 } else { n };
-                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: ci.target_class, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
+                    self.ci.push(CallInfo { base: nbase, pc: 0, irep: 0, proc_: p, n: n as u8, kw, mid: None, target_class: self.ci[top].target_class, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
                     self.vm_call_proc(p, npos + (if kw { 1 } else { 0 }) + 2);
                 }
                 Op::Argary => { self.op_argary(base, a, b)?; }
                 Op::Enter => { self.op_enter(a as u32)?; }
                 Op::Karg => {
-                    let k = Value::Sym(self.ireps[ci.irep].syms[b]);
-                    let v = match self.kidx(&ci).and_then(|ki| self.hash_delete(self.stack[ki].get(), k)) {
+                    let k = Value::Sym(self.ireps[irep].syms[b]);
+                    let v = match self.kidx_at(top).and_then(|ki| self.hash_delete(self.stack[ki].get(), k)) {
                         Some(v) => v,
-                        None => { let n = self.sym_name(self.ireps[ci.irep].syms[b]); return Err(self.raise_arg(&format!("missing keyword: {n}"))); }
+                        None => { let n = self.sym_name(self.ireps[irep].syms[b]); return Err(self.raise_arg(&format!("missing keyword: {n}"))); }
                     };
                     setreg!(a, v);
                 }
                 Op::KeyP => {
-                    let k = Value::Sym(self.ireps[ci.irep].syms[b]);
-                    let has = match self.kidx(&ci) { Some(ki) => self.hash_get(self.stack[ki].get(), k).is_some(), None => false };
+                    let k = Value::Sym(self.ireps[irep].syms[b]);
+                    let has = match self.kidx_at(top) { Some(ki) => self.hash_get(self.stack[ki].get(), k).is_some(), None => false };
                     setreg!(a, Value::bool(has));
                 }
                 Op::Keyend => {
-                    if let Some(ki) = self.kidx(&ci) {
+                    if let Some(ki) = self.kidx_at(top) {
                         let first = match self.stack[ki].get().obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.first().map(|e| e.0.get()), _ => None };
                         if let Some(k) = first { let d = match k { Value::Sym(s) => self.sym_name(s), v => self.inspect_str(v)? }; return Err(self.raise_arg(&format!("unknown keyword: {d}"))); }
                     }
@@ -3192,11 +3264,11 @@ impl Vm {
                 }
                 Op::Intern => { let v = reg!(a); let bytes = self.expect_str(v, "value")?; setreg!(a, Value::Sym(self.syms.intern(&bytes))); }
                 Op::Symbol => {
-                    let bytes = match &self.ireps[ci.irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("SYMBOL pool".into())) };
+                    let bytes = match &self.ireps[irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("SYMBOL pool".into())) };
                     setreg!(a, Value::Sym(self.syms.intern(&bytes)));
                 }
                 Op::String => {
-                    let bytes = match &self.ireps[ci.irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("STRING pool".into())) };
+                    let bytes = match &self.ireps[irep].pool[b] { Pool::Str(s) => s.clone(), _ => return Err(VmError::Internal("STRING pool".into())) };
                     setreg!(a, self.str_new(&bytes));
                 }
                 Op::Strcat => {
@@ -3221,12 +3293,12 @@ impl Vm {
                     for (k, v) in entries { self.hash_set(h, k.get(), v.get())?; }
                 }
                 Op::Lambda | Op::Block | Op::Method => {
-                    let nirep = self.ireps[ci.irep].reps[b];
+                    let nirep = self.ireps[irep].reps[b];
                     let capture = !matches!(op, Op::Method);
                     let strict = matches!(op, Op::Lambda | Op::Method);
                     let env = if capture { Some(self.frame_env()) } else { None };
                     let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData {
-                        irep: nirep, upper: Some(ci.proc_), env, target_class: Some(ci.target_class), strict, scope: matches!(op, Op::Method), orphan: false, mid: None,
+                        irep: nirep, upper: Some(self.ci[top].proc_), env, target_class: Some(self.ci[top].target_class), strict, scope: matches!(op, Op::Method), orphan: false, mid: None,
                     }));
                     setreg!(a, Value::Obj(p));
                 }
@@ -3237,9 +3309,9 @@ impl Vm {
                 }
                 Op::Oclass => { setreg!(a, Value::Obj(self.core.object)); }
                 Op::Class | Op::Module => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let base_v = reg!(a);
-                    let outer = match base_v { Value::Nil => self.heap.proc_data(ci.proc_).target_class.unwrap_or(self.core.object), Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
+                    let outer = match base_v { Value::Nil => self.heap.proc_data(self.ci[top].proc_).target_class.unwrap_or(self.core.object), Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let existing = self.heap.class(outer).consts.get(&s).map(|s| s.get());
                     let is_module = matches!(op, Op::Module);
                     let given_sup = match if is_module { Value::Nil } else { reg!(a + 1) } {
@@ -3269,9 +3341,9 @@ impl Vm {
                     setreg!(a, Value::Obj(cls));
                 }
                 Op::Exec => {
-                    let nirep = self.ireps[ci.irep].reps[b];
+                    let nirep = self.ireps[irep].reps[b];
                     let cls = match reg!(a) { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
-                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false, mid: None }));
+                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(self.ci[top].proc_), env: None, target_class: Some(cls), strict: false, scope: true, orphan: false, mid: None }));
                     let nbase = base + a;
                     let nregs = self.ireps[nirep].nregs.max(4);
                     if self.stack.len() < nbase + nregs { self.stack.resize(nbase + nregs, Slot::NIL); }
@@ -3279,7 +3351,7 @@ impl Vm {
                     self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: 0, kw: false, mid: None, target_class: cls, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
                 }
                 Op::Def => {
-                    let s = self.ireps[ci.irep].syms[b];
+                    let s = self.ireps[irep].syms[b];
                     let target = match reg!(a) { Value::Obj(o) if self.heap.is_class(o) => o, _ => return Err(self.raise_type("not a class/module")) };
                     let p = match reg!(a + 1) { Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::Proc(_)) => o, _ => return Err(self.raise_type("not a proc")) };
                     if let ObjKind::Proc(pd) = &mut self.heap.get_mut(p).kind { pd.target_class = Some(target); }
@@ -3292,26 +3364,26 @@ impl Vm {
                     setreg!(a, Value::Sym(s));
                 }
                 Op::Tdef | Op::Sdef => {
-                    let s = self.ireps[ci.irep].syms[b];
-                    let nirep = self.ireps[ci.irep].reps[c];
-                    let target = if matches!(op, Op::Tdef) { ci.target_class } else { let v = reg!(a); self.singleton_class(v)? };
-                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(ci.proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false, mid: None }));
+                    let s = self.ireps[irep].syms[b];
+                    let nirep = self.ireps[irep].reps[c];
+                    let target = if matches!(op, Op::Tdef) { self.ci[top].target_class } else { let v = reg!(a); self.singleton_class(v)? };
+                    let p = self.heap.alloc(self.core.proc_, ObjKind::Proc(ProcData { irep: nirep, upper: Some(self.ci[top].proc_), env: None, target_class: Some(target), strict: true, scope: true, orphan: false, mid: None }));
                     let (vis, modfunc) = if matches!(op, Op::Tdef) && !self.heap.class(target).is_singleton { self.current_def_vis(target) } else { (Vis::Public, false) };
                     self.def_method(target, s, Method::Ruby(p), if modfunc { Vis::Private } else { vis })?;
                     if modfunc { let sc = self.singleton_class(Value::Obj(target))?; self.def_method(sc, s, Method::Ruby(p), Vis::Public)?; }
                     setreg!(a, Value::Sym(s));
                 }
                 Op::Alias => {
-                    let (new, old) = (self.ireps[ci.irep].syms[a], self.ireps[ci.irep].syms[b]);
-                    let tc = ci.target_class;
+                    let (new, old) = (self.ireps[irep].syms[a], self.ireps[irep].syms[b]);
+                    let tc = self.ci[top].target_class;
                     self.alias_method(tc, new, old)?;
                 }
-                Op::Undef => { let s = self.ireps[ci.irep].syms[a]; self.undef_method(ci.target_class, s)?; }
+                Op::Undef => { let s = self.ireps[irep].syms[a]; self.undef_method(self.ci[top].target_class, s)?; }
                 Op::Sclass => { let v = reg!(a); setreg!(a, Value::Obj(self.singleton_class(v)?)); }
-                Op::Tclass => { setreg!(a, Value::Obj(ci.target_class)); }
+                Op::Tclass => { setreg!(a, Value::Obj(self.ci[top].target_class)); }
                 Op::Debug => {}
                 Op::Err => {
-                    let msg = match &self.ireps[ci.irep].pool[a] { Pool::Str(s) => String::from_utf8_lossy(s).into_owned(), _ => "error".into() };
+                    let msg = match &self.ireps[irep].pool[a] { Pool::Str(s) => String::from_utf8_lossy(s).into_owned(), _ => "error".into() };
                     return Err(self.raise(self.core.local_jump_error, &msg));
                 }
                 Op::Ext1 => { ext = 1; }
@@ -3319,7 +3391,7 @@ impl Vm {
                 Op::Ext3 => { ext = 3; }
                 Op::Stop => {
                     // mruby returns regs[irep->nlocals] (the last expression's register).
-                    let nlocals = self.ireps[ci.irep].nlocals;
+                    let nlocals = self.ireps[irep].nlocals;
                     let v = self.stack.get(base + nlocals).map(|s| s.get()).unwrap_or(Value::Nil);
                     let _ = self.pop_frame();
                     return Ok(v);
@@ -3330,11 +3402,11 @@ impl Vm {
 
     // ------------------------------------------------------------------ helpers used by the loop
 
-    fn const_lookup(&mut self, ci: &CallInfo, s: Sym) -> VmResult<Value> {
+    fn const_lookup(&mut self, target_class: ObjId, proc_: ObjId, s: Sym) -> VmResult<Value> {
         // 1. target class and its ancestors, 2. lexical scopes (upper procs), 3. Object
-        let mut c = Some(ci.target_class);
+        let mut c = Some(target_class);
         if let Some(v) = c.and_then(|c| self.const_get(c, s)) { return Ok(v); }
-        let mut p = Some(ci.proc_);
+        let mut p = Some(proc_);
         while let Some(pid) = p {
             let pd = self.heap.proc_data(pid);
             if let Some(tc) = pd.target_class { if let Some(v) = self.const_get(tc, s) { return Ok(v); } }
@@ -3344,7 +3416,7 @@ impl Vm {
         if let Some(v) = c.and_then(|c| self.const_get(c, s)) { return Ok(v); }
         // `const_missing` hook on the target class (default raises NameError)
         let cm = self.intern("const_missing");
-        let tc = Value::Obj(ci.target_class);
+        let tc = Value::Obj(target_class);
         self.funcall(tc, cm, &[Value::Sym(s)], Value::Nil)
     }
     pub fn frozen_error(&mut self, v: Value) -> VmError {
@@ -3492,6 +3564,12 @@ impl Vm {
         Ok(())
     }
     /// Index of `k` in the hash (hash code first, then `eql?`).
+    ///
+    /// The search is still the linear one mruby's AR mode does, but it walks the cached hash
+    /// codes as a slice under one borrow and only reaches into the heap again for a position
+    /// whose code matched. Verifying a candidate has to leave the borrow — `eql?` can be
+    /// Ruby — so the old shape took `&self.heap.get(o)` once per *element*, which is a
+    /// bounds-checked index plus a match on `ObjKind` for every entry it walks past.
     pub fn hash_index(&mut self, h: Value, k: Value) -> VmResult<Option<usize>> {
         let o = match h.obj() { Some(o) => o, None => return Ok(None) };
         if !matches!(self.heap.get(o).kind, ObjKind::Hash(_)) { return Ok(None); }
@@ -3499,9 +3577,20 @@ impl Vm {
         let kh = self.key_hash(k)?;
         let mut i = 0;
         loop {
-            let cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => { if i >= hd.entries.len() { break; } if hd.hashes.get(i) == Some(&kh) { Some(hd.entries[i].0.get()) } else { None } } _ => None };
-            if let Some(ek) = cand { if self.key_eql(k, ek)? { return Ok(Some(i)); } }
-            i += 1;
+            // the next position at or after `i` whose key hashes the same
+            let (p, ek) = match &self.heap.get(o).kind {
+                ObjKind::Hash(hd) => {
+                    let n = hd.hashes.len().min(hd.entries.len());
+                    if i >= n { break; }
+                    match hd.hashes[i..n].iter().position(|c| *c == kh) {
+                        Some(d) => (i + d, hd.entries[i + d].0.get()),
+                        None => break,
+                    }
+                }
+                _ => break,
+            };
+            if self.key_eql(k, ek)? { return Ok(Some(p)); }
+            i = p + 1;
         }
         Ok(None)
     }
@@ -3639,7 +3728,7 @@ impl Vm {
             let owner = self.ci.last().unwrap().target_class;
             match self.heap.class(owner).superclass { Some(s) => s, None => return Err(self.raise(self.core.no_method_error, "super: no superclass method")) }
         } else { self.class_of(recv) };
-        let found = self.find_method(start_class, mid);
+        let found = self.find_method_cached(start_class, mid);
         let (m, owner) = match found {
             Some((m, owner)) => {
                 if explicit && !is_super {
@@ -3686,7 +3775,7 @@ impl Vm {
             }
         };
         match m {
-            Method::Native(f) => {
+            MethodRef::Native(f) => {
                 self.native_mid = Some(mid);
                 if core::ptr::fn_addr_eq(f, crate::builtins::object::send as crate::object::NativeFn) {
                     // `send`/`__send__` from bytecode re-dispatches in this frame
@@ -3701,8 +3790,9 @@ impl Vm {
                 let (v, switched) = r?;
                 if !switched { self.stack[base + a] = Slot::from(v); }
             }
-            Method::Closure(f) => {
+            MethodRef::Closure => {
                 self.native_mid = Some(mid);
+                let f = match self.closure_of(owner, mid) { Some(f) => f, None => return Err(VmError::Internal("closure vanished between lookup and call".into())) };
                 let (args, kd) = self.native_args(base + a, argc, kw);
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
                 let r = self.call_closure_direct(&f, recv, &args, blk, base + a);
@@ -3710,19 +3800,19 @@ impl Vm {
                 let (v, switched) = r?;
                 if !switched { self.stack[base + a] = Slot::from(v); }
             }
-            Method::AttrReader(iv) => {
+            MethodRef::AttrReader(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
                 if !args.is_empty() { return Err(self.argnum_error(args.len(), "0")); }
                 self.stack[base + a] = Slot::from(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil));
             }
-            Method::AttrWriter(iv) => {
+            MethodRef::AttrWriter(iv) => {
                 let (args, _) = self.native_args(base + a, argc, kw);
                 if args.len() != 1 { return Err(self.argnum_error(args.len(), "1")); }
                 let v = args[0];
                 match recv { Value::Obj(o) => self.heap.ivar_set(o, iv, v), _ => return Err(self.raise_type("can't set instance variable")) }
                 self.stack[base + a] = Slot::from(v);
             }
-            Method::Ruby(p) => {
+            MethodRef::Ruby(p) => {
                 if self.ci.len() >= CALL_LEVEL_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
                 let nbase = base + a;
                 let nirep = self.heap.proc_data(p).irep;
@@ -3732,7 +3822,6 @@ impl Vm {
                 for i in used..nregs { self.stack[nbase + i] = Slot::NIL; }
                 self.ci.push(CallInfo { base: nbase, pc: 0, irep: nirep, proc_: p, n: argc as u8, kw, mid: Some(self.heap.proc_data(p).mid.unwrap_or(mid)), target_class: owner, env: None, cci: Cci::None, vis: Vis::Public, modfunc: false, vis_break: false });
             }
-            Method::Undef => unreachable!(),
         }
         Ok(())
     }
@@ -3742,8 +3831,9 @@ impl Vm {
         let n = ci.n as usize;
         (if n == 15 { 1 } else { n }) + (if ci.kw { 1 } else { 0 }) + 1
     }
-    /// `mrb_ci_kidx`: the register holding the keyword Hash of a frame, if any.
-    fn kidx(&self, ci: &CallInfo) -> Option<usize> {
+    /// `mrb_ci_kidx`: the register holding the keyword Hash of frame `i`, if any.
+    fn kidx_at(&self, i: usize) -> Option<usize> {
+        let ci = &self.ci[i];
         if !ci.kw { return None; }
         let n = ci.n as usize;
         Some(ci.base + (if n == 15 { 1 } else { n }) + 1)

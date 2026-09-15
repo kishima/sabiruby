@@ -55,6 +55,37 @@ pub enum Method {
     Undef,
 }
 
+/// What a call site needs from a method lookup, without cloning the [`Method`].
+///
+/// `Method` gained a variant holding an `Arc` in stage 3, so cloning one stopped being a
+/// plain copy: it branches on the discriminant, may touch a reference count, and — the part
+/// that costs most on the dispatch path — gives the returned value drop glue. Every variant
+/// but `Closure` is `Copy`; a `Closure` is named here only by its kind, and the one call site
+/// that has to run it asks the owner's table for the `Arc` ([`crate::vm::Vm::closure_of`]),
+/// which is the rare case. Lookups that want the `Method` itself still call `find_method`.
+#[derive(Clone, Copy)]
+pub enum MethodRef {
+    Ruby(ObjId),
+    Native(NativeFn),
+    Closure,
+    AttrReader(Sym),
+    AttrWriter(Sym),
+}
+
+impl MethodRef {
+    /// `None` for [`Method::Undef`], which stops a lookup rather than answering it.
+    pub fn of(m: &Method) -> Option<MethodRef> {
+        Some(match m {
+            Method::Ruby(p) => MethodRef::Ruby(*p),
+            Method::Native(f) => MethodRef::Native(*f),
+            Method::Closure(_) => MethodRef::Closure,
+            Method::AttrReader(s) => MethodRef::AttrReader(*s),
+            Method::AttrWriter(s) => MethodRef::AttrWriter(*s),
+            Method::Undef => return None,
+        })
+    }
+}
+
 #[derive(Default)]
 pub struct ClassData {
     pub name: Option<Sym>,
@@ -278,11 +309,17 @@ pub struct Heap {
     /// the host's free hook once the collection is over (`Vm::gc_collect`). The heap cannot
     /// call the hook itself: it is in the middle of rebuilding the free list.
     pub freed_data: Vec<(u32, u64)>,
+    /// Bumped whenever a method lookup could answer differently than before: any mutable
+    /// access to a `ClassData` (its table, its visibilities, its superclass, its origin or
+    /// its iclass) and every allocation of a class (a collected class's `ObjId` comes back
+    /// as a different class). [`crate::vm::Vm`]'s method cache keeps this number beside each
+    /// entry and throws the entry away when it no longer matches.
+    pub method_serial: u64,
 }
 
 impl Default for Heap {
     fn default() -> Heap {
-        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false, freed_data: Vec::new() }
+        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false, freed_data: Vec::new(), method_serial: 1 }
     }
 }
 
@@ -305,6 +342,9 @@ impl Heap {
         if self.allocated_since_gc >= self.alloc_threshold || (self.malloc_threshold != 0 && self.malloc_increase > self.malloc_threshold) {
             self.gc_pending = true;
         }
+        // a class coming back on a reused slot must not answer to a cached lookup of the
+        // class that used to live there
+        if matches!(kind, ObjKind::Class(_)) { self.method_serial += 1; }
         let o = HeapObject { class, ivars: Vec::new(), frozen: false, binary: false, kind };
         match self.free.pop() {
             Some(i) => {
@@ -477,7 +517,11 @@ impl Heap {
             _ => panic!("object {:?} is not a class", id),
         }
     }
+    /// Mutable access to a class. Every caller is a potential change to what a lookup finds
+    /// — a `def`, an `include`, an `undef_method`, a visibility — so this is where the method
+    /// cache is invalidated, once, rather than at each of the forty-odd call sites.
     pub fn class_mut(&mut self, id: ObjId) -> &mut ClassData {
+        self.method_serial += 1;
         match &mut self.get_mut(id).kind {
             ObjKind::Class(c) => c,
             _ => panic!("object {:?} is not a class", id),
