@@ -12,7 +12,7 @@
 |---|---|---|
 | 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | **済み**（2026-09-16、`bd71d31`）。記録は `docs/worklog/2026-09-16-serde.md`、設計は `docs/design/serde.md` |
 | 2 | RBS で境界を宣言する（検討→設計） | 未着手 |
-| 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | 未着手 |
+| 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | **済み**（2026-09-16、`f57949b`）。記録は `docs/worklog/2026-09-16-coverage.md`、生成物は `docs/verification/coverage.md` |
 | 4 | Cargo feature で gem を落とせるようにする（まず regexp） | 未着手 |
 | 5 | `RUBY_ENGINE` をどう答えるか決める | 未着手 |
 
@@ -126,3 +126,42 @@ Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどう�
   verify のビルドで落ちる。crates.io の `sabiruby 0.4.0` には `src/convert.rs` が無い（段階 4 より前の公開）。
   実際に上げるときは `sabiruby` を先に公開する。依存は `version = "0.4"` のままにしてある。
 
+### 3. 対応メソッド一覧
+
+* **`instance_methods` は private を隠すので、private も数えないと差分の半分が嘘になる。**
+  mruby はモジュール関数を「public な特異メソッド ＋ 同名の private なインスタンスメソッド」
+  として定義し、`Module#private`/`#public`/`#module_function`/`#remove_const`/`#included`/
+  `#method_added` なども private に置く。public だけで突き合わせると、本家にあるものが
+  「SabiRuby だけが持っている」側に数十件並ぶ。`private_instance_methods(false)` は両方の
+  VM にあるので、両方数えて行に可視性を付けた。only-sabiruby は 140 → 118 に減り、
+  代わりに「両方にあるが可視性が違う」が **45 件**出た（すべて SabiRuby が public、本家が private）。
+* **SabiRuby はトップレベルの `def` を private にしていない。** 生成スクリプト自身の
+  `def` が `Object#cov_name` として出力に混ざったことで分かった。`private :a` を明示した
+  場合は両方とも効く（`A.instance_methods(false)` は両方 `[]`）ので、食い違うのは
+  トップレベルの `def` と、上の 45 件の組み込みメソッドの初期値だけ。
+* **差分は 4 つに分けないと読めない。** 生の集合差は、(a) POSIX の gem（image の `mruby` は
+  mruby-io/dir/errno/socket/process/signal 入りで、`Errno::E*` だけで 136 クラス、312 メソッド）、
+  (b) モジュール関数の片割れ、(c) 持ち主が違うだけ（`Integer#<` は本家では `Integer`、ここでは
+  `Numeric`。`Float#nan?` も同じ）に埋もれる。`ancestors` を辿って (c) を判定した結果、
+  **本家にあって本当に答えないものは 22 件**だけだった。
+* **本当に無いもの 22 件のうち効くもの**: `Hash#default_proc=`（getter はあるのに setter が無い）、
+  `Numeric#fdiv`（`Integer#fdiv`/`Float#fdiv` はあるので、Ruby で書いた `Numeric` の子だけが困る）、
+  `Module#const_added`、`Module#method_undefined`、`BasicObject#singleton_method_added`/
+  `_removed`/`_undefined` の定義フック、`Kernel#printf`/`putc`（`leftovers-plan.md` が既に拾っている）。
+  残りは mruby-io の `Kernel#gets`/`open`/`readline`/`readlines`（対象外）と内部用の
+  `Enumerable#__update_hash`、`Kernel#__method_recursive?`。
+* **SabiRuby が多く持っている 118 件は、ほぼ「本家の gembox に無い gem」の言い換え。**
+  Task と Task::Queue で 37、CMath で 34、`require`/`load` とその補助で 10、GC のつまみ 4、
+  mruby-sleep 4、`__printstr__` 2 — ここまでで 91。残る 27 だけが同じ土俵での追加
+  （`Module#public_method_defined?` の類、`Exception#full_message`、`Integer#pred`、
+  `Symbol#id2name`、`Time#strftime`、`Numeric#step`、`Rational#truncate` ほか内部用）。
+* **gem 由来はメソッド単位では機械的に出せない。** mruby に `Method#source_location` は無く、
+  `Method#owner` はクラスしか答えない。クラス → gem の表を `tools/coverage.sh` の awk の
+  `BEGIN` に手で持ち（この生成で手で持っている唯一のデータ）、生成物にそう書いた。
+  コアクラスにメソッドを足す gem は列に出ない（`Kernel.gets` は mruby-io、`Kernel.printf` は
+  mruby-print だが core と表示される）。
+* **突き合わせを Ruby で書くことはできない。** SabiRuby にファイル IO が無い（no_std）ので、
+  2 つの一覧を読み込めない。ホストの `ruby`/`python3` を足さず、`tools/mrbtest.sh` と同じく
+  awk に揃えた。`tools/coverage.rb` は吐くだけ、突き合わせと Markdown は `tools/coverage.sh`。
+* **項目 5 の材料**: 両方の VM が `RUBY_ENGINE == "mruby"`、`MRUBY_DESCRIPTION == "mruby 4.1.0RC
+  (2026-09-04)"` を答えるので、生成物からは engine を見分けられない。生成物には両方を並べてある。
