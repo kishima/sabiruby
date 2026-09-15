@@ -1,7 +1,7 @@
 //! A Rust struct and its `impl` block as a Ruby class, for the
 //! [SabiRuby](https://crates.io/crates/sabiruby) VM.
 //!
-//! ```ignore
+//! ```
 //! use sabiruby::Vm;
 //! use sabiruby_macros::{RubyClass, ruby_methods};
 //!
@@ -15,8 +15,10 @@
 //!     fn hp(&self) -> i64 { self.hp }                  // player.hp
 //! }
 //!
+//! # fn main() -> Result<(), sabiruby::VmError> {
 //! let mut vm = Vm::with_mrblib()?;
 //! Player::register(&mut vm);                           // the class, the store, the methods
+//! # Ok(()) }
 //! ```
 //!
 //! The value stays in Rust: it lives in a `HostStore` the

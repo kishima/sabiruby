@@ -90,3 +90,125 @@ proc-macro crate は関数も型も公開できない（マクロだけ）ので
 
 `cargo test --workspace` 148 passed / 0 failed、doc-test 13 passed、`tools/check_no_std.sh` OK、
 `cargo doc --no-deps` 警告なし。
+
+## 2. crate `macros/`（`sabiruby-macros`）
+
+### 決めたこと 4: クラスメソッドの判定規則は「`self` を取らないもの」
+
+計画書は「`self` を取らず `Self` を返すものはクラスメソッド」と書いているが、実装してみると
+**戻り値を見る必要が無かった**。`#[derive(RubyClass)]` が `impl IntoRuby for Player` を吐くので、
+`-> Self` は `IntoRuby` として store に入り `Data` になる。つまり生成側は「戻り値を `IntoRubyRet` に渡す」の 1 本で、
+`-> Self` も `-> i64` も `-> Result<Self, String>` も `-> Vec<Self>` も同じコードで通る。
+
+そこで規則を **「`self` を取らない `fn` はクラスメソッド、`&self`/`&mut self` はインスタンスメソッド」** に単純化した。
+計画書の規則の上位互換で、`fn strongest(vm: &mut Vm, a: i64, b: i64) -> Self` のような「`new` ではないクラスメソッド」も、
+`Self` を返さないクラスメソッドも書ける。`self` を値で取る形（`fn into_hp(self)`）は拒否する:
+実体を store から持ち去ることになり、残った Ruby のオブジェクトが何も指さなくなるため。エラーメッセージにそう書いた。
+
+### `#[ruby(skip)]` と `#[ruby(name = "...")]`
+
+計画書には無いが 2 つ足した。`impl` ブロックにはホストが自分用に使う `fn` が普通にあるので `skip` が無いと
+マクロを実 impl に付けられない。`name` は Ruby の名前（`alive?` の `?`）が Rust の識別子にならないため。
+どちらも属性 1 つ、パースは 20 行。これ以上は足していない（ブロック引数、可変長引数、キーワード引数は
+`define_closure` に落ちる、と `docs/design/macros.md` に書いた）。
+
+### 生成コードの形
+
+`Vm::define_fn` に丸投げする形にした。生成されるのは 1 メソッドにつき 1 つの `define_fn` 呼び出しで、
+クロージャの引数は Rust の署名そのまま（`|vm: &mut Vm, __this: This<Value>, __a0: i64| -> VmResult<Value>`）。
+こうすると `FromRuby`/`IntoRuby`/引数の個数の検査/`Method#arity` が段階 4 のものになり、マクロが自前で持つものが無い。
+`This<Value>` で受けて `RubyClass::borrow_mut` に渡すのは、`This<DataRef>` だと「Data ではあるが別の型」の
+エラーメッセージがクラス名を言えないため。
+
+**引数の型のエラーメッセージが読めなかった。** `BTreeMap` を引数に取るメソッドを書いて確かめたところ、
+
+```
+error[E0277]: the trait bound `{closure@…badtype.rs:7:1: 7:16}: RubyFn<_>` is not satisfied
+ 7 | #[ruby_methods]
+   | ^^^^^^^^^^^^^^^ the trait `RubyFn<_>` is not implemented for closure
+```
+
+型も行も出ない（`define_fn` の境界がクロージャ全体に付いているので当然）。生成コードに、呼ばれない
+`fn __ruby_argument_types()` を足し、その中で `__arg::<#ty>()` を **引数の型の span で** `quote_spanned!` して
+`FromRuby` を要求するようにした。結果:
+
+```
+error[E0277]: the trait bound `BTreeMap<String, i64>: FromRuby` is not satisfied
+ 9 |     fn table(&self, t: BTreeMap<String, i64>) -> i64 { … }
+   |                        ^^^^^^^^^^^^^^^^^^^^^ the trait `FromRuby` is not implemented for …
+   = help: the following other types implement trait `FromRuby`: DataRef, Option<T>, Value, Vec<T>, bool, f64, i32, i64 …
+```
+
+`&str` を書いた場合は `help: the trait FromRuby is implemented for String` まで出る。
+戻り値側はもともと読めた（`IntoRubyRet` の境界が具体型に付いているため）ので触っていない。
+
+### 展開結果の固定（`macros/tests/expand.rs`）
+
+`cargo expand` は使えない（proc-macro crate はマクロ以外を公開できないので、展開を呼ぶ側が書けない）。
+展開の中身を `macros/src/expand.rs` に普通のコードとして置き、テスト側から `#[path = "../src/expand.rs"] mod expand;`
+で直に取り込む形にした（この module が `proc_macro` crate を触らないことが条件で、`proc_macro2` だけで書いてある）。
+
+比較は最初 `TokenStream::to_string()` 同士でやろうとして落ちた。`quote!` が付ける punct の
+joint/alone が字句解析器のそれと少し違い、`>::` が `> :: ` になったりならなかったりする。
+「1 度印字して読み直して印字し直す」正規化も効かなかった（spacing が保存される）ので、
+**空白を全部落としてから比べる** ことにした。両辺とも本物のトークン列なので、隣り合う 2 つのトークンが
+1 つに化けて誤って一致することはない。失敗時は `;` と `{` で改行を入れた読める形を出す。
+テストが本当に差を見ているかは、期待値の `borrow_mut` を `borrow` に変えて落ちることで確かめた。
+
+## 3. 結合テスト（`macros/tests/player.rs`、12 本）
+
+計画書の `Player` をそのまま書き、Ruby から回した。`Player.new(100)`、`damage`/`hp`/`rename`/`alive?`、
+`Method#arity`（`greet` は `&mut Vm` を取るので 1 で、文脈は数えない）、引数の個数と型の例外、
+`GC.start` で 10 個が store から消えて 1 個残ること、`dup`/`clone` が `TypeError`、
+`Player` と `Monster`（`#[ruby(name)]` で改名した `Beast`）が同じ VM でタグも store も別なこと、
+同じ型を 2 つの VM で使っても混ざらないこと、Rust 側から `borrow`/`borrow_mut`/`IntoRuby` で触れること。
+
+書いていて分かったこと 2 つ:
+
+* **Ruby から「Player 以外のレシーバで Player のメソッドを呼ぶ」のは難しい。** `UnboundMethod#bind` が
+  先に `bind argument must be an instance of Player` で弾く。到達できるのは `allocate`（ハンドルの入っていない
+  素の Player オブジェクト）とその Ruby 側サブクラスで、そこを突くテストに書き換えた
+  （`Ghost.allocate.hp` → `wrong argument type Ghost (expected Player)`）。別の型のハンドルを渡す経路は
+  Rust 側から `Player::borrow` を呼んで確かめている。
+* **再入のテストで、最初に出た例外は `in use` ではなく `stale` だった。** `greet` が実体を抜いている間に
+  Ruby 側から同じオブジェクトの `name` を呼ぶと、`borrow` は「slab の枠はあるが空」を見て
+  「ホストが捨てた（stale）」と答えていた。`HostStore` の枠を `Empty` / `Full(T)` / `Out` の 3 状態に変え
+  （`take` は `Out` を置く）、`is_out` で区別できるようにした。`remove` は `Out` の枠を解放しない
+  （貸し出し中のものを GC が回収しようとしても番号を再利用しない）。ついでに `len` が
+  「貸し出し中を数えない」という意味に揃った。
+
+## 4. 確認
+
+* `cargo test --workspace`: **169 passed / 0 failed**（追加分: `tests/host_store.rs` 8、`macros/tests/expand.rs` 9、
+  `macros/tests/player.rs` 12。doc-test は sabiruby 13 本すべて通る）。
+* `tools/check_no_std.sh`: `no_std OK`。`macros` は proc-macro なので対象外、生成コードは `no_std` の VM に対して
+  動く（`::sabiruby::` の公開 API しか呼ばない）。
+* `cargo doc --no-deps --workspace`: 警告なし。唯一出る
+  `output filename collision at target/doc/sabiruby/index.html`（`sabiruby-cli` の bin と `sabiruby` の lib が同名）は
+  **この段階より前からあるもの**で、main の作業ツリーでも同じものが出ることを確かめた。
+* `cargo publish --dry-run --workspace`: 4 crate すべて成功（EXIT=0）。`sabiruby` の package に `macros/` は入らない
+  （`include` が `/src/**/*` などの白名簿なので）。`cargo package --list -p sabiruby | grep macro` は
+  `docs/worklog/2026-09-15-stage6a-macros.md`（docs は元から入る）だけ。`sabiruby-macros` の package は 7 ファイルで、
+  テストは `include` から外してある。
+* 本家テスト: 108 ファイル（`gem_ascii_*` を除く）を
+  `./target/release/sabiruby mrbtest tests/mrbtest/assert.mrb tests/mrbtest/prelude.mrb tests/mrbtest/<name>.mrb` で回し、
+  `ok` 列が `tests/mrbtest/baseline.txt` と **1 ファイルの差も無く一致**。
+* ベンチは取っていない（指示どおり。VM に足したのは `host_stores: Vec` と `next_tag: u32` の 2 フィールドと、
+  `gc_collect` の末尾で `freed_data` が空でないときだけ回る 3 行で、実行ループにも割り当て経路にも触っていない）。
+
+## 5. 残した宿題・気づいたこと
+
+* **`register` が `expect` を 1 つ持つ。** クラスメソッドがあるとき `vm.singleton_class(...)` の
+  `VmResult` を `.expect("a class has a metaclass")` で開いている。クラスには必ずメタクラスがある
+  （`define_class` が作る）ので届かないはずだが、生成コードに panic の芽が 1 つあるのは事実。
+  `register` を `VmResult<ObjId>` にすれば消えるが、計画書の `T::register(&mut vm)` の形から離れるので触っていない。
+* **`Player.allocate` の穴。** `Class#new` は上書きしているが `allocate` は残るので、Ruby から
+  ハンドルの入っていない `Player` を作れる。メソッドを呼べば `TypeError` になる（テスト済み）ので壊れはしないが、
+  メッセージが `wrong argument type Player (expected Player)` になるのは読みにくい。
+  `allocate` を潰すか、メッセージを分けるかは著者判断。
+* **ブロックを取るメソッドが書けない。** `define_fn` には `Block` を末尾に取る形があるので、マクロが
+  末尾の `Block` を文脈として読む拡張は 5 行で入る。計画書に無いので入れていない。
+* rubevy 側（6b・6c の担当）へ: `Rubevy::Entity` を `#[derive(RubyClass)]` に載せ替えられるはずだが、
+  エンティティの実体は Bevy の `World` 側にあって `HostStore` に入れるものが無いので、そのままでは合わない。
+  `HostStore` が要るのは「Rust の値を Ruby に持たせる」場合で、「Bevy の ID を渡す」だけなら段階 5 の
+  `data_new` のままでよい。
