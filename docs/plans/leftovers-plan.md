@@ -14,7 +14,7 @@
 | 5 | `Kernel#printf` / `#putc` が無く、本家のベンチ `bm_ao_render` と `bm_mandel_term` が動かない | 段階 1 から | 未着手 |
 | 6 | `items()` が配列を複製する箇所の残り（中身を読むだけのもの。ベンチには出ないが実コードで効く） | 2d | 未着手 |
 | 7 | rubevy の `Rubevy.ask` の `Arg` に Hash/Array を運べない（`Arg::Value`。今は数値と文字列と Entity だけ） | ECS の橋 A | **済み**（2026-09-16、rubevy `0142f93`）。`Request` の drop で解放（`Vm` が無いので次の `tick_scripts` 先頭で `gc_unregister`）。記録は rubevy `docs/worklog/2026-09-16-arg-value.md` |
-| 8 | SabiRuby の公開 API で足りなかったもの: Hash のキー列挙、`Task::Queue` の長さと非ブロッキング pop（rubevy が `funcall` で代用している） | ECS の橋 B | **済み**（2026-09-16、`6af8276`）。rubevy 側の置き換えは未（`reflect.rs:136`、`lib.rs:782`・`789`） |
+| 8 | SabiRuby の公開 API で足りなかったもの: Hash のキー列挙、`Task::Queue` の長さと非ブロッキング pop（rubevy が `funcall` で代用している） | ECS の橋 B | **済み**（2026-09-16、`6af8276`）。rubevy 側の置き換えも済み（rubevy `83cd763`） |
 | 9 | coverage が見つけた「本家にあって本当に無い」もの: `Hash#default_proc=`、`Numeric#fdiv`、`Module#const_added`/`#method_undefined`、`BasicObject#singleton_method_added`/`_removed`/`_undefined` | coverage | **済み**（2026-09-16、`ef4611f`）。`coverage.md` の「本家だけ」22 → 15 |
 | 10 | 可視性の食い違い 50 件（本家が private、SabiRuby が public。`Module#private`/`module_function`/`included`/`method_added` の類）と、トップレベルの `def` が private にならない件 | coverage | **著者判断待ち**（直すか「意図した差分」にするか）。項目 9 のフック 5 件が加わって 45 → 50 |
 
