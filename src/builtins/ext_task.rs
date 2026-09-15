@@ -552,7 +552,7 @@ pub(crate) fn task_run_once(vm: &mut Vm) -> VmResult<Value> {
 
 fn hash_entries(vm: &Vm, h: Value) -> Vec<(Value, Value)> {
     match h.obj().map(|o| &vm.heap.get(o).kind) {
-        Some(ObjKind::Hash(hd)) => hd.entries.iter().map(|(k, v)| (k.get(), v.get())).collect(),
+        Some(ObjKind::Hash(hd)) => hd.entries().iter().map(|(k, v)| (k.get(), v.get())).collect(),
         _ => Vec::new(),
     }
 }

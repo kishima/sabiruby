@@ -52,13 +52,13 @@ fn store(vm: &mut Vm, data: Value, vals: &[Value]) {
 }
 
 fn alloc(vm: &mut Vm, c: ObjId, vals: &[Value]) -> Value {
-    let data = Value::Obj(vm.heap.alloc(c, ObjKind::Array(Vec::new())));
+    let data = Value::Obj(vm.heap.alloc(c, ObjKind::Array(Default::default())));
     store(vm, data, vals);
     data
 }
 
 fn hash_entries(vm: &Vm, h: Value) -> Vec<(Value, Value)> {
-    match h.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.iter().map(|(k, v)| (k.get(), v.get())).collect(), _ => Vec::new() }
+    match h.obj().map(|o| &vm.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries().iter().map(|(k, v)| (k.get(), v.get())).collect(), _ => Vec::new() }
 }
 
 /// the members as keywords: `required` ones must all be given, unknown ones are refused
@@ -99,7 +99,7 @@ fn data_new(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     let c = s.obj().unwrap();
     let mems = class_members(vm, c)?;
     let n = mems.len();
-    let data = Value::Obj(vm.heap.alloc(c, ObjKind::Array(Vec::new())));
+    let data = Value::Obj(vm.heap.alloc(c, ObjKind::Array(Default::default())));
     let kw = pending(vm, a);
     let pos = if kw.is_some() { &a[..a.len() - 1] } else { a };
     if !initialize_is(vm, c, data_initialize) {

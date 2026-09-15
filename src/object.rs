@@ -177,14 +177,346 @@ pub const SVAR_BACKREF: usize = 0;
 /// `$_` (`MRB_SVAR_LASTLINE`), which no global is registered for.
 pub const SVAR_LASTLINE: usize = 1;
 
-#[derive(Default)]
+/// The elements of an Array: a buffer and the index in it where the elements start.
+///
+/// A plain `Vec<Slot>` makes `Array#shift` O(n) — `Vec::remove(0)` moves every remaining
+/// element down one — which is what a queue written as `push`/`shift` pays on every step.
+/// The reference does not: an `RArray` can point into a buffer it shares with another array,
+/// and `shift` moves that pointer. Sharing is not reproduced here (two arrays never see each
+/// other's writes, so nothing has to decide when to unshare); only the offset is, and it
+/// lives in the array itself. That is on the "implementation you may choose" side: Ruby sees
+/// the same elements in the same order, and `shift` becomes O(1).
+///
+/// `buf[..start]` is the room `shift` left in front. It is nil-filled, so the collector never
+/// sees an element the array has already given up, and it is reclaimed by `compact` once it
+/// has grown past the live elements — which takes as many `shift`s as the copy then costs, so
+/// the amortized cost of `shift` stays constant.
+///
+/// The fields are private and the type derefs to `[Slot]`: every reader works on the slice
+/// `buf[start..]` and cannot see the offset, and every writer goes through the methods below,
+/// which are the only places that know about it.
+#[derive(Clone, Default)]
+pub struct ArrayData {
+    buf: Vec<Slot>,
+    start: usize,
+}
+
+/// Room left in front that `compact` tolerates before it reclaims it: below this an array is
+/// too small for the copy to matter, and a `shift`-only array (which ends at `start == cap`,
+/// `len == 0`) would otherwise copy on every step.
+const ARY_SHIFT_SLACK: usize = 16;
+
+impl ArrayData {
+    pub fn new() -> ArrayData {
+        ArrayData { buf: Vec::new(), start: 0 }
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.buf.len() - self.start
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.buf.len() == self.start
+    }
+    #[inline]
+    pub fn as_slice(&self) -> &[Slot] {
+        &self.buf[self.start..]
+    }
+    #[inline]
+    pub fn as_mut_slice(&mut self) -> &mut [Slot] {
+        &mut self.buf[self.start..]
+    }
+    /// Drops the room in front once it is bigger than the elements it precedes. Called after
+    /// every `shift`; the copy is O(len) but at least `len` shifts had to happen to reach it.
+    fn compact(&mut self) {
+        if self.start > self.len() && self.start > ARY_SHIFT_SLACK {
+            self.buf.drain(..self.start);
+            self.start = 0;
+        }
+    }
+    pub fn push(&mut self, v: Slot) {
+        self.buf.push(v);
+    }
+    pub fn pop(&mut self) -> Option<Slot> {
+        if self.is_empty() { None } else { self.buf.pop() }
+    }
+    pub fn clear(&mut self) {
+        self.buf.clear();
+        self.start = 0;
+    }
+    pub fn truncate(&mut self, len: usize) {
+        self.buf.truncate(self.start + len);
+    }
+    pub fn resize(&mut self, len: usize, v: Slot) {
+        self.buf.resize(self.start + len, v);
+    }
+    pub fn extend_from_slice(&mut self, other: &[Slot]) {
+        self.buf.extend_from_slice(other);
+    }
+    /// `Vec::split_off`: the elements from `at` on, as a fresh buffer.
+    pub fn split_off(&mut self, at: usize) -> Vec<Slot> {
+        self.buf.split_off(self.start + at)
+    }
+    /// `Array#shift`: the first element in O(1).
+    pub fn shift(&mut self) -> Option<Slot> {
+        if self.is_empty() { return None; }
+        let v = core::mem::replace(&mut self.buf[self.start], Slot::NIL);
+        self.start += 1;
+        self.compact();
+        Some(v)
+    }
+    /// `Array#shift(n)`: the first `n` elements (or all of them) in O(n) for the copy out and
+    /// O(1) for the array itself.
+    pub fn shift_n(&mut self, n: usize) -> Vec<Slot> {
+        let n = n.min(self.len());
+        let out = self.buf[self.start..self.start + n].to_vec();
+        for s in &mut self.buf[self.start..self.start + n] { *s = Slot::NIL; }
+        self.start += n;
+        self.compact();
+        out
+    }
+    /// `Array#unshift`: O(1) when `shift` has left enough room in front, else a splice.
+    pub fn unshift(&mut self, items: Vec<Slot>) {
+        if items.len() <= self.start {
+            self.start -= items.len();
+            self.buf[self.start..self.start + items.len()].copy_from_slice(&items);
+        } else {
+            self.buf.splice(self.start..self.start, items);
+        }
+    }
+    pub fn insert(&mut self, i: usize, v: Slot) {
+        if i == 0 && self.start > 0 {
+            self.start -= 1;
+            self.buf[self.start] = v;
+        } else {
+            self.buf.insert(self.start + i, v);
+        }
+    }
+    pub fn remove(&mut self, i: usize) -> Slot {
+        if i == 0 { return self.shift().expect("remove(0) on an empty array"); }
+        self.buf.remove(self.start + i)
+    }
+    /// `Vec::drain(from..to)`, collected: the elements removed, in order.
+    pub fn drain_range(&mut self, from: usize, to: usize) -> Vec<Slot> {
+        if from == 0 { return self.shift_n(to); }
+        self.buf.drain(self.start + from..self.start + to).collect()
+    }
+    /// `Vec::splice(from..to, items)` with the return dropped.
+    pub fn splice_range(&mut self, from: usize, to: usize, items: Vec<Slot>) {
+        if from == 0 && to == 0 { return self.unshift(items); }
+        self.buf.splice(self.start + from..self.start + to, items);
+    }
+}
+
+impl From<Vec<Slot>> for ArrayData {
+    fn from(buf: Vec<Slot>) -> ArrayData {
+        ArrayData { buf, start: 0 }
+    }
+}
+
+impl FromIterator<Slot> for ArrayData {
+    fn from_iter<I: IntoIterator<Item = Slot>>(iter: I) -> ArrayData {
+        ArrayData { buf: iter.into_iter().collect(), start: 0 }
+    }
+}
+
+impl Extend<Slot> for ArrayData {
+    fn extend<I: IntoIterator<Item = Slot>>(&mut self, iter: I) {
+        self.buf.extend(iter);
+    }
+}
+
+impl core::ops::Deref for ArrayData {
+    type Target = [Slot];
+    #[inline]
+    fn deref(&self) -> &[Slot] {
+        self.as_slice()
+    }
+}
+
+impl core::ops::DerefMut for ArrayData {
+    #[inline]
+    fn deref_mut(&mut self) -> &mut [Slot] {
+        self.as_mut_slice()
+    }
+}
+
+/// A Hash: its entries in insertion order, the hash code of each key beside them, and the
+/// value `Hash#default` answers with.
+///
+/// `entries` and `hashes` are private, and every read and write goes through one of the
+/// methods below. That is not tidiness: the cached hash codes have to stay aligned with the
+/// entries, and anything derived from the entries' *positions* -- a lookup index, say -- has
+/// to be thrown away whenever a removal moves them. Spread over the forty-odd places that
+/// used to reach into the fields, one of them would eventually forget. The same reasoning
+/// made `Heap::class_mut` the single way to reach a `ClassData`: the method cache's
+/// invalidation hangs off it.
+#[derive(Clone, Default)]
 pub struct HashData {
-    /// Insertion-ordered entries; lookup is linear with `eql?` semantics
-    /// (like mruby's AR mode, without the hash-table switch yet).
-    pub entries: Vec<(Slot, Slot)>,
+    /// Insertion-ordered entries. The order is this vector's, whatever else is built
+    /// beside it, which is why `Hash#each` never has to sort anything.
+    entries: Vec<(Slot, Slot)>,
     /// `hash` of each key, parallel to `entries` (rebuilt lazily when lengths differ).
-    pub hashes: Vec<i64>,
+    hashes: Vec<i64>,
+    /// `hash code -> one entry with that code`, built once the hash has more than
+    /// [`HASH_INDEX_THRESHOLD`] entries. This is the switch mruby makes from its "array"
+    /// representation to a hash table at the same size, except that insertion order does
+    /// not have to be stored anywhere: `entries` already has it.
+    ///
+    /// `None` while the hash is small, while the hash codes are stale (hashing a key can
+    /// run Ruby, which the writes that replace every entry cannot do), and from a removal
+    /// until it is rebuilt.
+    index: Option<HashMap<i64, u32>>,
+    /// `chain[i]` is another entry whose key hashes like entry `i`'s, or [`NO_ENTRY`].
+    /// Keys in a hash are unique under `eql?`, so at most one entry of a chain can match
+    /// and the order they come back in does not matter.
+    chain: Vec<u32>,
     pub default: Slot,
+}
+
+/// Entries above which a lookup builds an index instead of walking the cached hash codes.
+/// mruby switches an `RHash` from its "array" representation to a hash table at the same
+/// size (`AR_DEFAULT_LEN` doubles up to 16), and for the same reason: below it the walk
+/// over one `i64` slice is cheaper than a table lookup, and the table's memory is not worth
+/// paying for the small hashes most programs are made of.
+pub const HASH_INDEX_THRESHOLD: usize = 16;
+
+/// End of a chain in [`HashData`]'s index.
+const NO_ENTRY: u32 = u32::MAX;
+
+impl HashData {
+    /// A hash holding `entries`, whose key hash codes the first lookup fills in
+    /// (`hashes_stale`).
+    pub fn from_entries(entries: Vec<(Slot, Slot)>, default: Slot) -> HashData {
+        HashData { entries, hashes: Vec::new(), index: None, chain: Vec::new(), default }
+    }
+    /// The entries in insertion order.
+    #[inline]
+    pub fn entries(&self) -> &[(Slot, Slot)] {
+        &self.entries
+    }
+    #[inline]
+    pub fn len(&self) -> usize {
+        self.entries.len()
+    }
+    #[inline]
+    pub fn is_empty(&self) -> bool {
+        self.entries.is_empty()
+    }
+    /// True while the cached hash codes do not describe the entries. Hashing a key can run
+    /// Ruby (`hash` is a method), which a `&mut HashData` cannot do, so the writes that
+    /// replace every entry leave the codes empty and [`Vm::hash_sync`](crate::vm::Vm) fills
+    /// them in at the next lookup.
+    #[inline]
+    pub fn hashes_stale(&self) -> bool {
+        self.hashes.len() != self.entries.len()
+    }
+    /// The hash code cached for entry `i`, if there is one.
+    #[inline]
+    pub fn hash_at(&self, i: usize) -> Option<i64> {
+        self.hashes.get(i).copied()
+    }
+    /// Where a lookup for a key hashing to `kh` starts: the first entry whose key hashes the
+    /// same, as `(position, key)`.
+    ///
+    /// A lookup only ever asks these two questions, and each answer is all it needs to leave
+    /// the borrow again: verifying a candidate means calling `eql?`, which can be Ruby, so
+    /// nothing may be held across it.
+    pub fn first_candidate(&self, kh: i64) -> Option<(usize, Slot)> {
+        match &self.index {
+            Some(ix) => self.at(*ix.get(&kh)?),
+            None => self.scan_from(kh, 0),
+        }
+    }
+    /// The next entry whose key hashes to `kh`, for a lookup that has just rejected the one
+    /// at `p`. Keys in a hash are unique under `eql?`, so the order these come back in does
+    /// not matter — at most one of them can match.
+    pub fn next_candidate(&self, p: usize, kh: i64) -> Option<(usize, Slot)> {
+        match &self.index {
+            // `eql?` may have run Ruby, which may have edited this hash, so the chain is
+            // read defensively: a position that is no longer there ends the walk.
+            Some(_) => self.at(*self.chain.get(p)?),
+            None => self.scan_from(kh, p + 1),
+        }
+    }
+    fn at(&self, p: u32) -> Option<(usize, Slot)> {
+        if p == NO_ENTRY { return None; }
+        let p = p as usize;
+        Some((p, self.entries.get(p)?.0))
+    }
+    fn scan_from(&self, kh: i64, from: usize) -> Option<(usize, Slot)> {
+        let n = self.hashes.len().min(self.entries.len());
+        if from >= n { return None; }
+        let d = self.hashes[from..n].iter().position(|c| *c == kh)?;
+        Some((from + d, self.entries[from + d].0))
+    }
+    /// Builds the index, or drops it when the hash is too small for one or its hash codes
+    /// are not usable. Every write that could have invalidated the index ends here.
+    fn reindex(&mut self) {
+        if self.entries.len() <= HASH_INDEX_THRESHOLD || self.hashes_stale() {
+            self.index = None;
+            self.chain = Vec::new();
+            return;
+        }
+        let mut ix: HashMap<i64, u32> = HashMap::with_capacity(self.entries.len());
+        let mut chain: Vec<u32> = Vec::new();
+        chain.resize(self.entries.len(), NO_ENTRY);
+        for (i, kh) in self.hashes.iter().enumerate() {
+            // the new entry becomes the head of its chain and points at the old head
+            chain[i] = ix.insert(*kh, i as u32).unwrap_or(NO_ENTRY);
+        }
+        self.index = Some(ix);
+        self.chain = chain;
+    }
+    /// Appends an entry that is known not to be in the hash yet, with its key's hash code.
+    pub fn push_entry(&mut self, k: Slot, v: Slot, kh: i64) {
+        let at = self.entries.len() as u32;
+        self.entries.push((k, v));
+        self.hashes.push(kh);
+        match &mut self.index {
+            Some(ix) => self.chain.push(ix.insert(kh, at).unwrap_or(NO_ENTRY)),
+            None => self.reindex(),
+        }
+    }
+    /// Overwrites the value of entry `i`; the key and its hash code stay.
+    pub fn set_value_at(&mut self, i: usize, v: Slot) {
+        self.entries[i].1 = v;
+    }
+    /// Removes entry `i` and its hash code, keeping the order of the rest.
+    pub fn remove_entry(&mut self, i: usize) -> (Slot, Slot) {
+        if i < self.hashes.len() { self.hashes.remove(i); }
+        let e = self.entries.remove(i);
+        // every position after `i` moved down one, so every chain naming one is wrong.
+        // Rebuilding is O(n), which is what `Vec::remove` just cost anyway.
+        if self.index.is_some() { self.reindex(); }
+        e
+    }
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.hashes.clear();
+        self.index = None;
+        self.chain = Vec::new();
+    }
+    /// Replaces every entry. The hash codes are dropped: the caller is handing over keys it
+    /// did not hash (`replace`, `initialize_copy`, `merge`), and hashing them needs the VM.
+    pub fn set_entries(&mut self, entries: Vec<(Slot, Slot)>) {
+        self.entries = entries;
+        self.hashes.clear();
+        self.index = None;
+        self.chain = Vec::new();
+    }
+    /// Replaces every entry together with the hash codes the caller already computed for
+    /// them (`rehash`, `compact!`), which saves the next lookup from hashing them again.
+    pub fn set_entries_with_hashes(&mut self, entries: Vec<(Slot, Slot)>, hashes: Vec<i64>) {
+        self.entries = entries;
+        self.hashes = hashes;
+        self.reindex();
+    }
+    /// Fills in the hash codes `hashes_stale` asked for.
+    pub fn set_hashes(&mut self, hashes: Vec<i64>) {
+        self.hashes = hashes;
+        self.reindex();
+    }
 }
 
 impl Default for Value {
@@ -238,7 +570,7 @@ pub enum ObjKind {
     Break { tag: BreakTag, ci_index: usize, value: Value },
     Class(ClassData),
     String(Vec<u8>),
-    Array(Vec<Slot>),
+    Array(ArrayData),
     Hash(HashData),
     Range { begin: Slot, end: Slot, excl: bool },
     Proc(ProcData),
@@ -328,7 +660,7 @@ fn payload_bytes(kind: &ObjKind) -> usize {
     match kind {
         ObjKind::String(s) => s.len(),
         ObjKind::Array(a) => 16 * a.len(),
-        ObjKind::Hash(h) => 40 * h.entries.len(),
+        ObjKind::Hash(h) => 40 * h.len(),
         ObjKind::BigInt(b) => 4 * b.mag.len(),
         _ => 0,
     }
@@ -443,9 +775,9 @@ impl Heap {
                 // a Data holds a handle, not a Value: nothing in it is a reference
                 ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Regexp(_) | ObjKind::Data { .. } => {}
                 ObjKind::Break { value, .. } => mark(*value),
-                ObjKind::Array(a) => { for v in a { mark(v.get()); } }
+                ObjKind::Array(a) => { for v in a.iter() { mark(v.get()); } }
                 ObjKind::Hash(h) => {
-                    for (k, v) in &h.entries { mark(k.get()); mark(v.get()); }
+                    for (k, v) in h.entries() { mark(k.get()); mark(v.get()); }
                     mark(h.default.get());
                 }
                 ObjKind::Range { begin, end, .. } => { mark(begin.get()); mark(end.get()); }
@@ -553,7 +885,7 @@ impl Heap {
             _ => None,
         }
     }
-    pub fn array(&self, id: ObjId) -> Option<&Vec<Slot>> {
+    pub fn array(&self, id: ObjId) -> Option<&[Slot]> {
         match &self.get(id).kind {
             ObjKind::Array(a) => Some(a),
             _ => None,

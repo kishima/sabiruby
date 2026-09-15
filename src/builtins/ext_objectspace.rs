@@ -50,8 +50,7 @@ fn count_objects(vm: &mut Vm, _s: Value, a: &[Value], _b: Value) -> VmResult<Val
         }
     };
     if let Some(ObjKind::Hash(hd)) = h.obj().map(|o| &mut vm.heap.get_mut(o).kind) {
-        hd.entries.clear();
-        hd.hashes.clear();
+        hd.clear();
     }
     let total = vm.heap.len();
     let mut free = 0i64;

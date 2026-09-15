@@ -4,14 +4,18 @@ use alloc::{format, vec, vec::Vec};
 
 use crate::argc;
 use crate::error::VmResult;
-use crate::object::ObjKind;
+use crate::object::{ArrayData, ObjKind};
 use crate::value::{slots_of, values_of, Slot, Value};
 use crate::vm::Vm;
 
 fn items(vm: &Vm, v: Value) -> Vec<Value> {
     vm.ary_vals(v).unwrap_or_default()
 }
-fn with_mut<R>(vm: &mut Vm, v: Value, f: impl FnOnce(&mut Vec<Slot>) -> R) -> VmResult<R> {
+/// How many elements, without copying them out (`items(vm, v).len()` allocates).
+fn ary_len(vm: &Vm, v: Value) -> usize {
+    vm.ary(v).map(|l| l.len()).unwrap_or(0)
+}
+fn with_mut<R>(vm: &mut Vm, v: Value, f: impl FnOnce(&mut ArrayData) -> R) -> VmResult<R> {
     match v.obj() {
         Some(o) => {
             if vm.heap.get(o).frozen { return Err(vm.raise(vm.core.frozen_error, "can't modify frozen Array")); }
@@ -131,10 +135,10 @@ pub fn init(vm: &mut Vm) {
                 Some(Value::Int(n)) => { if *n < 0 { return Err(vm.raise_arg("negative array size")); } let n = *n as usize; if !b.is_nil() { let mut v = Vec::with_capacity(n); for i in 0..n { v.push(vm.call_block(b, &[Value::Int(i as i64)])?); } v } else { vec![a.get(1).copied().unwrap_or(Value::Nil); n] } }
                 Some(x) => match vm.ary_vals(*x) { Some(v) => v, None => return Err(vm.raise_type("no implicit conversion into Integer")) },
             };
-            with_mut(vm, s, |arr| *arr = slots_of(&v))?; Ok(s)
+            with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s)
         }),
-        ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, a[0]); with_mut(vm, s, |arr| *arr = slots_of(&v))?; Ok(s) }),
-        ("replace", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, a[0]); with_mut(vm, s, |arr| *arr = slots_of(&v))?; Ok(s) }),
+        ("initialize_copy", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, a[0]); with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s) }),
+        ("replace", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, a[0]); with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s) }),
         ("size", |vm, s, _a, _b| Ok(Value::Int(vm.ary(s).map(|v| v.len()).unwrap_or(0) as i64))),
         ("length", |vm, s, _a, _b| Ok(Value::Int(vm.ary(s).map(|v| v.len()).unwrap_or(0) as i64))),
         ("count", |vm, s, a, b| { let list = items(vm, s); if let Some(x) = a.first() { let mut n = 0; for it in list { if vm.equal(it, *x)? { n += 1; } } return Ok(Value::Int(n)); } if !b.is_nil() { let mut n = 0; for it in list { if vm.call_block(b, &[it])?.truthy() { n += 1; } } return Ok(Value::Int(n)); } Ok(Value::Int(list.len() as i64)) }),
@@ -151,10 +155,10 @@ pub fn init(vm: &mut Vm) {
         ("push", |vm, s, a, _b| { with_mut(vm, s, |arr| arr.extend(slots_of(a)))?; Ok(s) }),
         ("append", |vm, s, a, _b| { with_mut(vm, s, |arr| arr.extend(slots_of(a)))?; Ok(s) }),
         ("pop", |vm, s, a, _b| { argc!(vm, a, 0, 1); if a.is_empty() { return with_mut(vm, s, |arr| arr.pop().map(|x| x.get()).unwrap_or(Value::Nil)); } let n = vm.expect_int(a[0], "argument")? as usize; let v = with_mut(vm, s, |arr| { let k = arr.len().saturating_sub(n); values_of(&arr.split_off(k)) })?; Ok(vm.ary_new(v)) }),
-        ("shift", |vm, s, a, _b| { argc!(vm, a, 0, 1); if a.is_empty() { return with_mut(vm, s, |arr| if arr.is_empty() { Value::Nil } else { arr.remove(0).get() }); } let n = vm.expect_int(a[0], "argument")? as usize; let v = with_mut(vm, s, |arr| { let k = n.min(arr.len()); arr.drain(..k).map(|x| x.get()).collect::<Vec<_>>() })?; Ok(vm.ary_new(v)) }),
-        ("unshift", |vm, s, a, _b| { with_mut(vm, s, |arr| { arr.splice(0..0, slots_of(a)); })?; Ok(s) }),
-        ("prepend", |vm, s, a, _b| { with_mut(vm, s, |arr| { arr.splice(0..0, slots_of(a)); })?; Ok(s) }),
-        ("insert", |vm, s, a, _b| { if a.is_empty() { return Err(vm.argnum_error(0, "1+")); } let i = vm.expect_int(a[0], "index")?; let len = items(vm, s).len() as i64; let i = if i < 0 { i + len + 1 } else { i }; if i < 0 { return Err(vm.raise(vm.core.index_error, &format!("index {} too small for array", i - len - 1))); } let rest = a[1..].to_vec(); with_mut(vm, s, |arr| { let i = i as usize; if arr.len() < i { arr.resize(i, Slot::NIL); } arr.splice(i..i, slots_of(&rest)); })?; Ok(s) }),
+        ("shift", |vm, s, a, _b| { argc!(vm, a, 0, 1); if a.is_empty() { return with_mut(vm, s, |arr| arr.shift().map(|x| x.get()).unwrap_or(Value::Nil)); } let n = vm.expect_int(a[0], "argument")? as usize; let v = with_mut(vm, s, |arr| values_of(&arr.shift_n(n)))?; Ok(vm.ary_new(v)) }),
+        ("unshift", |vm, s, a, _b| { with_mut(vm, s, |arr| arr.unshift(slots_of(a)))?; Ok(s) }),
+        ("prepend", |vm, s, a, _b| { with_mut(vm, s, |arr| arr.unshift(slots_of(a)))?; Ok(s) }),
+        ("insert", |vm, s, a, _b| { if a.is_empty() { return Err(vm.argnum_error(0, "1+")); } let i = vm.expect_int(a[0], "index")?; let len = ary_len(vm, s) as i64; let i = if i < 0 { i + len + 1 } else { i }; if i < 0 { return Err(vm.raise(vm.core.index_error, &format!("index {} too small for array", i - len - 1))); } let rest = a[1..].to_vec(); with_mut(vm, s, |arr| { let i = i as usize; if arr.len() < i { arr.resize(i, Slot::NIL); } arr.splice_range(i, i, slots_of(&rest)); })?; Ok(s) }),
         ("concat", |vm, s, a, _b| { let mut all = vec![]; for x in a { match vm.ary(*x) { Some(v) => all.extend(v.iter().map(|x| x.get())), None => return Err(vm.raise_type("no implicit conversion into Array")) } } with_mut(vm, s, |arr| arr.extend(slots_of(&all)))?; Ok(s) }),
         ("+", |vm, s, a, _b| { argc!(vm, a, 1); let mut v = items(vm, s); match vm.ary_vals(a[0]) { Some(o) => v.extend(o), None => return Err(vm.raise_type("no implicit conversion into Array")) } Ok(vm.ary_new(v)) }),
         ("-", |vm, s, a, _b| { argc!(vm, a, 1); let v = items(vm, s); let o = match vm.ary_vals(a[0]) { Some(o) => o, None => return Err(vm.raise_type("no implicit conversion into Array")) }; let mut out = vec![]; for it in v { let mut found = false; for x in &o { if vm.equal(it, *x)? { found = true; break; } } if !found { out.push(it); } } Ok(vm.ary_new(out)) }),
@@ -198,24 +202,24 @@ pub fn init(vm: &mut Vm) {
         ("member?", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if vm.equal(it, a[0])? { return Ok(Value::True); } } Ok(Value::False) }),
         ("clear", |vm, s, _a, _b| { with_mut(vm, s, |arr| arr.clear())?; Ok(s) }),
         ("delete_at", |vm, s, a, _b| { argc!(vm, a, 1); let i = vm.expect_int(a[0], "index")?; with_mut(vm, s, |arr| { let i = if i < 0 { i + arr.len() as i64 } else { i }; if i < 0 || i as usize >= arr.len() { Value::Nil } else { arr.remove(i as usize).get() } }) }),
-        ("delete", |vm, s, a, b| { argc!(vm, a, 1); let list = items(vm, s); let mut keep = vec![]; let mut found = None; for it in list { if vm.equal(it, a[0])? { found = Some(it); } else { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep))?; match found { Some(v) => Ok(v), None => if b.is_nil() { Ok(Value::Nil) } else { vm.call_block(b, &[a[0]]) } } }),
-        ("delete_if", |vm, s, _a, b| { let list = items(vm, s); let mut keep = vec![]; for it in list { if !vm.call_block(b, &[it])?.truthy() { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep))?; Ok(s) }),
-        ("reject!", |vm, s, _a, b| { let list = items(vm, s); let n = list.len(); let mut keep = vec![]; for it in list { if !vm.call_block(b, &[it])?.truthy() { keep.push(it); } } let changed = keep.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&keep))?; Ok(if changed { s } else { Value::Nil }) }),
-        ("select!", |vm, s, _a, b| { let list = items(vm, s); let n = list.len(); let mut keep = vec![]; for it in list { if vm.call_block(b, &[it])?.truthy() { keep.push(it); } } let changed = keep.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&keep))?; Ok(if changed { s } else { Value::Nil }) }),
-        ("keep_if", |vm, s, _a, b| { let list = items(vm, s); let mut keep = vec![]; for it in list { if vm.call_block(b, &[it])?.truthy() { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep))?; Ok(s) }),
+        ("delete", |vm, s, a, b| { argc!(vm, a, 1); let list = items(vm, s); let mut keep = vec![]; let mut found = None; for it in list { if vm.equal(it, a[0])? { found = Some(it); } else { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep).into())?; match found { Some(v) => Ok(v), None => if b.is_nil() { Ok(Value::Nil) } else { vm.call_block(b, &[a[0]]) } } }),
+        ("delete_if", |vm, s, _a, b| { let list = items(vm, s); let mut keep = vec![]; for it in list { if !vm.call_block(b, &[it])?.truthy() { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep).into())?; Ok(s) }),
+        ("reject!", |vm, s, _a, b| { let list = items(vm, s); let n = list.len(); let mut keep = vec![]; for it in list { if !vm.call_block(b, &[it])?.truthy() { keep.push(it); } } let changed = keep.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&keep).into())?; Ok(if changed { s } else { Value::Nil }) }),
+        ("select!", |vm, s, _a, b| { let list = items(vm, s); let n = list.len(); let mut keep = vec![]; for it in list { if vm.call_block(b, &[it])?.truthy() { keep.push(it); } } let changed = keep.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&keep).into())?; Ok(if changed { s } else { Value::Nil }) }),
+        ("keep_if", |vm, s, _a, b| { let list = items(vm, s); let mut keep = vec![]; for it in list { if vm.call_block(b, &[it])?.truthy() { keep.push(it); } } with_mut(vm, s, |arr| *arr = slots_of(&keep).into())?; Ok(s) }),
         ("compact", |vm, s, _a, _b| { let v: Vec<Value> = items(vm, s).into_iter().filter(|x| !x.is_nil()).collect(); Ok(vm.ary_new(v)) }),
-        ("compact!", |vm, s, _a, _b| { let n = items(vm, s).len(); let v: Vec<Value> = items(vm, s).into_iter().filter(|x| !x.is_nil()).collect(); let changed = v.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&v))?; Ok(if changed { s } else { Value::Nil }) }),
+        ("compact!", |vm, s, _a, _b| { let n = ary_len(vm, s); let v: Vec<Value> = items(vm, s).into_iter().filter(|x| !x.is_nil()).collect(); let changed = v.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(if changed { s } else { Value::Nil }) }),
         ("flatten", |vm, s, a, _b| { argc!(vm, a, 0, 1); let d = if a.is_empty() { -1 } else { vm.expect_int(a[0], "depth")? }; let mut out = vec![]; flatten(vm, s, d, &mut out); Ok(vm.ary_new(out)) }),
-        ("flatten!", |vm, s, a, _b| { argc!(vm, a, 0, 1); let d = if a.is_empty() { -1 } else { vm.expect_int(a[0], "depth")? }; let mut out = vec![]; flatten(vm, s, d, &mut out); with_mut(vm, s, |arr| *arr = slots_of(&out))?; Ok(s) }),
+        ("flatten!", |vm, s, a, _b| { argc!(vm, a, 0, 1); let d = if a.is_empty() { -1 } else { vm.expect_int(a[0], "depth")? }; let mut out = vec![]; flatten(vm, s, d, &mut out); with_mut(vm, s, |arr| *arr = slots_of(&out).into())?; Ok(s) }),
         ("uniq", |vm, s, _a, _b| { let list = items(vm, s); let mut out: Vec<Value> = vec![]; for it in list { let mut dup = false; for x in &out { if vm.eql(it, *x) || vm.equal(it, *x)? { dup = true; break; } } if !dup { out.push(it); } } Ok(vm.ary_new(out)) }),
-        ("uniq!", |vm, s, _a, _b| { let list = items(vm, s); let n = list.len(); let mut out: Vec<Value> = vec![]; for it in list { let mut dup = false; for x in &out { if vm.eql(it, *x) || vm.equal(it, *x)? { dup = true; break; } } if !dup { out.push(it); } } let changed = out.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&out))?; Ok(if changed { s } else { Value::Nil }) }),
+        ("uniq!", |vm, s, _a, _b| { let list = items(vm, s); let n = list.len(); let mut out: Vec<Value> = vec![]; for it in list { let mut dup = false; for x in &out { if vm.eql(it, *x) || vm.equal(it, *x)? { dup = true; break; } } if !dup { out.push(it); } } let changed = out.len() != n; with_mut(vm, s, |arr| *arr = slots_of(&out).into())?; Ok(if changed { s } else { Value::Nil }) }),
         ("sort", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; Ok(vm.ary_new(v)) }),
-        ("sort!", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; with_mut(vm, s, |arr| *arr = slots_of(&v))?; Ok(s) }),
+        ("sort!", |vm, s, _a, b| { let mut v = items(vm, s); sort_values(vm, &mut v, b)?; with_mut(vm, s, |arr| *arr = slots_of(&v).into())?; Ok(s) }),
         ("sort_by", |vm, s, _a, b| { let v = items(vm, s); let mut keyed: Vec<(Value, Value)> = vec![]; for it in v { keyed.push((vm.call_block(b, &[it])?, it)); } let mut keys: Vec<Value> = keyed.iter().map(|(k, _)| *k).collect(); let idx: Vec<usize> = (0..keys.len()).collect(); let mut order: Vec<Value> = idx.iter().map(|i| Value::Int(*i as i64)).collect(); let _ = &mut keys; let cmp = vm.intern("<=>"); let mut err = None; order.sort_by(|x, y| { if err.is_some() { return core::cmp::Ordering::Equal; } let (i, j) = (match x { Value::Int(i) => *i as usize, _ => 0 }, match y { Value::Int(j) => *j as usize, _ => 0 }); match vm.funcall(keyed[i].0, cmp, &[keyed[j].0], Value::Nil) { Ok(Value::Int(r)) => r.cmp(&0), Ok(_) => { err = Some(vm.raise_arg("comparison failed")); core::cmp::Ordering::Equal } Err(e) => { err = Some(e); core::cmp::Ordering::Equal } } }); if let Some(e) = err { return Err(e); } let out: Vec<Value> = order.iter().map(|x| match x { Value::Int(i) => keyed[*i as usize].1, _ => Value::Nil }).collect(); Ok(vm.ary_new(out)) }),
         ("sum", |vm, s, a, _b| { let v = items(vm, s); let mut acc = a.first().copied().unwrap_or(Value::Int(0)); let plus = vm.s.plus; for it in v { acc = vm.funcall(acc, plus, &[it], Value::Nil)?; } Ok(acc) }),
         ("take", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("attempt to take negative size")); } let v: Vec<Value> = items(vm, s).into_iter().take(n as usize).collect(); Ok(vm.ary_new(v)) }),
         ("drop", |vm, s, a, _b| { argc!(vm, a, 1); let n = vm.expect_int(a[0], "argument")?; if n < 0 { return Err(vm.raise_arg("attempt to drop negative size")); } let v: Vec<Value> = items(vm, s).into_iter().skip(n as usize).collect(); Ok(vm.ary_new(v)) }),
-        ("slice!", |vm, s, a, _b| { let list = items(vm, s); let r = ary_aref(vm, s, a, Value::Nil)?; if r.is_nil() { return Ok(r); } match super::string::index_args(vm, list.len(), a)? { Some((i, n)) => { with_mut(vm, s, |arr| { arr.drain(i..i + n); })?; Ok(r) } None => Ok(Value::Nil) } }),
+        ("slice!", |vm, s, a, _b| { let list = items(vm, s); let r = ary_aref(vm, s, a, Value::Nil)?; if r.is_nil() { return Ok(r); } match super::string::index_args(vm, list.len(), a)? { Some((i, n)) => { with_mut(vm, s, |arr| { arr.drain_range(i, i + n); })?; Ok(r) } None => Ok(Value::Nil) } }),
         ("fill", |vm, s, a, _b| { argc!(vm, a, 1, 3); let v = a[0]; with_mut(vm, s, |arr| for x in arr.iter_mut() { *x = Slot::from(v); })?; Ok(s) }),
         ("assoc", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if let Some(pair) = vm.ary_vals(it) { if let Some(k) = pair.first() { if vm.equal(*k, a[0])? { return Ok(it); } } } } Ok(Value::Nil) }),
         ("rassoc", |vm, s, a, _b| { argc!(vm, a, 1); let list = items(vm, s); for it in list { if let Some(pair) = vm.ary_vals(it) { if let Some(k) = pair.get(1) { if vm.equal(*k, a[0])? { return Ok(it); } } } } Ok(Value::Nil) }),
@@ -224,7 +228,7 @@ pub fn init(vm: &mut Vm) {
         ("product", |vm, s, a, _b| { let mut lists = vec![items(vm, s)]; for x in a { lists.push(items(vm, *x)); } let mut out: Vec<Vec<Value>> = vec![vec![]]; for l in lists { let mut next = vec![]; for prefix in &out { for it in &l { let mut p = prefix.clone(); p.push(*it); next.push(p); } } out = next; } let items_: Vec<Value> = out.into_iter().map(|p| vm.ary_new(p)).collect(); Ok(vm.ary_new(items_)) }),
         ("freeze", |vm, s, _a, _b| { if let Some(o) = s.obj() { vm.heap.get_mut(o).frozen = true; } Ok(s) }),
         ("frozen?", |vm, s, _a, _b| Ok(Value::bool(s.obj().map(|o| vm.heap.get(o).frozen).unwrap_or(true)))),
-        ("dup", |vm, s, _a, _b| { let v = items(vm, s); let c = vm.real_class_of(s); Ok(Value::Obj(vm.heap.alloc(c, ObjKind::Array(slots_of(&v))))) }),
+        ("dup", |vm, s, _a, _b| { let v = items(vm, s); let c = vm.real_class_of(s); Ok(Value::Obj(vm.heap.alloc(c, ObjKind::Array(slots_of(&v).into())))) }),
     ]);
 }
 
@@ -265,7 +269,7 @@ fn ary_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
 fn ary_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
     argc!(vm, a, 2, 3);
     let val = a[a.len() - 1];
-    let len = items(vm, s).len();
+    let len = ary_len(vm, s);
     if a.len() == 3 { let n = vm.expect_int(a[1], "length")?; if n < 0 { return Err(vm.raise(vm.core.index_error, &format!("negative length ({n})"))); } }
     if let [Value::Int(i), _] = a {
         let i = if *i < 0 { *i + len as i64 } else { *i };
@@ -281,6 +285,6 @@ fn ary_aset(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> {
         }
     };
     let rep = match vm.ary_vals(val) { Some(v) => v, None => vec![val] };
-    with_mut(vm, s, |arr| { if arr.len() < i { arr.resize(i, Slot::NIL); } let end = (i + n).min(arr.len()); arr.splice(i..end, slots_of(&rep)); })?;
+    with_mut(vm, s, |arr| { if arr.len() < i { arr.resize(i, Slot::NIL); } let end = (i + n).min(arr.len()); arr.splice_range(i, end, slots_of(&rep)); })?;
     Ok(val)
 }

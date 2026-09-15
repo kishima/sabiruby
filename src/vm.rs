@@ -897,7 +897,7 @@ impl Vm {
         matches!(v, Value::Obj(o) if matches!(self.heap.get(o).kind, ObjKind::BigInt(_)))
     }
     pub fn ary_new(&mut self, v: Vec<Value>) -> Value {
-        Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(slots_of(&v))))
+        Value::Obj(self.heap.alloc(self.core.array, ObjKind::Array(slots_of(&v).into())))
     }
     pub fn hash_new(&mut self) -> Value {
         Value::Obj(self.heap.alloc(self.core.hash, ObjKind::Hash(Default::default())))
@@ -972,7 +972,7 @@ impl Vm {
     pub fn str_bytes(&self, v: Value) -> Option<&[u8]> {
         v.obj().and_then(|o| self.heap.string(o))
     }
-    pub fn ary(&self, v: Value) -> Option<&Vec<Slot>> {
+    pub fn ary(&self, v: Value) -> Option<&[Slot]> {
         v.obj().and_then(|o| self.heap.array(o))
     }
     /// The elements of an Array as values (a copy).
@@ -3185,7 +3185,7 @@ impl Vm {
                 }
                 Op::Keyend => {
                     if let Some(ki) = self.kidx_at(top) {
-                        let first = match self.stack[ki].get().obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.first().map(|e| e.0.get()), _ => None };
+                        let first = match self.stack[ki].get().obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries().first().map(|e| e.0.get()), _ => None };
                         if let Some(k) = first { let d = match k { Value::Sym(s) => self.sym_name(s), v => self.inspect_str(v)? }; return Err(self.raise_arg(&format!("unknown keyword: {d}"))); }
                     }
                 }
@@ -3289,7 +3289,7 @@ impl Vm {
                 }
                 Op::Hashcat => {
                     let (h, other) = (reg!(a), reg!(a + 1));
-                    let entries = match other.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.clone(), _ => return Err(self.raise_type("not a hash")) };
+                    let entries = match other.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries().to_vec(), _ => return Err(self.raise_type("not a hash")) };
                     for (k, v) in entries { self.hash_set(h, k.get(), v.get())?; }
                 }
                 Op::Lambda | Op::Block | Op::Method => {
@@ -3556,11 +3556,11 @@ impl Vm {
     }
     /// Makes the cached hashes match the entries (after wholesale edits of `entries`).
     fn hash_sync(&mut self, o: ObjId) -> VmResult<()> {
-        let (need, keys): (bool, Vec<Value>) = match &self.heap.get(o).kind { ObjKind::Hash(hd) => (hd.hashes.len() != hd.entries.len(), hd.entries.iter().map(|e| e.0.get()).collect()), _ => (false, vec![]) };
+        let (need, keys): (bool, Vec<Value>) = match &self.heap.get(o).kind { ObjKind::Hash(hd) => (hd.hashes_stale(), hd.entries().iter().map(|e| e.0.get()).collect()), _ => (false, vec![]) };
         if !need { return Ok(()); }
         let mut hs = Vec::with_capacity(keys.len());
         for k in keys { hs.push(self.key_hash(k)?); }
-        if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind { hd.hashes = hs; }
+        if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind { hd.set_hashes(hs); }
         Ok(())
     }
     /// Index of `k` in the hash (hash code first, then `eql?`).
@@ -3575,28 +3575,16 @@ impl Vm {
         if !matches!(self.heap.get(o).kind, ObjKind::Hash(_)) { return Ok(None); }
         self.hash_sync(o)?;
         let kh = self.key_hash(k)?;
-        let mut i = 0;
-        loop {
-            // the next position at or after `i` whose key hashes the same
-            let (p, ek) = match &self.heap.get(o).kind {
-                ObjKind::Hash(hd) => {
-                    let n = hd.hashes.len().min(hd.entries.len());
-                    if i >= n { break; }
-                    match hd.hashes[i..n].iter().position(|c| *c == kh) {
-                        Some(d) => (i + d, hd.entries[i + d].0.get()),
-                        None => break,
-                    }
-                }
-                _ => break,
-            };
-            if self.key_eql(k, ek)? { return Ok(Some(p)); }
-            i = p + 1;
+        let mut cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.first_candidate(kh), _ => None };
+        while let Some((p, ek)) = cand {
+            if self.key_eql(k, ek.get())? { return Ok(Some(p)); }
+            cand = match &self.heap.get(o).kind { ObjKind::Hash(hd) => hd.next_candidate(p, kh), _ => None };
         }
         Ok(None)
     }
     pub fn hash_get(&mut self, h: Value, k: Value) -> Option<Value> {
         match self.hash_index(h, k) {
-            Ok(Some(i)) => match &self.heap.get(h.obj().unwrap()).kind { ObjKind::Hash(hd) => hd.entries.get(i).map(|e| e.1.get()), _ => None },
+            Ok(Some(i)) => match &self.heap.get(h.obj().unwrap()).kind { ObjKind::Hash(hd) => hd.entries().get(i).map(|e| e.1.get()), _ => None },
             _ => None,
         }
     }
@@ -3608,7 +3596,7 @@ impl Vm {
         let pos = self.hash_index(h, k)?;
         let kh = self.key_hash(k)?;
         if let ObjKind::Hash(hd) = &mut self.heap.get_mut(o).kind {
-            match pos { Some(i) => hd.entries[i].1 = Slot::from(v), None => { hd.entries.push((Slot::from(k), Slot::from(v))); hd.hashes.push(kh); } }
+            match pos { Some(i) => hd.set_value_at(i, Slot::from(v)), None => hd.push_entry(Slot::from(k), Slot::from(v), kh) }
         }
         Ok(())
     }
@@ -3711,7 +3699,7 @@ impl Vm {
         let mut kd = None;
         if kw {
             let h = self.stack[nbase + npos + 1].get();
-            let empty = match h.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.entries.is_empty(), _ => true };
+            let empty = match h.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => hd.is_empty(), _ => true };
             if !empty { args.push(h); kd = Some(h); }
         }
         (args, kd)
@@ -3841,7 +3829,7 @@ impl Vm {
     pub fn hash_delete(&mut self, h: Value, k: Value) -> Option<Value> {
         let o = h.obj()?;
         let pos = self.hash_index(h, k).ok()??;
-        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => { if pos < hd.hashes.len() { hd.hashes.remove(pos); } Some(hd.entries.remove(pos).1.get()) } _ => None }
+        match &mut self.heap.get_mut(o).kind { ObjKind::Hash(hd) => Some(hd.remove_entry(pos).1.get()), _ => None }
     }
 
     /// Positional arguments of a SEND at `nbase` (`argc == 15` = packed array).
@@ -3909,7 +3897,7 @@ impl Vm {
         if noblock && !blk.is_nil() { return Err(self.raise_arg("no block accepted")); }
         let mut kdict = if kw { self.stack[base + npos + 1].get() } else { Value::Nil };
         if kd == 0 {
-            let nonempty = match kdict.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => !hd.entries.is_empty(), _ => false };
+            let nonempty = match kdict.obj().map(|o| &self.heap.get(o).kind) { Some(ObjKind::Hash(hd)) => !hd.is_empty(), _ => false };
             if nonempty {
                 // the keyword Hash becomes the last positional argument
                 if n < 14 { n += 1; }
