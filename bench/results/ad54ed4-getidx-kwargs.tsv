@@ -1,0 +1,2 @@
+category	benchmark	a_ms_best	a_ms_median	b_ms_best	b_ms_median	change_pct
+calls	call_kwargs	819.388	834.807	885.692	892.569	+8.1

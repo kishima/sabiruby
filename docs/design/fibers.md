@@ -64,6 +64,12 @@ body is an ordinary frame and can `Fiber.yield` — or park a task on `Queue#pop
 of it. The basic `method_missing` written in C, and `Vm::funcall`'s own fallback
 (nested, as `mrb_funcall` is), keep the boundary.
 
+The three index opcodes are the same story. `OP_GETIDX`, `OP_GETIDX0` and `OP_SETIDX`
+answer an Array, Hash or String themselves — while that class still carries the `[]`
+they stand in for — and *send* everything else in the frame the call was made in
+(mruby's `L_SEND_SYM`), so a `[]` or `[]=` written in Ruby can `Fiber.yield` or park a
+task on a queue out of itself; `e[:Transform]` in rubevy is exactly that.
+
 ## Environments
 
 An `REnv` that is still attached records its context (`EnvData::ctx`), so a
