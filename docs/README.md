@@ -43,6 +43,8 @@ in English; plans and the worklog are in Japanese.
 | [eval-require-plan.md](plans/eval-require-plan.md) | done (2026-09-13); written as a study, kept for the reasoning |
 | [after-gems-plan.md](plans/after-gems-plan.md) | done (2026-09-13): rubevy on one VM with tasks, backtraces, `sleep`/`strftime` |
 | [playground-plan.md](plans/playground-plan.md) | done (2026-09-12); the playground repository carries the visualizer plan |
+| [leftovers-plan.md](plans/leftovers-plan.md) | to do (2026-09-16): the small items each stage left behind — `foo(**{})`, the macro's `expect`, `printf`/`putc`, `items()` copies, `Arg::Value`, API gaps |
+| [perf3-plan.md](plans/perf3-plan.md) | to do (2026-09-16): the third round of speed — String, the instruction loop, calls, the 8-byte `Slot` experiment, what is left of `so_lists` |
 | [from-mrubyedge-plan.md](plans/from-mrubyedge-plan.md) | to do (2026-09-16): what mruby/edge does that is worth having — serde, RBS at the boundary, a coverage list, gems as features, `RUBY_ENGINE` |
 | [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b is rubevy's and 6c is both. Carries the findings of each stage |
 
