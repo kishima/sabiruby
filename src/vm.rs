@@ -3324,6 +3324,33 @@ impl Vm {
             let (a, b, c) = (a as usize, b as usize, c as usize);
             macro_rules! reg { ($i:expr) => { self.stack[base + $i].get() } }
             macro_rules! setreg { ($i:expr, $v:expr) => { { let v = $v; self.stack[base + $i] = Slot::from(v); } } }
+            // `OP_ADD` and its relatives answer two numbers where they stand, as mruby's
+            // `OP_MATH` does (`TYPES2(MRB_TT_INTEGER, MRB_TT_INTEGER)` and the three float
+            // cases); anything else, and an Integer result that leaves the range, goes to
+            // `op_arith`. Reaching `op_arith` for every one of them meant asking which
+            // operation this was by comparing `mid` against `plus`, `minus` and `mul` in turn
+            // -- the opcode already says which, so those comparisons re-derived what the
+            // dispatch had just decided.
+            macro_rules! arith { ($int:ident, $f:tt, $mid:expr) => { {
+                let r = match (self.stack[base + a].get(), self.stack[base + a + 1].get()) {
+                    (Value::Int(p), Value::Int(q)) => p.$int(q).map(Value::Int),
+                    (Value::Float(p), Value::Float(q)) => Some(Value::Float(p $f q)),
+                    (Value::Int(p), Value::Float(q)) => Some(Value::Float(p as f64 $f q)),
+                    (Value::Float(p), Value::Int(q)) => Some(Value::Float(p $f q as f64)),
+                    _ => None,
+                };
+                match r { Some(v) => self.stack[base + a] = Slot::from(v), None => self.op_arith(base, a, $mid)? }
+            } } }
+            // The same for the five comparisons, for the two pairs that need no conversion.
+            // A mixed Integer/Float pair stays in `op_compare`, which decides it exactly
+            // (`int_float_cmp`) rather than by widening the Integer to `f64`.
+            macro_rules! cmp { ($f:tt, $mid:expr) => { {
+                match (self.stack[base + a].get(), self.stack[base + a + 1].get()) {
+                    (Value::Int(p), Value::Int(q)) => self.stack[base + a] = Slot::from(Value::bool(p $f q)),
+                    (Value::Float(p), Value::Float(q)) => self.stack[base + a] = Slot::from(Value::bool(p $f q)),
+                    _ => self.op_compare(base, a, $mid)?,
+                }
+            } } }
             match op {
                 Op::Nop => {}
                 Op::Move => { setreg!(a, reg!(b)); }
@@ -3580,12 +3607,12 @@ impl Vm {
                     if let Some(r) = self.op_break(v, stop_depth, lc)? { return Ok(r); }
                 }
                 Op::Blkpush => { let v = self.op_blkpush(base, b)?; setreg!(a, v); }
-                Op::Add => { self.op_arith(base, a, self.s.plus)?; }
-                Op::Sub => { self.op_arith(base, a, self.s.minus)?; }
-                Op::Mul => { self.op_arith(base, a, self.s.mul)?; }
+                Op::Add => { arith!(checked_add, +, self.s.plus); }
+                Op::Sub => { arith!(checked_sub, -, self.s.minus); }
+                Op::Mul => { arith!(checked_mul, *, self.s.mul); }
                 Op::Div => { self.op_arith(base, a, self.s.div)?; }
-                Op::Addi => { setreg!(a + 1, Value::Int(b as i64)); self.op_arith(base, a, self.s.plus)?; }
-                Op::Subi => { setreg!(a + 1, Value::Int(b as i64)); self.op_arith(base, a, self.s.minus)?; }
+                Op::Addi => { setreg!(a + 1, Value::Int(b as i64)); arith!(checked_add, +, self.s.plus); }
+                Op::Subi => { setreg!(a + 1, Value::Int(b as i64)); arith!(checked_sub, -, self.s.minus); }
                 Op::Addilv | Op::Subilv => {
                     let mid = if matches!(op, Op::Addilv) { self.s.plus } else { self.s.minus };
                     match reg!(a) {
@@ -3593,11 +3620,11 @@ impl Vm {
                         recv => { let r = self.funcall(recv, mid, &[Value::Int(c as i64)], Value::Nil)?; setreg!(a, r); }
                     }
                 }
-                Op::Eq => { self.op_compare(base, a, self.s.eq)?; }
-                Op::Lt => { self.op_compare(base, a, self.s.lt)?; }
-                Op::Le => { self.op_compare(base, a, self.s.le)?; }
-                Op::Gt => { self.op_compare(base, a, self.s.gt)?; }
-                Op::Ge => { self.op_compare(base, a, self.s.ge)?; }
+                Op::Eq => { cmp!(==, self.s.eq); }
+                Op::Lt => { cmp!(<, self.s.lt); }
+                Op::Le => { cmp!(<=, self.s.le); }
+                Op::Gt => { cmp!(>, self.s.gt); }
+                Op::Ge => { cmp!(>=, self.s.ge); }
                 Op::Array => { let v: Vec<Value> = values_of(&self.stack[base + a..base + a + b]); setreg!(a, self.ary_new(v)); }
                 Op::Array2 => { let v: Vec<Value> = values_of(&self.stack[base + b..base + b + c]); setreg!(a, self.ary_new(v)); }
                 Op::Arycat => {
