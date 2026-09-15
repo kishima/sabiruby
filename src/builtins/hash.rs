@@ -56,7 +56,7 @@ pub(crate) fn hash_aref(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResu
     if let Some(v) = vm.hash_get(s, a[0]) { return Ok(v); }
     // a redefined `default` is honoured (#3272)
     let dm = vm.intern("default");
-    if let Some((crate::object::Method::Ruby(_), _)) = vm.find_method(vm.class_of(s), dm) { return vm.funcall(s, dm, &[a[0]], Value::Nil); }
+    if let Some((crate::object::Method::Ruby(_) | crate::object::Method::Closure(_), _)) = vm.find_method(vm.class_of(s), dm) { return vm.funcall(s, dm, &[a[0]], Value::Nil); }
     let dp = default_proc_ivar(vm);
     let proc_ = s.obj().map(|o| vm.heap.ivar_get(o, dp)).unwrap_or(Value::Nil);
     if !proc_.is_nil() { return vm.call_block(proc_, &[s, a[0]]); }

@@ -104,6 +104,7 @@ fn mcall(vm: &mut Vm, s: Value, recv: Option<Value>, a: &[Value], b: Value) -> V
         Value::Obj(p) => vm.call_method_proc(p, recv, pos, kw, b, Some(mid), owner),
         _ => match search(vm, owner, mid) {
             Some((Method::Native(f), _)) => vm.call_native(f, recv, a, b),
+            Some((Method::Closure(f), _)) => vm.call_closure(&f, recv, a, b),
             Some((Method::AttrReader(ivn), _)) => Ok(recv.obj().map(|o| vm.heap.ivar_get(o, ivn)).unwrap_or(Value::Nil)),
             Some((Method::AttrWriter(ivn), _)) => { if a.len() != 1 { return Err(vm.argnum_error(a.len(), "1")); } if let Some(o) = recv.obj() { vm.heap.ivar_set(o, ivn, a[0]); } Ok(a[0]) }
             _ => vm.funcall(recv, mid, a, b),
@@ -171,6 +172,7 @@ fn method_eql(vm: &mut Vm, s: Value, a: &[Value], _b: Value) -> VmResult<Value> 
         let (o2, n2) = match (iv(vm, other, i.owner), iv(vm, other, i.name)) { (Value::Obj(o), Value::Sym(n)) => (o, n), _ => return Ok(Value::False) };
         return Ok(Value::bool(match (search(vm, o1, n1), search(vm, o2, n2)) {
             (Some((Method::Native(f), _)), Some((Method::Native(g), _))) => core::ptr::fn_addr_eq(f, g),
+            (Some((Method::Closure(f), _)), Some((Method::Closure(g), _))) => alloc::sync::Arc::ptr_eq(&f, &g),
             (Some((Method::AttrReader(x), _)), Some((Method::AttrReader(y), _))) => x == y,
             (Some((Method::AttrWriter(x), _)), Some((Method::AttrWriter(y), _))) => x == y,
             _ => false,

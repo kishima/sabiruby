@@ -451,6 +451,10 @@ pub struct Vm {
     pub native_arity: Vec<(crate::object::NativeFn, i64)>,
     /// mruby-task's scheduler (`src/builtins/ext_task.rs`).
     pub task: TaskState,
+    /// What the host left with the VM for its own native code to read back
+    /// (`Vm::set_host_state`, `Vm::host_state`). The VM never looks inside it.
+    #[doc(hidden)]
+    pub host_state: Option<alloc::boxed::Box<dyn core::any::Any + Send + Sync>>,
 }
 
 /// Result of [`Vm::step`].
@@ -589,6 +593,7 @@ impl Vm {
             exc: None, out: Vec::new(), core, s, top_self, step_left: None, instructions: 0, op_counts: vec![0; crate::opcode::OP_COUNT], native_depth: 0, inspect_guard: Vec::new(), pending_kw: None, eq_guard: Vec::new(), gc_disabled: false, pending_vis_break: false, notimpl_fns: Vec::new(), gc_step_limit: 0, gc_interval_ratio: 200, gc_stress: false, native_active: 0, gc_registered: Vec::new(), catch_tags: Vec::new(), native_mid: None, live_after_gc: 0, gc_count: 0, gc_time_ns: 0, gc_clock: None, wall_clock: None, sleep_hook: None, host: None, trace: None, call_proc,
             contexts: vec![Context::new(FiberState::Running)], cur: ROOT, direct_send: false, native_ret_reg: 0, loop_exit: None, native_arity: Vec::new(),
             task: TaskState { wakeup_tick: u32::MAX, tick_every: TASK_TICK_INSTRUCTIONS, tick_left: TASK_TICK_INSTRUCTIONS, clock_from_instructions: true, native_every: TASK_NATIVE_SAMPLE, native_left: TASK_NATIVE_SAMPLE, ..Default::default() },
+            host_state: None,
         };
         // Constants for the core classes, Object includes Kernel.
         for i in 0..vm.heap.len() {
@@ -1042,6 +1047,77 @@ impl Vm {
         let n = self.intern(name);
         self.def_method_raw(class, n, Method::Native(f));
     }
+    /// Defines a native method from a closure, which — unlike [`Vm::define_method`]'s bare
+    /// function pointer — can carry an environment of its own.
+    ///
+    /// The closure must be `Send + Sync + 'static`, as a [`Vm`] is; share mutable state
+    /// through an `Arc<Mutex<_>>` of the host's choosing, or put it in the VM with
+    /// [`Vm::set_host_state`] and read it back from the closure through the `&mut Vm` it is
+    /// given. Everything else about the method is as `define_method`: it is dispatched by
+    /// SEND and by [`Vm::funcall`], `respond_to?` and `method_defined?` see it, `Method#owner`
+    /// and `#arity` answer for it (arity `-1`, as for any native with no declared argument
+    /// spec), and an `Err` it returns raises in the Ruby frame that called it.
+    ///
+    /// The collector does not look inside the closure: a [`Value`] captured in it is not a root,
+    /// so keep one across calls only through [`Vm::gc_register`] (`docs/gc.md`). Handles to the
+    /// host's own data have no such problem.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), sabiruby::VmError> {
+    /// use std::sync::{Arc, Mutex};
+    /// let log = Arc::new(Mutex::new(Vec::<i64>::new()));
+    /// let mut vm = sabiruby::Vm::with_mrblib()?;
+    /// let sink = log.clone();
+    /// let object = vm.core.object;
+    /// vm.define_closure(object, "record", move |_vm, _self_, args, _blk| {
+    ///     if let Some(sabiruby::Value::Int(i)) = args.first() { sink.lock().unwrap().push(*i); }
+    ///     Ok(sabiruby::Value::Nil)
+    /// });
+    /// # Ok(()) }
+    /// ```
+    pub fn define_closure<F>(&mut self, class: ObjId, name: &str, f: F)
+    where
+        F: Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync + 'static,
+    {
+        let n = self.intern(name);
+        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(crate::object::ClosureBody(alloc::boxed::Box::new(f)))));
+    }
+
+    // ------------------------------------------------------------------ host state
+
+    /// Puts a value of the host's own in the VM, to be read back from native code.
+    ///
+    /// This is the other direction from the [`Host`](crate::Host) trait: `Host` is what the
+    /// VM asks of its host (compile a string, read a file), this is what the host leaves with
+    /// the VM. One value is kept; setting it again replaces what was there.
+    ///
+    /// ```
+    /// # fn main() -> Result<(), sabiruby::VmError> {
+    /// struct Counters { frames: u64 }
+    /// let mut vm = sabiruby::Vm::with_mrblib()?;
+    /// vm.set_host_state(Counters { frames: 0 });
+    /// let object = vm.core.object;
+    /// vm.define_closure(object, "tick", |vm, _self_, _args, _blk| {
+    ///     let n = match vm.host_state_mut::<Counters>() { Some(c) => { c.frames += 1; c.frames } None => 0 };
+    ///     Ok(sabiruby::Value::Int(n as i64))
+    /// });
+    /// # Ok(()) }
+    /// ```
+    pub fn set_host_state<T: core::any::Any + Send + Sync + 'static>(&mut self, state: T) {
+        self.host_state = Some(alloc::boxed::Box::new(state));
+    }
+    /// The value [`Vm::set_host_state`] left, when it is a `T`.
+    pub fn host_state<T: core::any::Any + Send + Sync + 'static>(&self) -> Option<&T> {
+        self.host_state.as_ref().and_then(|b| b.downcast_ref::<T>())
+    }
+    /// The value [`Vm::set_host_state`] left, when it is a `T`, to change in place.
+    pub fn host_state_mut<T: core::any::Any + Send + Sync + 'static>(&mut self) -> Option<&mut T> {
+        self.host_state.as_mut().and_then(|b| b.downcast_mut::<T>())
+    }
+    /// Takes the value [`Vm::set_host_state`] left out of the VM.
+    pub fn take_host_state(&mut self) -> Option<alloc::boxed::Box<dyn core::any::Any + Send + Sync>> {
+        self.host_state.take()
+    }
     pub fn alias_method(&mut self, class: ObjId, new: Sym, old: Sym) -> VmResult<()> {
         match self.find_method(class, old) {
             Some((m, owner)) => {
@@ -1137,7 +1213,7 @@ impl Vm {
     pub fn method_added(&mut self, class: ObjId, mid: Sym) -> VmResult<()> {
         let cd = self.heap.class(class);
         let (recv, hook) = if cd.is_singleton { (cd.attached.map(|s| s.get()).unwrap_or(Value::Nil), self.intern("singleton_method_added")) } else { (Value::Obj(class), self.intern("method_added")) };
-        if let Some((Method::Native(_), owner)) = self.find_method(self.class_of(recv), hook) {
+        if let Some((Method::Native(_) | Method::Closure(_), owner)) = self.find_method(self.class_of(recv), hook) {
             if owner == self.core.module || owner == self.core.basic_object { return Ok(()); }
         }
         if self.respond_to(recv, hook) { self.funcall(recv, hook, &[Value::Sym(mid)], Value::Nil)?; }
@@ -1331,6 +1407,7 @@ impl Vm {
     }
     pub fn respond_to(&self, v: Value, mid: Sym) -> bool {
         match self.find_method(self.class_of(v), mid) {
+            // only a bare `fn` can stand for `mrb_notimplement()`; a Closure never does
             Some((Method::Native(f), _)) => !self.notimpl_fns.iter().any(|g| core::ptr::fn_addr_eq(*g, f)),
             Some(_) => true,
             None => false,
@@ -1434,6 +1511,17 @@ impl Vm {
                 self.orphan_block_of_native(blk);
                 r
             }
+            Some((Method::Closure(f), _)) => {
+                if self.native_depth >= NATIVE_DEPTH_MAX { return Err(self.raise(self.core.system_stack_error, "stack level too deep")); }
+                self.native_mid = Some(mid);
+                self.native_depth += 1;
+                let direct = core::mem::replace(&mut self.direct_send, false);
+                let r = self.call_closure(&f, recv, args, blk);
+                self.direct_send = direct;
+                self.native_depth -= 1;
+                self.orphan_block_of_native(blk);
+                r
+            }
             Some((Method::AttrReader(iv), _)) => Ok(recv.obj().map(|o| self.heap.ivar_get(o, iv)).unwrap_or(Value::Nil)),
             Some((Method::AttrWriter(iv), _)) => {
                 let v = args.first().copied().unwrap_or(Value::Nil);
@@ -1457,6 +1545,10 @@ impl Vm {
                     if !matches!(m, Method::Native(_)) {
                         let mut nargs = vec![Value::Sym(mid)];
                         nargs.extend_from_slice(args);
+                        if let Method::Closure(f) = &m {
+                            let f = f.clone();
+                            return self.call_closure(&f, recv, &nargs, blk);
+                        }
                         if let Method::Ruby(p) = m {
                             let kw = match (self.pending_kw, args.last()) { (Some(k), Some(l)) if !k.is_nil() && k == *l => Some(k), _ => None };
                             let pos = if kw.is_some() { &nargs[..nargs.len() - 1] } else { &nargs[..] };
@@ -1607,6 +1699,34 @@ impl Vm {
         self.native_active -= 1;
         if self.task.native_sampling { crate::builtins::ext_task::count_native(self); }
         r
+    }
+
+    /// [`Vm::call_native`] for a closure method (`Vm::define_closure`). The `Arc` is cloned by
+    /// the caller (method lookup returns the method by value), so the closure stays alive even
+    /// if the method it came from is redefined while it runs.
+    #[inline]
+    pub fn call_closure(&mut self, f: &crate::object::NativeClosure, recv: Value, args: &[Value], blk: Value) -> VmResult<Value> {
+        self.native_active += 1;
+        let r = (f.0)(self, recv, args, blk);
+        self.native_active -= 1;
+        if self.task.native_sampling { crate::builtins::ext_task::count_native(self); }
+        r
+    }
+
+    /// [`Vm::call_native_direct`](Vm::call_native) for a closure method.
+    fn call_closure_direct(&mut self, f: &crate::object::NativeClosure, recv: Value, args: &[Value], blk: Value, ret_reg: usize) -> VmResult<(Value, bool)> {
+        let ctx0 = self.cur;
+        let direct = core::mem::replace(&mut self.direct_send, true);
+        let reg0 = core::mem::replace(&mut self.native_ret_reg, ret_reg);
+        let r = self.call_closure(f, recv, args, blk);
+        self.native_ret_reg = reg0;
+        self.direct_send = direct;
+        self.orphan_block_of_native(blk);
+        let v = r?;
+        if self.cur == ctx0 { return Ok((v, false)); }
+        if self.loop_exit.is_some() { return Ok((v, true)); }
+        self.deliver(v);
+        Ok((v, true))
     }
 
     /// A block made by the running frame and passed to a native that has now
@@ -3455,6 +3575,7 @@ impl Vm {
                         nargs.extend_from_slice(pos);
                         let r = match m {
                             Method::Native(f) => { if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_native_direct(f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
+                            Method::Closure(f) => { if let Some(k) = kd { nargs.push(k); } let (v, sw) = self.call_closure_direct(&f, recv, &nargs, blk, base + a)?; if sw { return Ok(()); } v }
                             Method::Ruby(p) => { let tc = if self.heap.proc_data(p).env.is_some() { None } else { Some(owner) }; self.call_proc_with(p, recv, &nargs, kd, blk, Some(mm), tc)? }
                             _ => Value::Nil,
                         };
@@ -3483,6 +3604,15 @@ impl Vm {
                 let (args, kd) = self.native_args(base + a, argc, kw);
                 let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
                 let r = self.call_native_direct(f, recv, &args, blk, base + a);
+                self.pending_kw = saved;
+                let (v, switched) = r?;
+                if !switched { self.stack[base + a] = Slot::from(v); }
+            }
+            Method::Closure(f) => {
+                self.native_mid = Some(mid);
+                let (args, kd) = self.native_args(base + a, argc, kw);
+                let saved = self.pending_kw.replace(kd.unwrap_or(Value::Nil));
+                let r = self.call_closure_direct(&f, recv, &args, blk, base + a);
                 self.pending_kw = saved;
                 let (v, switched) = r?;
                 if !switched { self.stack[base + a] = Slot::from(v); }
