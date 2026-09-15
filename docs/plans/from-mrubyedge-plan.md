@@ -13,7 +13,7 @@
 | 1 | `sabiruby-serde`: `Value` と serde をつなぐ（JSON ほか） | **済み**（2026-09-16、`bd71d31`）。記録は `docs/worklog/2026-09-16-serde.md`、設計は `docs/design/serde.md` |
 | 2 | RBS で境界を宣言する（検討→設計） | 未着手 |
 | 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | 未着手 |
-| 4 | Cargo feature で gem を落とせるようにする（まず regexp） | **済み**（2026-09-16、`COMMIT4`）。記録は `docs/worklog/2026-09-16-regexp-feature.md`、サイズは `docs/verification/size.md`、設計は `docs/design/gems.md` の «Gems as Cargo features» |
+| 4 | Cargo feature で gem を落とせるようにする（まず regexp） | **済み**（2026-09-16、`874c6d1`）。記録は `docs/worklog/2026-09-16-regexp-feature.md`、サイズは `docs/verification/size.md`、設計は `docs/design/gems.md` の «Gems as Cargo features» |
 | 5 | `RUBY_ENGINE` をどう答えるか決める | 未着手 |
 
 ## 1. `sabiruby-serde`
