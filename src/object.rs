@@ -230,6 +230,13 @@ pub enum ObjKind {
     /// mruby-regexp's `MatchData`: the subject as it was at match time, the Regexp that made the
     /// match (nil for a quoted String pattern), and the capture positions in bytes.
     MatchData { source: Slot, regexp: Slot, captures: alloc::vec::Vec<i32> },
+    /// A value the host owns, named by a handle (mruby's `RData` and its `DATA_PTR`, without
+    /// the pointer): `tag` says which kind of thing the host put there and `handle` which one.
+    /// The VM never looks inside either; it only carries them, compares them (`==`, `eql?`,
+    /// `hash`) and tells the host when the object is collected
+    /// ([`Vm::set_on_free`](crate::Vm::set_on_free)). Built with
+    /// [`Vm::data_new`](crate::Vm::data_new).
+    Data { tag: u32, handle: u64 },
 }
 
 pub struct HeapObject {
@@ -267,11 +274,15 @@ pub struct Heap {
     pub malloc_threshold: usize,
     /// A collection is due; the VM runs it at the next instruction boundary.
     pub gc_pending: bool,
+    /// `(tag, handle)` of every [`ObjKind::Data`] the last sweep freed, for the VM to hand to
+    /// the host's free hook once the collection is over (`Vm::gc_collect`). The heap cannot
+    /// call the hook itself: it is in the middle of rebuilding the free list.
+    pub freed_data: Vec<(u32, u64)>,
 }
 
 impl Default for Heap {
     fn default() -> Heap {
-        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false }
+        Heap { objs: Vec::new(), flags: Vec::new(), free: Vec::new(), allocated_since_gc: 0, alloc_threshold: GC_MIN_INTERVAL, malloc_increase: 0, malloc_threshold: 16777216, gc_pending: false, freed_data: Vec::new() }
     }
 }
 
@@ -389,7 +400,8 @@ impl Heap {
             if o.class.0 != u32::MAX { mark(Value::Obj(o.class)); }
             for (_, v) in &o.ivars { mark(v.get()); }
             match &o.kind {
-                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Regexp(_) => {}
+                // a Data holds a handle, not a Value: nothing in it is a reference
+                ObjKind::Object | ObjKind::String(_) | ObjKind::Exception | ObjKind::BigInt(_) | ObjKind::Regexp(_) | ObjKind::Data { .. } => {}
                 ObjKind::Break { value, .. } => mark(*value),
                 ObjKind::Array(a) => { for v in a { mark(v.get()); } }
                 ObjKind::Hash(h) => {
@@ -436,6 +448,9 @@ impl Heap {
             if f & MARKED != 0 {
                 self.flags[i] = 0;
             } else if f & FREE == 0 {
+                // the host's value goes with the object; the hook is called after the sweep,
+                // when the VM is whole again (`Vm::gc_collect`)
+                if let ObjKind::Data { tag, handle } = self.objs[i].kind { self.freed_data.push((tag, handle)); }
                 // drop the payload; ObjKind::Object with class 0 is inert if touched by mistake
                 self.objs[i] = HeapObject { class: ObjId(0), ivars: Vec::new(), frozen: false, binary: false, kind: ObjKind::Object };
                 self.flags[i] = FREE;

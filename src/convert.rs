@@ -171,10 +171,43 @@ impl FromRuby for Bytes {
     }
 }
 
+/// The `(tag, handle)` of a [`Data`](crate::Vm::data_new) object: a value the host owns, named
+/// by a number rather than held by the VM.
+///
+/// Anything else is a `TypeError`, so a method registered on the host's own class can take
+/// `This<DataRef>` and be sure of what it got — including when the receiver came from somewhere
+/// unexpected (a `Player` method reached through `instance_exec` on a String, say).
+///
+/// ```
+/// # fn main() -> Result<(), sabiruby::VmError> {
+/// use sabiruby::convert::{DataRef, This};
+/// use sabiruby::Vm;
+/// const PLAYER: u32 = 1;
+/// let mut vm = Vm::with_mrblib()?;
+/// let player = vm.define_class("Player", vm.core.object);
+/// vm.define_fn(player, "handle", |this: This<DataRef>| this.handle as i64);
+/// # Ok(()) }
+/// ```
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DataRef {
+    pub tag: u32,
+    pub handle: u64,
+}
+
+impl FromRuby for DataRef {
+    fn from_ruby(vm: &mut Vm, v: Value) -> VmResult<DataRef> {
+        match vm.data_of(v) {
+            Some((tag, handle)) => Ok(DataRef { tag, handle }),
+            None => { let d = vm.describe_for_type_error(v); Err(vm.raise_type(&alloc::format!("wrong argument type {d} (expected Data)"))) }
+        }
+    }
+}
+
 /// The receiver of the call (`self`), in the parameter list of a [`Vm::define_fn`] function.
 ///
 /// `This<Value>` takes it untouched; `This<T>` converts it like an argument, so a function on an
-/// Integer writes `This<i64>` and gets the number.
+/// Integer writes `This<i64>` and gets the number, and one on a
+/// [`Data`](crate::Vm::data_new) object writes `This<DataRef>` and gets the handle.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct This<T>(pub T);
 

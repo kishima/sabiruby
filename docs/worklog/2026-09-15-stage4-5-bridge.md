@@ -118,3 +118,133 @@ trait に marker 型パラメータを持たせ、impl ごとに違う marker �
 `cargo test --workspace` 全通過（`tests/convert.rs` 8 本を含む）、`tools/check_no_std.sh` OK、
 `grep -rn unsafe src` は 0 行、`cargo doc --no-deps` 警告なし。`tests/mrbtest.rs` の
 baseline 比較（108 ファイル）も通過。ベンチは回していない。
+
+## 2. 段階 5: Data オブジェクトとハンドル
+
+### 2.1 何を足したか
+
+`ObjKind::Data { tag: u32, handle: u64 }`（`src/object.rs`）。ポインタを持たない `RData` で、
+VM は 2 つの数を運ぶだけ。`Vm::data_new(class, tag, handle)`、`Vm::data_of(v) -> Option<(u32,u64)>`、
+`Vm::set_on_free(Box<dyn Fn(u32,u64) + Send + Sync>)`。`convert.rs` に `DataRef { tag, handle }` と
+その `FromRuby`。
+
+ポインタを持たせないのは `unsafe` を増やさないためだが、それだけではない。ハンドルが古くなっても
+「ホストの表の別のものを指す」で済み、メモリは壊れない。`Vec<HeapObject>` を `ObjId(u32)` で引く
+VM 本体と同じ考え方をホストとの境界にも延ばした形になっている。
+
+### 2.2 解放フックをどこで呼ぶか（3 案を比べた）
+
+**案 A: `Heap::sweep` の中で、オブジェクトを潰す直前に呼ぶ。** いちばん素直だが駄目。`sweep` は
+`&mut self`（`Heap`）を持っており、そこからホストのクロージャを呼ぶと、フックの中で（たとえ `&mut Vm`
+を渡さなくても）ホストが別スレッドから VM を触りに来る余地が残る。加えて、`sweep` は free list を
+作り直している最中で、`objs`/`flags`/`free` の 3 つが一時的に食い違っている。ここで外のコードを
+走らせるのは、GC の不変条件を「呼ばれた先が何もしない」ことに賭けることになる。
+
+**案 B: `Vm::gc_collect` の `self.heap.sweep()` の直後に呼ぶ。** ヒープは整合しているが、その後に
+`alloc_threshold` の再計算、`gc_count`、`gc_time_ns` の更新が残っている。フックがそれらの前に走る
+理由が無い。
+
+**案 C（採用）: `gc_collect` のいちばん最後。** `sweep` は解放した Data の `(tag, handle)` を
+`Heap::freed_data` に積むだけにして、`gc_collect` が全部の後始末を終えてから `core::mem::take` で
+取り出して呼ぶ。この時点で VM は完全に整合しており、フックが（設計上できないが）仮に VM を
+覗いたとしても壊れているものは無い。`freed_data` はフックが無くても毎回捨てる。後から
+`set_on_free` したホストに、それ以前に死んだオブジェクトの話が届くのはおかしいため。
+
+フックの引数を `(u32, u64)` にして `&mut Vm` を渡さないのは計画書の指示どおりで、**型でしか守れない**
+性質だからこの形にしている。「呼ばないでください」とドキュメントに書く代わりに、借りるものを渡さない。
+ホストが VM を触りたい場合は、フックでキューに積んで、次にホストが VM を呼ぶときに処理する
+（rubevy の `Rubevy.ask` と同じ形）と rustdoc に書いた。
+
+借用で少し詰まった点: `sweep` の中で `self.objs[i].kind` を見ながら `self.freed_data.push(…)` すると、
+`objs` の共有借用と `freed_data` の可変借用が同じ `self` から出る。フィールドが別なので通ってもよさそうだが、
+添字アクセスを挟むと素直に通らないので、いったん `Option<(u32,u64)>` に写してから push している。
+
+**Vm を drop したときに残った Data のフックを呼ぶか**も考えたが、やめた。`Vm` に `Drop` を実装すると、
+今は無い落とし穴（drop 中の panic、部分ムーブ）が増える。ホストは VM を片付けるときに自分の表も
+まとめて捨てられるはずなので、rustdoc に「回収されたものだけが届く」と明記するに留めた。
+
+### 2.3 `dup` / `clone` — 複製を禁じた理由
+
+ここがいちばん迷った。3 案。
+
+**案 A: ハンドルをそのまま写す。** Ruby のオブジェクトが 2 つ、ホストの値が 1 つになる。片方が
+回収されるとフックが走り、ホストは slab の枠を返す。**もう片方はまだ生きているのに、指す先が
+無くなる**（枠が再利用されれば別の値になる）。`==` は真を返すので「同じもの」に見えるのに、
+寿命だけ別、という状態になる。ハンドル方式で避けたかった事故そのもの。
+
+**案 B: `ObjKind::Object` の素のオブジェクトを作る（Regexp と MatchData の既存の扱い、
+`src/builtins/object.rs:423`）。** クラスは `Player` のまま、ハンドルは無い。壊れないが、
+`data_of` が `None` を返すので、最初にメソッドを呼んだところで `TypeError` になる。
+壊れ方が遅れて出る。
+
+**案 C（採用）: `dup` / `clone` が `TypeError` を上げる。** 文言は `can't dup Player` /
+`can't clone Player`（本家 `mrb_obj_dup` の `can't dup %v` に合わせた）。理由は、
+**値の複製の仕方を知っているのはホストだけ**だから。ホストは `vm.define_closure(player, "dup", …)`
+で、新しい Rust の値と新しいハンドルを作る `dup` を自分で定義できる。VM が勝手に決めるより、
+定義されていなければ断る方が正しい。`clone` は `dup` を呼ぶ実装なので、動詞が合うように
+`clone` 側にも同じ判定を先頭に足した。
+
+### 2.4 `==` / `eql?` / `hash`
+
+計画書の指示は「同じ `(tag, handle)` なら `==` は真、`equal?` はオブジェクトの同一性のまま」。
+`BasicObject#==` と `Object#eql?`（`src/builtins/object.rs:20,34`）は `*x == s` の Value 比較だったので、
+`Vm::same_value` に置き換えた（値が等しいか、両方 Data で `(tag, handle)` が等しい）。
+
+`hash` も一緒に直さないと Hash のキーとして壊れる。`Vm::value_hash` の既定は
+`(id + 1) * 8`（オブジェクトごとに違う）なので、`==` が真の 2 つが別のバケツに入ってしまう。
+Data は `(tag, handle)` の 12 バイトを FNV に通す形にした。Hash のキーとして
+`h[a] = :first; h[b] = :second` が 1 つの要素になることをテストで確かめている。
+ネイティブ側の `Vm::eql`（`key_eql` の String / 即値の早道）にも同じ判定を足した。
+
+`equal?` と `__id__` は触っていない。ハンドルは「ホストの値の名前」であって「オブジェクトの同一性」
+ではないので、`a == b` かつ `!a.equal?(b)` という状態がありうる。これは String と同じ関係で、
+Ruby として不自然ではない。
+
+### 2.5 その他の分岐
+
+`ObjKind` に variant を足すと網羅性のエラーが 3 か所出た。この 3 か所が
+「Data を足したら考えるべきところ」の全部だった:
+
+- `src/inspect.rs:279`（デバッグ用の `render_text`）→ `#<Data tag=… handle=…>`。Ruby の `inspect` では
+  ないので、ここでハンドルを見せてよい。Ruby の `inspect` は `Object#inspect` がそのまま
+  `#<Player:0x…>` を出す（`obj_inspect` は ivar の列挙を `ObjKind::Object` に限っているので、
+  Data は `any_to_s` に落ちる）。計画書の求める形になっており、手は要らなかった。
+- `src/builtins/ext_objectspace.rs:29`（`type_index`）→ `T_OBJECT`。本家では `T_CDATA` だが
+  `count_objects` の表に項目が無く、Regexp / MatchData / Task が既に同じ扱いになっている。
+- `src/builtins/object.rs:423`（`dup`）→ 2.3 のとおり。
+
+`mark_drain` は「中に Value を持たない」組（Object / String / Exception / BigInt / Regexp）に
+Data を足すだけ。`payload_bytes` は既定の 0 のままでよい（ホストの値のバイト数は VM には分からない。
+GC の頻度をホストの都合で上げたいなら `GC.start` を呼べばよい）。Marshal 相当は無いので不要。
+
+### 2.6 確認
+
+`tests/data.rs` 8 本、`cargo test --workspace` 全通過、`tools/check_no_std.sh` OK、
+`grep -rn unsafe src` 0 行（rustdoc に `unsafe` という語を書いたら grep に引っかかったので言い換えた）、
+`cargo doc --no-deps` 警告なし。`GC.start` とストレスモード（`vm.set_gc_stress(true)`、
+`SABIRUBY_GC_STRESS=1` が入れるのと同じ状態）の両方でフックが 1 オブジェクトにつき 1 回呼ばれ、
+生きている間は呼ばれないことを確かめた。
+
+## 3. 両段階まとめての確認
+
+| 確認 | 結果 |
+|---|---|
+| `cargo test --workspace` | 全通過（`tests/convert.rs` 8、`tests/data.rs` 8 を含む。既存のテストの失敗なし） |
+| `tools/check_no_std.sh` | `no_std OK`（thumbv7em-none-eabi でビルド） |
+| `grep -rn unsafe src` | 0 行 |
+| `Vm: Send + Sync` | `tests/send_sync.rs` 通過、加えて convert / data の各テストでも確かめた |
+| `cargo doc --no-deps` | 警告なし |
+| 本家テスト | `./target/release/sabiruby mrbtest …` を baseline.txt の 108 ファイルすべてに対して実行し、`ok` 列が baseline を下回るものは 0（gem_ascii_* は対象外） |
+| ベンチ | **回していない**。段階 2 の担当が同じ機械で計測中のため。段階 4・5 は実行ループに触っていないので、確認は本体がマージ後に行う |
+
+`unsafe` の grep で 1 回引っかかったのは rustdoc の本文に `unsafe` という語を書いたためで、
+コードではない。`tools/check_no_std.sh` の `std::` 判定と同じく、この種の grep は文章にも当たる。
+言い換えて 0 に戻した。
+
+## 4. 残っていること（この作業の外）
+
+- rubevy 側は手を付けていない（範囲外）。`Rubevy.entity` を Data に置き換える案は計画書の段階 5 の
+  「rubevy 側」のまま。
+- `docs/host-bridge-plan.md` の「状況」欄と `docs/bench.md` は本体がレビュー後に更新する規則なので触っていない。
+- ブロックの型付き（`Block` を `impl Fn` として受ける形）、キーワード引数、可変長引数は計画書どおり後回し。
+  今の `define_fn` で足りないホストは `define_closure` で生の呼び出しを取る。
