@@ -57,6 +57,13 @@ the same frame (`op_send_redirect`, mruby `mrb_f_send` → `mrb_exec_irep`).
 `Enumerator#each` is `@obj.__send__(@meth, ...)`, and its block does
 `Fiber.yield` — with a native `send` in between every external iterator would fail.
 
+A `method_missing` written in Ruby is dispatched the same way, and for the same
+reason: `op_send`'s fallback writes the missing name in as the first argument and
+re-dispatches in the frame the call was already in (mruby `prepare_missing`), so the
+body is an ordinary frame and can `Fiber.yield` — or park a task on `Queue#pop` — out
+of it. The basic `method_missing` written in C, and `Vm::funcall`'s own fallback
+(nested, as `mrb_funcall` is), keep the boundary.
+
 ## Environments
 
 An `REnv` that is still attached records its context (`EnvData::ctx`), so a

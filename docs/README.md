@@ -43,7 +43,7 @@ in English; plans and the worklog are in Japanese.
 | [eval-require-plan.md](plans/eval-require-plan.md) | done (2026-09-13); written as a study, kept for the reasoning |
 | [after-gems-plan.md](plans/after-gems-plan.md) | done (2026-09-13): rubevy on one VM with tasks, backtraces, `sleep`/`strftime` |
 | [playground-plan.md](plans/playground-plan.md) | done (2026-09-12); the playground repository carries the visualizer plan |
-| [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b and 6c are rubevy's. Carries the findings of each stage |
+| [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b is rubevy's and 6c is both. Carries the findings of each stage |
 
 ## worklog/ — what happened, when
 
@@ -56,6 +56,10 @@ hiding in `hash_sync`, and cutting `vm_optimization_bench` into five), and
 [stage6a-macros](worklog/2026-09-15-stage6a-macros.md) is stage 6a: why the host's stores sit in
 the `Vm`, how a method that is given the `&mut Vm` borrows its receiver, and what the macros read
 out of a signature.
+[stage6c-method-missing](worklog/2026-09-15-stage6c-method-missing.md) is the VM's half of stage
+6c: reading `prepare_missing` in the reference, why packing the arguments into one Array and
+shifting them along one register are the same thing to `OP_ENTER`, and what a `method_missing`
+that runs in the caller's frame can do that one in a nested run loop cannot.
 
 ## Where things were (before 2026-09-15)
 
