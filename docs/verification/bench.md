@@ -103,6 +103,8 @@ Per stage (each measured against the commit before it):
 | 2d | `2521b79` | one `key_hash` per store; a String key copied only when inserted | −0.7% | a store to an existing key 138 → 45 ns |
 | 2d | `f222934` | `Array#include?`/`member?`/`count` read one element, not a copy per element | +1.3% (layout) | O(n²) → O(n); no benchmark calls them |
 | 2d | `17ab5dc` | `vm_optimization_bench` cut into five | — | the 50,000-entry Hash part is now `vmo_objects` |
+| 6c | `6314b84` | a Ruby `method_missing` runs in the caller's frame (as the reference's) | ±1% (noise) | `call_args` +1.1%, `bm_fib` +0.7% over 15 rounds; the same change moved `bm_fib` −0.1% in another run |
+| ECS | `ad54ed4` | `OP_GETIDX`/`GETIDX0`/`SETIDX` as the reference: fast paths for Array/Hash/String, else a send in the caller's frame | +0.1% | data structures −3.7% (`ds_hash` −8 to −9%, `vmo_index` −7%); `call_kwargs` +8% is code layout (candidates that fixed it cost +12–20% elsewhere) |
 | 3 | `5c3eb6e` (merge of `93824b1`, `1472346`) | `Method::Closure`, host state | +1.8% | `bm_fib` +4.2%, `call_args` +4.0%, `app_tak` +3.8%: `Method`'s `Clone` is no longer a plain copy and `find_method` clones one per call (stage 2, candidate 3, removes that). `loop_while_add` +6.6% (reproduced twice, A/B on a quiet machine: 1100 → 1190 ms) is not explained by that — the loop makes no calls; `loop_times` moved −5.8% at the same time, so code layout is the likely cause. Data structures unchanged |
 
 ## Earlier measurements (the five reference benchmarks, best of 3)
