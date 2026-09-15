@@ -75,6 +75,7 @@ pub const REVISION: &str = match option_env!("SABIRUBY_REVISION") {
 };
 
 pub mod bigint;
+pub mod convert;
 pub mod error;
 pub mod host;
 pub mod object;
@@ -92,6 +93,7 @@ pub mod builtins;
 #[doc(hidden)]
 pub mod mrbtest;
 
+pub use convert::{FromRuby, IntoRuby};
 pub use error::VmError;
 pub use host::{EvalOptions, Host};
 pub use value::Value;

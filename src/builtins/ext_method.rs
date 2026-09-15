@@ -113,11 +113,17 @@ fn mcall(vm: &mut Vm, s: Value, recv: Option<Value>, a: &[Value], b: Value) -> V
 }
 
 /// Arity of a native by the function it is (so an alias of `upcase` answers as `upcase`).
+/// A closure has no address to look up: it carries its own arity, which `Vm::define_fn` fills
+/// in from the Rust signature and `Vm::define_closure` leaves at `-1`.
 fn native_arity(vm: &mut Vm, owner: ObjId, name: Sym) -> i64 {
-    if let Some((Method::Native(f), _)) = search(vm, owner, name) {
-        for (g, a) in &vm.native_arity { if core::ptr::fn_addr_eq(f, *g) { return *a; } }
+    match search(vm, owner, name) {
+        Some((Method::Native(f), _)) => {
+            for (g, a) in &vm.native_arity { if core::ptr::fn_addr_eq(f, *g) { return *a; } }
+            -1
+        }
+        Some((Method::Closure(f), _)) => f.arity,
+        _ => -1,
     }
-    -1
 }
 
 fn method_arity(vm: &mut Vm, s: Value) -> i64 {

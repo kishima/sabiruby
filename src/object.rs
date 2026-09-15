@@ -27,7 +27,14 @@ pub type NativeClosure = alloc::sync::Arc<ClosureBody>;
 /// The closure behind a [`NativeClosure`], boxed so the `Arc` is a thin pointer: a `Method`
 /// then stays 16 bytes, as it was before the variant existed, and method lookup (which clones
 /// a `Method`) keeps copying one machine word pair.
-pub struct ClosureBody(pub alloc::boxed::Box<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>);
+pub struct ClosureBody {
+    pub f: alloc::boxed::Box<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>,
+    /// What `Method#arity` answers for the method. A bare [`NativeFn`] is looked up in
+    /// `Vm::native_arity` by its address, which a closure has no place in; it carries the
+    /// number here instead. `-1` (`Vm::define_closure`) is "unknown", as it is for a native
+    /// with no declared argument spec; `Vm::define_fn` knows it from the Rust signature.
+    pub arity: i64,
+}
 
 /// Index of a loaded irep in [`Vm`].
 pub type IrepId = usize;

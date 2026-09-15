@@ -1079,8 +1079,14 @@ impl Vm {
     where
         F: Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync + 'static,
     {
+        self.define_closure_body(class, name, -1, alloc::boxed::Box::new(f));
+    }
+
+    /// [`Vm::define_closure`] with the arity the method reports, for a caller that knows how
+    /// many arguments the body reads ([`Vm::define_fn`], which builds it from a Rust signature).
+    pub(crate) fn define_closure_body(&mut self, class: ObjId, name: &str, arity: i64, f: alloc::boxed::Box<dyn Fn(&mut Vm, Value, &[Value], Value) -> VmResult<Value> + Send + Sync>) {
         let n = self.intern(name);
-        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(crate::object::ClosureBody(alloc::boxed::Box::new(f)))));
+        self.def_method_raw(class, n, Method::Closure(alloc::sync::Arc::new(crate::object::ClosureBody { f, arity })));
     }
 
     // ------------------------------------------------------------------ host state
@@ -1707,7 +1713,7 @@ impl Vm {
     #[inline]
     pub fn call_closure(&mut self, f: &crate::object::NativeClosure, recv: Value, args: &[Value], blk: Value) -> VmResult<Value> {
         self.native_active += 1;
-        let r = (f.0)(self, recv, args, blk);
+        let r = (f.f)(self, recv, args, blk);
         self.native_active -= 1;
         if self.task.native_sampling { crate::builtins::ext_task::count_native(self); }
         r
