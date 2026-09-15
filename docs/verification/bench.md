@@ -83,6 +83,80 @@ Per benchmark now: `ds_hash` **2.85x** (was 7.65x after 2c, 12.9x at the baselin
 `hash_sync`, and why `include?`/`count` were fixed although no benchmark calls them, are in
 `docs/worklog/2026-09-15-stage2d-perf.md`.
 
+### After `printf`/`putc`: the two reference benchmarks join the set (`519eb17`, 2026-09-16)
+
+`bm_ao_render` and `bm_mandel_term` have been in `bench/` since the beginning and have been
+printing `fail: undefined method 'printf'` / `'putc'` in every result file since the baseline.
+`Kernel#printf` and `Kernel#putc` (`leftovers-plan.md` item 5) make them run, and their output
+is byte for byte the reference's (3900 bytes of terminal art, 12301 bytes of PPM). The set is
+now **27 files, all of which produce a number**; it was 22 files of which 20 ran before stage 2d
+cut `vm_optimization_bench` into five, and 27 of which 25 ran after. `tools/bench.sh` discards
+what a benchmark prints (`> /dev/null`), so nothing here times a terminal.
+
+Best of 5, reference included, `--core 2` (`bench/results/519eb17.tsv`):
+
+| benchmark | mruby ms | SabiRuby ms | ratio | instructions | ns/instruction |
+|---|---:|---:|---:|---:|---:|
+| bm_ao_render | 2478 | 5578.982 | **2.25x** | 472066695 | 11.8 |
+| bm_mandel_term | 10 | 20.231 | **2.02x** | 4745006 | 4.3 |
+
+`bm_mandel_term` runs for twenty milliseconds, which is short enough that it says more about
+start-up than about the loop; it is kept because it is the reference's own file and because it
+is the only benchmark in the set whose inner loop is a native that writes.
+
+Totals, next to the previous baseline. The two sets are not the same size, so both are given:
+**25 shared** is the benchmarks `2aa4f13` also has a number for, **27 all** is the set as it now
+stands.
+
+| | SabiRuby ms | mruby ms | ratio (sum) | ratio (median) |
+|---|---:|---:|---:|---:|
+| `2aa4f13`, 25 shared | 41022 | 14529 | 2.82x | 3.05x |
+| `519eb17`, 25 shared | 42251 | 15343 | **2.75x** | **3.08x** |
+| `519eb17`, 27 all | 47851 | 17831 | **2.68x** | **2.87x** |
+
+The milliseconds are 3% higher than `2aa4f13`'s and the reference's are 5.6% higher: this run
+sits in a slower window of the machine, which is why only the ratio is read (`../design/optimizations.md` §4).
+By category, all 27 (`bench/results/519eb17.md`):
+
+| category | mruby ms | SabiRuby ms | ratio (sum) | ratio (median) |
+|---|---:|---:|---:|---:|
+| whole program | 8947 | 25563 | 2.86x | 2.85x |
+| data structures | 1170 | 3642 | 3.11x | 3.14x |
+| instruction loop | 3345 | 9878 | 2.95x | 3.22x |
+| calls | 2140 | 6647 | 3.11x | 2.87x |
+| memory | 2229 | 2122 | 0.95x | 2.20x |
+| **all** | 17831 | 47851 | **2.68x** | **2.87x** |
+
+Two methods more in `Kernel` is two more entries in a method table and a different code layout,
+so it was checked rather than assumed: interleaved A/B of the binary before and after, 7 rounds,
+`bm_fib` −0.6%, `call_args` +0.9%, `ds_hash` −0.6%, `loop_while_add` +0.2%
+(`bench/results/ab-287826e-printf.tsv`). Nothing moved.
+
+**The first attempt at this baseline was thrown away.** It completed, but its best-to-median
+spread averaged 3.3% and reached 7.7% (`loop_while_add`), where every earlier baseline sits at
+0.8–0.9%. §4's rule — over 1%, take it again — applies to the whole-set run as much as to an A/B.
+The kept run is 0.8% mean, 2.7% worst.
+
+### `items()` without the copy, where the answer is small (`e27d9a4`, `87ad19b`, `e877d17`, 2026-09-16)
+
+`leftovers-plan.md` item 6. No benchmark in the set calls the methods that changed, and the eight
+that were A/B'd moved −1.3% to +2.9% (code layout; `bench/results/ab-519eb17-items-g1.tsv`,
+`ab-items-g1-g2.tsv`). The numbers that say anything are the micro loops of `bench/micro`, run
+with `tools/ab_micro.sh` (interleaved, 7–9 rounds, `--core 2`):
+
+| micro | change | floor in the same round (empty loop) |
+|---|---:|---:|
+| `m_ary_read` — `fetch`/`at` on a 1000-element array | **−52.4%** | +2.2% |
+| `m_ary_ends` — `first(3)`/`last(3)`/`take`/`drop` of 1000 | **−59.1%** | +2.2% |
+| `m_ary_dup` — `dup`/`clone`/`replace` of 200 | **−16.6%** | +0.3% |
+| `m_ary_walk` — `index`/`count {}`/`assoc` of 200 | −2.9% | −2.0% |
+
+The last row is the one that did *not* pay: subtract the round's floor and it is about −1%. It was
+taken anyway, because it makes `assoc`/`rassoc`/`__ary_index` re-read the array each step the way
+`ary_assoc` in mruby-array-ext does — a shape, not a speed-up. Full numbers, including the
+candidates that were left out, in
+[`../worklog/2026-09-16-leftovers-perf.md`](../worklog/2026-09-16-leftovers-perf.md).
+
 Per stage (each measured against the commit before it):
 
 | stage | commit | what changed | all | notes |
@@ -105,6 +179,8 @@ Per stage (each measured against the commit before it):
 | 2d | `17ab5dc` | `vm_optimization_bench` cut into five | — | the 50,000-entry Hash part is now `vmo_objects` |
 | 6c | `6314b84` | a Ruby `method_missing` runs in the caller's frame (as the reference's) | ±1% (noise) | `call_args` +1.1%, `bm_fib` +0.7% over 15 rounds; the same change moved `bm_fib` −0.1% in another run |
 | ECS | `ad54ed4` | `OP_GETIDX`/`GETIDX0`/`SETIDX` as the reference: fast paths for Array/Hash/String, else a send in the caller's frame | +0.1% | data structures −3.7% (`ds_hash` −8 to −9%, `vmo_index` −7%); `call_kwargs` +8% is code layout (candidates that fixed it cost +12–20% elsewhere) |
+| 5 | `519eb17` | `Kernel#printf`/`#putc`, so `bm_ao_render` and `bm_mandel_term` run | ±1% (noise) | not a speed change: two entries more in `Kernel`. A/B over 7 rounds: −0.6 to +0.9% |
+| 6 | `e27d9a4`, `87ad19b`, `e877d17` | natives that read one element, or a few, borrow the array instead of copying it; `dup`/`replace` copy the Slots once instead of twice | ±0 (benchmarks) | micro: `fetch`/`at` −52%, `first`/`last`/`take`/`drop` −59%, `dup`/`clone`/`replace` −17% |
 | 3 | `5c3eb6e` (merge of `93824b1`, `1472346`) | `Method::Closure`, host state | +1.8% | `bm_fib` +4.2%, `call_args` +4.0%, `app_tak` +3.8%: `Method`'s `Clone` is no longer a plain copy and `find_method` clones one per call (stage 2, candidate 3, removes that). `loop_while_add` +6.6% (reproduced twice, A/B on a quiet machine: 1100 → 1190 ms) is not explained by that — the loop makes no calls; `loop_times` moved −5.8% at the same time, so code layout is the likely cause. Data structures unchanged |
 
 ## Earlier measurements (the five reference benchmarks, best of 3)

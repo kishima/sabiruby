@@ -48,7 +48,7 @@ in English; plans and the worklog are in Japanese.
 | [eval-require-plan.md](plans/eval-require-plan.md) | done (2026-09-13); written as a study, kept for the reasoning |
 | [after-gems-plan.md](plans/after-gems-plan.md) | done (2026-09-13): rubevy on one VM with tasks, backtraces, `sleep`/`strftime` |
 | [playground-plan.md](plans/playground-plan.md) | done (2026-09-12); the playground repository carries the visualizer plan |
-| [leftovers-plan.md](plans/leftovers-plan.md) | items 1–4, 8 and 9 done (2026-09-16); 5 and 6 want benchmarks, 7 is rubevy's, 10 is the author's — the small items each stage left behind |
+| [leftovers-plan.md](plans/leftovers-plan.md) | items 1–9 done (2026-09-16); 10 is the author's — the small items each stage left behind |
 | [perf3-plan.md](plans/perf3-plan.md) | to do (2026-09-16): the third round of speed — String, the instruction loop, calls, the 8-byte `Slot` experiment, what is left of `so_lists` |
 | [from-mrubyedge-plan.md](plans/from-mrubyedge-plan.md) | items 1 and 3 done (2026-09-16); what mruby/edge does that is worth having — serde, RBS at the boundary, a coverage list, gems as features, `RUBY_ENGINE` |
 | [host-bridge-plan.md](plans/host-bridge-plan.md) | done through stage 6a (2026-09-15); 6b is rubevy's and 6c is both. Carries the findings of each stage |
@@ -81,6 +81,13 @@ empty keyword Hash is something mruby carries rather than something it drops, th
 an object that has no Rust value behind it, the block a `#[ruby_methods]` method can now take,
 the three entry points rubevy was reaching through `funcall`, and the eight methods and hooks
 the coverage list said were missing.
+
+[leftovers-perf](worklog/2026-09-16-leftovers-perf.md) is the same plan's items 5 and 6: that
+`printf` and `putc` come from mruby-io and not from a gem called mruby-print, what the reference
+means by "the first character" of a string (the build's answer, not the string's), the benchmark
+set growing to twenty-seven files, why copying an array is not worth removing when the answer is
+the whole array, and how a micro measurement reads only once the same round's empty loop has been
+subtracted from it.
 
 [regexp-feature](worklog/2026-09-16-regexp-feature.md) is the same plan's item 4: what a build
 without mruby-regexp must answer where the reference has no gem to ask, the `sub`/`gsub` that

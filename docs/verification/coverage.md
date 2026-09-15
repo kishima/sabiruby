@@ -25,20 +25,20 @@ The reference is the `mruby` of the image `kishima/mruby:4.1.0-rc`
 
 | | classes and modules | methods |
 |---|---:|---:|
-| SabiRuby has | 70 | 1351 |
+| SabiRuby has | 70 | 1355 |
 | the reference has | 224 | 1545 |
-| both | 64 | 1195 |
+| both | 64 | 1199 |
 | only SabiRuby | 6 | 156 |
-| only the reference | 160 | 350 |
+| only the reference | 160 | 346 |
 
 A difference in that table is not the same as a method that does not answer. Of the
-350 the reference has and SabiRuby has not:
+346 the reference has and SabiRuby has not:
 
 * **312** belong to the POSIX gems, which are not planned (`design/gems.md`, "Remaining gems").
 * **3** are the other half of a module-function pair: the same name on the same
   module, singleton on one side and instance on the other.
 * **20** answer here from another ancestor — the same method, a different owner.
-* **15** do not answer at all. That is the first list at the end of this file.
+* **11** do not answer at all. That is the first list at the end of this file.
 
 And of the 156 SabiRuby has and the reference has not:
 **0** are in classes of a not-planned gem, **0** are the other half of a
@@ -49,7 +49,7 @@ The gem a method comes from is not asked per method: mruby tells a script nothin
 where a method was defined (there is no `Method#source_location`, and `Method#owner`
 answers the class), so the gem column below is per class and hand-kept in
 `tools/coverage.sh`. A gem that adds methods to a core class is invisible in it:
-`Kernel.gets` (mruby-io) and `Kernel.printf` (mruby-print) count as core.
+`Kernel.gets` (mruby-io) and `Kernel.printf` (mruby-io) count as core.
 
 What the constant walk could not reach (unnamed classes are singleton classes, which
 carry the class methods already listed as `Class.method`):
@@ -90,7 +90,7 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 | `Hash` | core | 82 | 76 |
 | `IndexError` | core | 0 | 0 |
 | `Integer` | core | 57 | 58 |
-| `Kernel` | core | 130 | 128 |
+| `Kernel` | core | 134 | 128 |
 | `KeyError` | core | 0 | 0 |
 | `LoadError` | sabiruby (require/load) | 0 | – |
 | `LocalJumpError` | core | 0 | 0 |
@@ -144,21 +144,17 @@ The classes of the not-planned POSIX gems are collapsed into one row per gem, at
 
 ## In the reference, not in SabiRuby
 
-15 methods that do not answer here (the POSIX gems left out).
+11 methods that do not answer here (the POSIX gems left out).
 
 * `Enumerable#__update_hash`
 * `Enumerable.__update_hash`
 * `Kernel#__method_recursive?`
 * `Kernel#gets`
 * `Kernel#open`
-* `Kernel#printf`
-* `Kernel#putc`
 * `Kernel#readline`
 * `Kernel#readlines`
 * `Kernel.gets`
 * `Kernel.open`
-* `Kernel.printf`
-* `Kernel.putc`
 * `Kernel.readline`
 * `Kernel.readlines`
 

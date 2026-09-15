@@ -77,7 +77,8 @@ SabiRuby には IO が無いので、両方とも `print` と同じ出口（`Vm:
 
 なお `bench/src/bm_app_lc_fizzbuzz.rb` は `bench/*.mrb` に対応が無い。`tools/bench.sh` は
 `benchmark/bm_*.rb` を全部 `bench/src/` に写して本家の `mrbc` にかけるが、この 1 本だけは
-`mrbc` が受け付けない（λ 計算の入れ子が深い）ので `.mrb` ができず、ベンチの本数には入らない。
+`mrbc` が `src/bm_app_lc_fizzbuzz.rb:11: syntax error, unexpected ']'` で受け付けず（λ 計算だけで書かれた
+1 行 1700 桁の式）、`.mrb` ができないのでベンチの本数には入らない。元からそうである。
 
 ### `printf`/`putc` がベンチを動かしていないことの確認
 
@@ -120,7 +121,7 @@ SabiRuby には IO が無いので、両方とも `print` と同じ出口（`Vm:
 `reverse`・`rotate`・`compact`・`+`・`*` を借用に書き換えても、割り当ての回数は 2 のままで何も変わらない。
 効くのは次の 2 通りだけだった。
 
-### 第 1 群: 答えが 1 要素か数要素なのに、配列全体を複製していたもの（`e6d0d11`）
+### 第 1 群: 答えが 1 要素か数要素なのに、配列全体を複製していたもの（`e27d9a4`）
 
 `fetch`、`at`、`__fetch`、`first(n)`、`last(n)`、`take`、`drop`、`values_at`、`__svalue`、
 `count`（引数もブロックも無いとき、長さを聞くためだけに複製していた）、`slice!`（長さを聞くためだけ）、
@@ -153,7 +154,7 @@ micro（`bench/micro`、`tools/ab_micro.sh`、7 ラウンドの交互 A/B）:
 `ds_string` と `app_json_hash` は変えたメソッドを 1 つも呼ばないので、これも配置の揺れである。
 ベンチは動かないが micro で 2 倍、というのが項目 6 に期待されていたとおりの形なので、これは採る。
 
-### 第 2 群: 要素を 2 回複製していた 3 つ（`dup`・`initialize_copy`・`replace`）
+### 第 2 群: 要素を 2 回複製していた 3 つ（`dup`・`initialize_copy`・`replace`、`87ad19b`）
 
 `("dup", … let v = items(vm, s); … ObjKind::Array(slots_of(&v).into()))` は、
 `Vec<Slot>` → `Vec<Value>`（`items`）→ `Vec<Slot>`（`slots_of`）と 200 要素を 2 回写していた。
@@ -192,7 +193,7 @@ micro（`bench/micro`、`tools/ab_micro.sh`、7 ラウンドの交互 A/B）:
 **(c) `flatten_internal`・`transpose`・`product`・`intersection` の `items`**: どれも中身を全部要るので、
 複製は仕事そのもの。
 
-### 第 3 群: `assoc`・`rassoc`・`__ary_index` を本家と同じ「毎回読み直す」形に（`5f5a0bf`）
+### 第 3 群: `assoc`・`rassoc`・`__ary_index` を本家と同じ「毎回読み直す」形に（`e877d17`）
 
 第 2 群まで書いてから、(b) のうち **`assoc`/`rassoc`/`__ary_index` だけは別**だと分かった。本家の
 `ary_assoc`（`mrbgems/mruby-array-ext/src/array.c:86`）は

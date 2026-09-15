@@ -11,8 +11,8 @@
 | 2 | マクロの生成する `register` に残る `expect` 1 つ → `VmResult` を返す形に | 6a | **済み**（2026-09-16、`758e1a2`） |
 | 3 | `Player.allocate` で作った素のオブジェクトにメソッドを呼んだときの文言（`wrong argument type Player (expected Player)`）を読めるものに | 6a | **済み**（2026-09-16、`8d7bd9d`） |
 | 4 | `#[ruby_methods]` でブロックを取るメソッド（`define_fn` の `Block` を通す） | 6a | **済み**（2026-09-16、`a9461d8`） |
-| 5 | `Kernel#printf` / `#putc` が無く、本家のベンチ `bm_ao_render` と `bm_mandel_term` が動かない | 段階 1 から | 未着手 |
-| 6 | `items()` が配列を複製する箇所の残り（中身を読むだけのもの。ベンチには出ないが実コードで効く） | 2d | 未着手 |
+| 5 | `Kernel#printf` / `#putc` が無く、本家のベンチ `bm_ao_render` と `bm_mandel_term` が動かない | 段階 1 から | **済み**（2026-09-16、`519eb17`、基準の取り直しは `a17c154`）。出どころは `mruby-print` ではなく `mruby-io`。ベンチは 27 本になり、2 本は 2.25x と 2.02x |
+| 6 | `items()` が配列を複製する箇所の残り（中身を読むだけのもの。ベンチには出ないが実コードで効く） | 2d | **済み**（2026-09-16、`e27d9a4`・`87ad19b`・`e877d17`）。micro で −52%／−59%／−17%。全体を答えるものは借用にしても意味が無いので採らなかった |
 | 7 | rubevy の `Rubevy.ask` の `Arg` に Hash/Array を運べない（`Arg::Value`。今は数値と文字列と Entity だけ） | ECS の橋 A | **済み**（2026-09-16、rubevy `0142f93`）。`Request` の drop で解放（`Vm` が無いので次の `tick_scripts` 先頭で `gc_unregister`）。記録は rubevy `docs/worklog/2026-09-16-arg-value.md` |
 | 8 | SabiRuby の公開 API で足りなかったもの: Hash のキー列挙、`Task::Queue` の長さと非ブロッキング pop（rubevy が `funcall` で代用している） | ECS の橋 B | **済み**（2026-09-16、`6af8276`）。rubevy 側の置き換えも済み（rubevy `83cd763`） |
 | 9 | coverage が見つけた「本家にあって本当に無い」もの: `Hash#default_proc=`、`Numeric#fdiv`、`Module#const_added`/`#method_undefined`、`BasicObject#singleton_method_added`/`_removed`/`_undefined` | coverage | **済み**（2026-09-16、`ef4611f`）。`coverage.md` の「本家だけ」22 → 15 |
@@ -110,3 +110,62 @@ VM の crate の `unsafe` 0、`cargo doc` の rustdoc 警告 0。
 * `7.fdiv(0)` — 本家 `ZeroDivisionError`、SabiRuby `Infinity`。`1.0.fdiv("2")` の文言も違う。
 * `docs/verification/mrbtest-bytes.md` が `notes.tsv` に対して古い（数値は不変）。
 
+
+
+## 実装で分かったこと（2026-09-16、項目 5・6）
+
+作業の記録は [`../worklog/2026-09-16-leftovers-perf.md`](../worklog/2026-09-16-leftovers-perf.md)。
+確認: `cargo test --workspace` 202 件全通過、`tools/check_no_std.sh` 通過、
+`tools/mrbtest.sh` の 3 ビルドとも `tests/mrbtest/baseline*.txt` と一致
+（既定 2507 中 2344、バイト 2452 中 2267、regexp 無し 2011 中 1979。いずれも変化なし）、
+VM の crate の `unsafe` 0、`cargo doc` の rustdoc 警告 0。
+
+### 5. `printf` / `putc`
+
+1. **出どころは `mruby-print` ではなく `mruby-io`。** 4.1.0-rc に `mruby-print` という gem は無い。
+   `printf` も `putc` も `mrbgems/mruby-io/mrblib/kernel.rb` の `module_function`
+   （`$stdout.printf(...)` と `$stdout.putc(c); nil`）で、実体は `IO#printf`（`mrblib/io.rb:280` の
+   `write sprintf(*args)`）と `io_putc`（`src/io.c:1112`）。`mruby-sprintf` が持っているのは
+   `sprintf`/`format` だけ。SabiRuby には IO が無いので、`print` と同じ出口に書くネイティブにした。
+2. **返り値は doc のとおり両方 nil。** `IO#printf` は `write` の答えを返しそうに見えるが、
+   本家で実際に走らせると `printf` は nil。`putc` も `Kernel` 側は `; nil` で潰してあるので nil
+   （`IO#putc` は引数を返す）。**引数の誤りは全部 `sprintf` の例外**で、`printf` 自身は引数を数えない。
+3. **`putc` の Integer は `c & 0xff` の 1 バイト**。UTF-8 のビルドでもコードポイントではない
+   （`putc(0x2603)` が `0x03`）。Integer 以外は `mrb_obj_as_string` を通して**最初の 1 文字**。
+4. **「1 文字」はビルドの都合で、文字列の都合ではない。** `io_putc` は `MRB_UTF8_STRING` のとき
+   `mrb_utf8len` を使い、その文字列が binary（`String#b`）かどうかは見ない。
+   `-rc-utf8` の `putc("\u2192".b)` が 3 バイト書くのを実測して確かめた。だから `char_mode` ではなく
+   `string::UTF8` を渡している。
+5. **残した差**: 本家の `printf` は Ruby から `sprintf` を呼ぶので `Kernel#sprintf` の再定義が効くが、
+   こちらは書式化器（`ext_sprintf::sprintf_bytes`）を直接呼ぶので効かない。`bm_mandel_term` の内側で
+   `putc` が 1 ピクセル 1 回走るので、`funcall` を挟まない形を選んだ。
+6. **ベンチ側で足すものは無かった。** `bench/bm_ao_render.mrb`・`bm_mandel_term.mrb` も
+   `bench/categories.tsv` の行も最初からあり、`fail:` の行が結果に残っていただけだった。
+   確かめるのは出力で、本家と 1 バイトずつ一致する（3900 バイトと 12301 バイト）。
+   `bench/src/bm_app_lc_fizzbuzz.rb` だけは本家の `mrbc` が `syntax error, unexpected ']'` で受け付けず、
+   `.mrb` ができないのでベンチの本数に入らない（元からそう）。
+7. **見つけたが直していない差**: private なメソッドに対する `respond_to?` が本家 `true`、SabiRuby `false`
+   （`Object.new.respond_to?(:puts)` でも同じなので `printf` の話ではない）。項目 10 の範囲。
+
+### 6. `items()` の残り
+
+1. **「複製している」だけでは直す理由にならない。** `vm.ary_new` が `Vec<Value>` を取り、その中で
+   もう 1 回 `Vec<Slot>` にするので、**答えが配列全体なら複製は 2 回が下限**。借用に書き換えても回数は変わらない
+   （`reverse`・`rotate`・`compact`・`+`・`*`・`uniq`。手を付けなかった）。効くのは
+   (a) 答えが 1 要素か数要素なのに全体を複製していたもの、(b) `Vec<Slot>` のまま済むのに
+   `Value` を経由していたもの（`dup`・`initialize_copy`・`replace`）の 2 通りだけだった。
+2. **引数の変換は借用の前に。** `expect_int` は `to_int` を呼びうる、つまり Ruby を走らせて配列を動かしうる。
+   `Array#[]` の `index_args` だけは Integer と Integer の Range しか読まない（Bignum は即例外）ので
+   Ruby を走らせず、その後に借りてよい。
+3. **要素ごとに Ruby を呼ぶ走査は速くならない。** `Array#-`・`&`・集合演算・`sort_by` などは `items` を
+   ループの**外で 1 回**呼ぶのですでに O(n) で、1 要素あたりのコストはディスパッチが支配する。
+   実測でも雑音の底（−1% 前後）。しかも添字で読み直すと snapshot でなくなるので**意味が変わる**。
+4. **ただし `assoc`/`rassoc`/`__ary_index` は別**。本家の `ary_assoc` は `RARRAY_LEN`/`RARRAY_PTR` を
+   毎回読み直し、コメントで「`mrb_equal` が消すかもしれない」と言っている。SabiRuby の
+   `index`/`include?`/`member?`/`__count` はすでにその形で、この 3 つだけ取り残されていた。
+   速さではなく形を合わせるために直した。
+5. **micro を測る道具を足した**（`bench/micro`、`tools/ab_micro.sh`）。公開ベンチ 27 本は増やさない。
+   **同じラウンドの空ループの動きを雑音の底として引く**のが要で、同じ変更が空ループ −0.0% の回では −1.5%、
+   −2.0% の回では −2.9% に出た。
+6. **`tools/bench.sh` は `SABIRUBY_BIN` が無いと作業ツリーをビルドして測る。** 未コミットの項目 6 を
+   置いたまま基準を取り直しかけて、途中で気づいて捨てた。以後は測るコミットのバイナリを先に作って名指ししている。
