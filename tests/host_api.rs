@@ -133,3 +133,14 @@ fn run_value(vm: &mut Vm, src: &str) -> Value {
     // the global keeps it rooted until the next call replaces it
     vm.global_get("$__v")
 }
+
+// Item 5 of docs/plans/from-mrubyedge-plan.md: RUBY_ENGINE stays the reference's, and the
+// constant a script tests to know it is on SabiRuby is one the reference does not define.
+#[test]
+fn engine_constants_tell_sabiruby_apart_without_changing_ruby_engine() {
+    let mut vm = Vm::with_mrblib().expect("vm");
+    let out = run(&mut vm, r#"
+        puts RUBY_ENGINE, MRUBY_PLATFORM, defined?(SABIRUBY_VERSION).inspect, SABIRUBY_VERSION
+    "#);
+    assert_eq!(out, format!("mruby\nrust-sabiruby\n\"constant\"\n{}\n", env!("CARGO_PKG_VERSION")));
+}

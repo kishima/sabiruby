@@ -14,7 +14,7 @@
 | 2 | RBS で境界を宣言する（検討→設計） | **済み（設計文書）**（2026-09-16、`584d42c`）。記録は `docs/worklog/2026-09-16-rbs-study.md`、設計は `docs/design/rbs.md`。実装は次の段階 |
 | 3 | 対応メソッド一覧の生成（`docs/verification/coverage.md`） | **済み**（2026-09-16、`f57949b`）。記録は `docs/worklog/2026-09-16-coverage.md`、生成物は `docs/verification/coverage.md` |
 | 4 | Cargo feature で gem を落とせるようにする（まず regexp） | 未着手 |
-| 5 | `RUBY_ENGINE` をどう答えるか決める | 未着手 |
+| 5 | `RUBY_ENGINE` をどう答えるか決める | **済み**（2026-09-16）。(a) `"mruby"` のまま、`SABIRUBY_VERSION` を追加。理由は `docs/design/gems.md` の Deviations kept |
 
 ## 1. `sabiruby-serde`
 
@@ -201,3 +201,15 @@ Markdown を吐く（`sabiruby run tools/coverage.rb`）。gem 由来かどう�
   awk に揃えた。`tools/coverage.rb` は吐くだけ、突き合わせと Markdown は `tools/coverage.sh`。
 * **項目 5 の材料**: 両方の VM が `RUBY_ENGINE == "mruby"`、`MRUBY_DESCRIPTION == "mruby 4.1.0RC
   (2026-09-04)"` を答えるので、生成物からは engine を見分けられない。生成物には両方を並べてある。
+
+### 5. `RUBY_ENGINE`
+
+* 本家テストで `RUBY_ENGINE` を見るのは 2 か所（`test/assert.rb`、`mruby-fiber/test/fiber2.rb`）で、
+  どちらも「`"mruby"` でなければ CRuby 用の代替を定義する」分岐。`"sabiruby"` にすると両方が CRuby 側に倒れる。
+  mruby 向けに書かれたスクリプトも同じ分岐を持ちうるので、(a) のまま。
+* 「SabiRuby で動いているか」は `MRUBY_PLATFORM == "rust-sabiruby"`（前からある）に加えて
+  `SABIRUBY_VERSION`（crate の版、`env!("CARGO_PKG_VERSION")`）で答える。本家に無い定数なので
+  `defined?(SABIRUBY_VERSION)` の 1 行で済む。mruby/edge の `wasm?` に当たるもの。
+* coverage（項目 3）の生成物では両 VM が同じ `RUBY_ENGINE`/`MRUBY_DESCRIPTION` を答えるので engine では
+  見分けられない——それは意図どおり。
+

@@ -193,9 +193,13 @@ pub fn init(vm: &mut Vm) {
     let ts = Value::Obj(vm.top_self);
     let msc = vm.singleton_class(ts).unwrap();
     vm.define_methods(msc, &[("to_s", |vm, _s, _a, _b| Ok(vm.str_new(b"main"))), ("inspect", |vm, _s, _a, _b| Ok(vm.str_new(b"main")))]);
-    // Version constants (src/version.c). MRUBY_PLATFORM names this implementation.
+    // Version constants (src/version.c). RUBY_ENGINE stays "mruby": the reference's own tests
+    // branch on it (test/assert.rb, mruby-fiber's fiber2.rb) to tell mruby from CRuby, and so
+    // may any script written for mruby. What tells SabiRuby apart is MRUBY_PLATFORM, and
+    // SABIRUBY_VERSION (this crate's version), which the reference does not define at all —
+    // `defined?(SABIRUBY_VERSION)` is the one-line "am I on SabiRuby?" (docs/design/gems.md).
     for (name, v) in [("RUBY_VERSION", "4.1"), ("RUBY_ENGINE", "mruby"), ("RUBY_ENGINE_VERSION", "4.1.0"), ("MRUBY_VERSION", "4.1.0"),
-                      ("MRUBY_PLATFORM", "rust-sabiruby"), ("MRUBY_RELEASE_DATE", "2026-09-04"),
+                      ("MRUBY_PLATFORM", "rust-sabiruby"), ("SABIRUBY_VERSION", env!("CARGO_PKG_VERSION")), ("MRUBY_RELEASE_DATE", "2026-09-04"),
                       // the commit this VM was built from (`build.rs`); `HEAD` where there was no git,
                       // which is the reference's own default too
                       ("MRUBY_REVISION", crate::REVISION),

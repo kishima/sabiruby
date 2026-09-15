@@ -67,6 +67,14 @@ How a gem of the reference tree becomes part of SabiRuby, and what each ported o
   `caller` uses and matches the reference's byte for byte on the same script; a re-raise keeps the
   first record, as `mrb_keep_backtrace` does. `MRUBY_REVISION` is this repository's commit
   (`build.rs`), `HEAD` where the build had no git — the reference's own default.
+* `RUBY_ENGINE` is `"mruby"` and `RUBY_ENGINE_VERSION`/`MRUBY_VERSION` are the reference's
+  version (decided 2026-09-16): the reference's own tests branch on `RUBY_ENGINE == "mruby"` to
+  tell mruby from CRuby (`test/assert.rb`, `mruby-fiber/test/fiber2.rb`), and any script written
+  for mruby may do the same, so answering `"sabiruby"` would send them all down the CRuby path.
+  A script that wants to know it is on SabiRuby has `MRUBY_PLATFORM == "rust-sabiruby"` and
+  `SABIRUBY_VERSION` (this crate's version; the reference defines no such constant, so
+  `defined?(SABIRUBY_VERSION)` is the one-line test). mruby/edge answers the same question with
+  `RUBY_ENGINE == "mruby/edge"`; the price it pays is the branch above.
 * The differences a character-indexed String brings with it are their own list, in
   [`utf8.md`](utf8.md) ("Deviations kept").
 * **mruby-regexp**: the engine is `regex-automata`, not the reference's NFA, so what a finite
