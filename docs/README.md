@@ -67,8 +67,9 @@ out of a signature.
 [2026-09-16-perf3](worklog/2026-09-16-perf3.md) is the third round of speed: what `ds_string`,
 `call_args` and `bm_so_lists` are actually made of when split by operation, the four changes that were
 kept and the four that were measured and dropped, why `codegen-units = 16` and not "code layout" is
-half of this machine's ±15% swing, and the estimate that says an 8-byte `Slot` is not the next thing
-to do.
+half of this machine's ±15% swing (`96221fb` made one unit the default; see
+[2026-09-17-release-prep](worklog/2026-09-17-release-prep.md)), and the estimate that says an 8-byte
+`Slot` is not the next thing to do.
 [getidx-dispatch](worklog/2026-09-15-getidx-dispatch.md) is the same move for the three index
 opcodes: the reference's fast paths for Array, Hash and String, the six slots that say when one
 of them may answer, why `p` in mruby-print made a test look wrong, and what the shape of an
@@ -97,6 +98,12 @@ subtracted from it.
 [regexp-feature](worklog/2026-09-16-regexp-feature.md) is the same plan's item 4: what a build
 without mruby-regexp must answer where the reference has no gem to ask, the `sub`/`gsub` that
 had been dead code all along, and the assertion that only passes with the feature off.
+[2026-09-17-release-prep](worklog/2026-09-17-release-prep.md) is the release profile: what
+`codegen-units = 1` is worth when the same tree is built twice and measured against itself, why
+one unit makes the binary 17% smaller and the release build twice as slow in wall clock while
+using a third less CPU, the baseline that was thrown away because this session's own polling
+loops were the noise, and why `lto` and `panic = "abort"` were left unmeasured.
+
 [stage6c-method-missing](worklog/2026-09-15-stage6c-method-missing.md) is the VM's half of stage
 6c: reading `prepare_missing` in the reference, why packing the arguments into one Array and
 shifting them along one register are the same thing to `OP_ENTER`, and what a `method_missing`
