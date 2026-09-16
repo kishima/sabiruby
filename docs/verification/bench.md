@@ -6,6 +6,12 @@ run is pinned to a P core (`--core 2`; this machine mixes P and E cores and an E
 The raw results of every measurement are in `bench/results/<label>.tsv` with a Markdown view beside
 them; `tools/bench_compare.sh a.tsv b.tsv` puts two side by side.
 
+**From `96221fb` (2026-09-17) every number in this file is a `codegen-units = 1` build**, which is the
+release default from that commit on. Everything above that line was taken with cargo's default of 16
+units, so a comparison that crosses it carries the profile change with it — see
+[The release profile](#the-release-profile-codegen-units--1-96221fb-2026-09-17) at the end of this
+section for what that is worth (−2.0% over the 27).
+
 ## The baseline and the stages of `docs/plans/host-bridge-plan.md` (2026-09-15)
 
 Best of 5 (the baseline, `e9da768`) and best of 7 (`5c3eb6e`), by category: milliseconds for
@@ -277,7 +283,102 @@ Per stage (each measured against the commit before it):
 | leftovers 1–4, 8, 9 | `0ea6411` → `1ae258f` | `**{}` to natives, `method_missing` packing, definition hooks (no A/B at merge time; taken afterwards) | −1.3% (27 benches, 7 rounds, `ab-leftovers-check.tsv`) | `call_fiber` +4.9%, `vmo_index` +6.9%, `loop_if_branch` +4.2% against `bm_so_mandelbrot` −10.5%, `call_kwargs` −6.9%: the cgu=16 layout lottery, not the change |
 | 5 | `519eb17` | `Kernel#printf`/`#putc`, so `bm_ao_render` and `bm_mandel_term` run | ±1% (noise) | not a speed change: two entries more in `Kernel`. A/B over 7 rounds: −0.6 to +0.9% |
 | 6 | `e27d9a4`, `87ad19b`, `e877d17` | natives that read one element, or a few, borrow the array instead of copying it; `dup`/`replace` copy the Slots once instead of twice | ±0 (benchmarks) | micro: `fetch`/`at` −52%, `first`/`last`/`take`/`drop` −59%, `dup`/`clone`/`replace` −17% |
+| release profile | `96221fb` | `[profile.release] codegen-units = 1`, the release default from here on | **−2.0%** | not a code change: the same tree built twice. 22 of 27 faster, the rest +0.0 to +2.5%; binary −16.8%; clean release build 9.2 s → 18.1 s (`bench/results/ab-cgu1.tsv`) |
 | 3 | `5c3eb6e` (merge of `93824b1`, `1472346`) | `Method::Closure`, host state | +1.8% | `bm_fib` +4.2%, `call_args` +4.0%, `app_tak` +3.8%: `Method`'s `Clone` is no longer a plain copy and `find_method` clones one per call (stage 2, candidate 3, removes that). `loop_while_add` +6.6% (reproduced twice, A/B on a quiet machine: 1100 → 1190 ms) is not explained by that — the loop makes no calls; `loop_times` moved −5.8% at the same time, so code layout is the likely cause. Data structures unchanged |
+
+### The release profile: `codegen-units = 1` (`96221fb`, 2026-09-17)
+
+Author's decision, taken on the evidence of `2026-09-16-perf3.md` 0: the crate had no
+`[profile.release]`, so release builds used cargo's default of **16 code generation units**, and which
+function landed in which unit changed whenever a line did. That is the "code layout" noise §4 of
+[`../design/optimizations.md`](../design/optimizations.md) keeps warning about, and it was large enough
+to swamp a real change: `String#<<` in place measured `bm_so_mandelbrot` **+16%** in the default build,
+twice, and −2.5% at one unit. `96221fb` sets `codegen-units = 1`.
+
+**What this means for this file.** The split that the perf3 work had to live with — candidates measured
+at `codegen-units=1`, the whole-set baseline at the default — is gone: from `96221fb` the shipped binary,
+the A/B binaries and the baseline are the same build, and there is one number per question again.
+Numbers above this section are 16-unit builds; the A/B below is what the change from 16 to 1 is worth,
+so a comparison that crosses `96221fb` should subtract it.
+
+The two binaries are **the same tree** (`abf5f80`, this branch's base), built twice, once with each
+profile, and measured interleaved, 7 rounds, all 27 benchmarks, `--core 2`
+(`bench/results/ab-cgu1.tsv`). A is 16 units, B is 1:
+
+| benchmark | A (16) | B (1) | change | | benchmark | A (16) | B (1) | change |
+|---|---:|---:|---:|---|---|---:|---:|---:|
+| bm_mandel_term | 20.643 | 17.816 | **−13.7%** | | ds_array | 842.912 | 824.811 | −2.1% |
+| bm_so_mandelbrot | 1453.743 | 1281.047 | **−11.9%** | | vm_optimization_bench | 10856.764 | 10631.512 | −2.1% |
+| call_fiber | 983.362 | 879.662 | **−10.5%** | | loop_times | 856.891 | 847.564 | −1.1% |
+| gc_churn | 390.719 | 358.692 | −8.2% | | vmo_calls | 2831.081 | 2798.909 | −1.1% |
+| call_block_yield | 1047.834 | 978.497 | −6.6% | | vmo_arith | 3635.565 | 3601.511 | −0.9% |
+| bm_so_lists | 978.007 | 920.658 | −5.9% | | call_args | 865.365 | 858.503 | −0.8% |
+| app_json_hash | 1267.914 | 1199.397 | −5.4% | | vmo_objects | 594.712 | 590.409 | −0.7% |
+| ds_string | 386.031 | 365.096 | −5.4% | | vmo_index | 499.163 | 499.156 | −0.0% |
+| loop_if_branch | 876.283 | 832.416 | −5.0% | | app_tak | 1112.954 | 1112.969 | +0.0% |
+| call_kwargs | 858.869 | 819.262 | −4.6% | | bm_ao_render | 5358.476 | 5374.772 | +0.3% |
+| loop_while_add | 842.586 | 803.915 | −4.6% | | vmo_dispatch | 2108.332 | 2120.334 | +0.6% |
+| ds_hash | 223.244 | 215.437 | −3.5% | | bm_fib | 5097.235 | 5132.304 | +0.7% |
+| mem_retained | 740.702 | 715.194 | −3.4% | | mem_short_lived | 967.869 | 991.690 | +2.5% |
+| app_robot | 1173.006 | 1138.719 | −2.9% | | | | | |
+
+| category | A (16 units) ms | B (1 unit) ms | change |
+|---|---:|---:|---:|
+| whole program | 24887 | 24607 | −1.1% |
+| data structures | 3524 | 3416 | −3.1% |
+| instruction loop | 9773 | 9487 | −2.9% |
+| calls | 6587 | 6335 | −3.8% |
+| memory | 2099 | 2066 | −1.6% |
+| **all** | 46870 | 45910 | **−2.0%** |
+
+Twenty-two of the twenty-seven are faster and the five that are not are +0.0 to +2.5%. The spread is
+what §4 predicts of one-unit builds: the change is real but it is not evenly spread, and the benchmarks
+that move most (`bm_mandel_term`, `bm_so_mandelbrot`, `call_fiber`) are the ones whose inner loop is
+small enough to care where it sits. **One unit does not end the placement lottery; it stops re-rolling
+it on every edit.**
+
+It also makes the binary smaller — the `sabiruby` command goes 5,621,344 → 4,678,600 bytes (−16.8%) and
+the thumbv7em archives 8.9–11.8% ([`size.md`](size.md)) — and the release build slower to produce: a
+clean `cargo build --release -p sabiruby-cli` goes **9.2 s → 18.1 s** (best of 3) although its CPU time
+*falls*, 58 s → 39 s, because one unit cannot be split across the machine's 24 threads. `dev` builds,
+which is what `cargo test` uses, are untouched.
+
+#### The new baseline (`bench/results/96221fb.tsv`)
+
+Best of 5, reference included, `--core 2`, taken with the same binary as the B column above. The
+SabiRuby side is quiet (0.85% mean best-to-median spread, 4.45% worst on `vmo_objects`); the reference
+side is not (1.45% mean, 10% on `bm_mandel_term`, which runs for 10 ms), so read the ratio and not the
+milliseconds. **25 shared** is the benchmarks `2aa4f13` also has a number for, **27 all** is the set as
+it stands.
+
+| | SabiRuby ms | mruby ms | ratio (sum) | ratio (median) |
+|---|---:|---:|---:|---:|
+| `a0ef97e`, 25 shared (16 units) | 41826 | 15151 | 2.76x | 3.18x |
+| `96221fb`, 25 shared (1 unit) | **40594** | 15405 | **2.64x** | **2.86x** |
+| `a0ef97e`, 27 all (16 units) | 47254 | 17656 | 2.68x | 3.05x |
+| `96221fb`, 27 all (1 unit) | **46061** | 17911 | **2.57x** | **2.85x** |
+
+By category, all 27 (`bench/results/96221fb.md`):
+
+| category | mruby ms | SabiRuby ms | ratio (sum) | ratio (median) |
+|---|---:|---:|---:|---:|
+| whole program | 9038 | 24713 | 2.73x | 2.65x |
+| data structures | 1160 | 3379 | 2.91x | 3.09x |
+| instruction loop | 3346 | 9545 | 2.85x | 3.08x |
+| calls | 2131 | 6362 | 2.99x | 2.85x |
+| memory | 2236 | 2062 | 0.92x | 2.11x |
+| **all** | 17911 | 46061 | **2.57x** | **2.85x** |
+
+−2.5% of SabiRuby's milliseconds against `a0ef97e` on the 27, −2.9% on the 25, which is about what the
+A/B says the profile is worth; the tree also gained the `leftovers` merge (`abf5f80`) in between, and
+that merge's own A/B was −1.3%. The reference ran 1.4% slower in this window than in `a0ef97e`'s, so the
+ratio column moves a little more than SabiRuby's own change does — the usual reason for reading both.
+
+**The first attempt at this baseline was thrown away**, as `519eb17`'s was. It completed and its totals
+agree with the kept one to 0.4% (45862 ms against 46061), but three polling loops of this session's own
+tooling were alive during it and its best-to-median spread averaged 1.00% against the kept run's 0.85%.
+§4's own rule — over 1%, take it again — does not get an exception because the first number looked fine.
+
 
 ## Earlier measurements (the five reference benchmarks, best of 3)
 
