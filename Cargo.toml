@@ -53,3 +53,13 @@ regex-automata = { version = "0.4", optional = true, default-features = false, f
 # The tests install the compiler as the VM's host, so that the `eval` cases and mruby's
 # `mruby-eval` tests run (the library itself never depends on it).
 sabiruby-compiler = { path = "compiler", features = ["host"] }
+
+[profile.release]
+# One code generation unit, not the default 16. With 16 the compiler cuts the crate into 16
+# units and which function lands in which changes when a single line does, so the inlining and
+# the placement of `exec_frames` move with every edit: a change that only touched `String#<<`
+# measured `bm_so_mandelbrot` +16% twice in a row, and -2.5% at `codegen-units = 1`
+# (`docs/design/optimizations.md` 4, `docs/worklog/2026-09-16-perf3.md` 0). From this commit on
+# this is what ships and what every benchmark is taken with, so that a measurement answers what
+# the change did rather than how the crate happened to be split this time.
+codegen-units = 1
